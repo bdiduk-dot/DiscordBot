@@ -55,6 +55,15 @@ VIP_NAMES = {
     "Diamond VIP": "Алмазный VIP",
 }
 
+HOUSE_PROFILE_NAMES = {
+    "studio": "Студия",
+    "flat_one": "Квартира",
+    "flat_two": "Просторная квартира",
+    "townhouse": "Таунхаус",
+    "country_house": "Загородный дом",
+    "penthouse": "Пентхаус",
+}
+
 
 def format_money(value: int | float) -> str:
     return f"${int(value):,}"
@@ -64,6 +73,24 @@ def clean_business_name(business: dict) -> str:
     raw_name = str(business.get("name", "Business"))
     ascii_name = re.sub(r"\s+", " ", raw_name.encode("ascii", "ignore").decode()).strip(" -")
     return ascii_name or raw_name
+
+
+def _profile_progress_bar(current: int, total: int, *, length: int = 10) -> str:
+    total = max(1, int(total))
+    current = max(0, min(int(current), total))
+    filled = round((current / total) * length)
+    filled = max(0, min(length, filled))
+    return "█" * filled + "░" * (length - filled)
+
+
+def _profile_house_name(user: dict[str, Any]) -> str:
+    game_stats = user.get("game_stats") or {}
+    systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
+    house_state = systems.get("house") if isinstance(systems, dict) else {}
+    house_id = str((house_state or {}).get("owned_house_id") or "").strip()
+    if not house_id:
+        return "Нет"
+    return HOUSE_PROFILE_NAMES.get(house_id, house_id.replace("_", " ").title())
 
 
 class ProfileView(discord.ui.View):
@@ -452,28 +479,17 @@ class EconomyCog(commands.Cog, name="Economy"):
         title_text = get_profile_title_text(user)
         embed_color = get_profile_theme_color(user, rank["color"])
         is_admin = target.id in ADMIN_IDS
-        admin_badge = "ADMIN " if is_admin else ""
+        admin_badge = "АДМИН • " if is_admin else ""
 
-        xp_needed = max(int(user.get("level", 1) or 1) * 100, 1)
-        xp_progress = int((int(user.get("xp", 0) or 0) / xp_needed) * 10)
-        xp_progress = max(0, min(10, xp_progress))
-        progress_bar = "■" * xp_progress + "□" * (10 - xp_progress)
+        level = int(user.get("level", 1) or 1)
+        xp_current = int(user.get("xp", 0) or 0)
+        xp_needed = max(level * 100, 1)
+        progress_bar = _profile_progress_bar(xp_current, xp_needed, length=10)
 
         net_profit = int(user.get("total_won", 0) or 0) - int(user.get("total_lost", 0) or 0)
-        game_stats = user.get("game_stats") or {}
-        public_games = {key: value for key, value in game_stats.items() if not str(key).startswith("_") and isinstance(value, dict)}
-        if public_games:
-            top_games = sorted(public_games.items(), key=lambda item: int(item[1].get("played", 0) or 0), reverse=True)[:3]
-            top_games_text = "\n".join(
-                f"{index}. **{game.replace('_', ' ').title()}**: {int(stats.get('played', 0) or 0)} игр / {int(stats.get('won', 0) or 0)} побед"
-                for index, (game, stats) in enumerate(top_games, start=1)
-            )
-        else:
-            top_games_text = "Пока нет сыгранных игр."
 
         total_business_types = 0
         total_business_income = 0
-        business_cards = []
         for business_id, entries in sorted(normalized_businesses.items(), key=lambda item: int(item[0])):
             business = BUSINESSES.get(int(business_id))
             if business is None or not entries:
@@ -481,50 +497,36 @@ class EconomyCog(commands.Cog, name="Economy"):
             total_business_types += 1
             daily_income = int(business["income"] * 24 / business["time"])
             total_business_income += daily_income
-            label = clean_business_name(business)
-            business_cards.append((daily_income, f"• **{label}** — {format_money(daily_income)}/день"))
-
-        if business_cards:
-            business_cards.sort(key=lambda item: item[0], reverse=True)
-            business_preview = "\n".join(line for _, line in business_cards[:4])
-            hidden_count = len(business_cards) - 4
-            if hidden_count > 0:
-                business_preview += f"\n+{hidden_count} ещё"
-            business_value = (
-                f"Бизнесов: **{total_business_types}**\n"
-                f"Пассив за день: **{format_money(total_business_income)}**\n"
-                f"{business_preview}"
-            )
-        else:
-            business_value = "Бизнесов пока нет."
 
         reputation = get_reputation(user)
         profile_state = get_profile_state(user)
         favorite_catch = profile_state.get("favorite_catch") or {}
-        if favorite_catch:
-            favorite_text = (
-                f"{favorite_catch.get('emoji', '')} **{favorite_catch.get('name', 'Улов')}**\n"
-                f"Редкость: **{favorite_catch.get('rarity_name', 'Обычная')}**\n"
-                f"Цена: **{format_money(favorite_catch.get('price', 0))}**"
-            )
-        else:
-            favorite_text = "Любимый улов пока не выбран."
-
         battle_pass_state = ensure_battle_pass_state(user)
         tier = battle_pass_tier(user)
         tier_progress, tier_total = battle_pass_progress_to_next(user)
-        pass_status = "PREMIUM" if battle_pass_state.get("premium_unlocked") else "FREE"
+        pass_status = "Премиум" if battle_pass_state.get("premium_unlocked") else "Бесплатный"
         vip_label = VIP_NAMES.get(vip["name"], vip["name"])
+        house_name = _profile_house_name(user)
+        streak_now = int(user.get("win_streak", 0) or 0)
+        streak_best = int(user.get("best_streak", 0) or 0)
+        games_played = int(user.get("games_played", 0) or 0)
+
+        description_lines = [
+            f"{rank['emoji']} **{RANK_NAMES.get(rank['name'], rank['name'])}** • {vip['emoji']} **{vip_label}**",
+            f"**Репутация:** {reputation} ({reputation_label(reputation)})",
+            f"**Уровень {level}:** `{progress_bar}` **{xp_current}/{xp_needed} XP**",
+        ]
 
         embed = discord.Embed(
-            title=f"{admin_badge}{title_text} {target.display_name}",
-            description=f"`{RANK_NAMES.get(rank['name'], rank['name'])}` • {vip['emoji']} {vip_label}".strip(),
+            title=title_text,
+            description="\n".join(description_lines),
             color=embed_color,
             timestamp=datetime.now(timezone.utc),
         )
+        embed.set_author(name=f"{admin_badge}{target.display_name}", icon_url=target.display_avatar.url)
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.add_field(
-            name="Финансы",
+            name="💳 Кошелёк",
             value=(
                 f"Наличные: **{format_money(user.get('balance', 0))}**\n"
                 f"Банк: **{format_money(bank_balance)}**\n"
@@ -533,42 +535,49 @@ class EconomyCog(commands.Cog, name="Economy"):
             inline=True,
         )
         embed.add_field(
-            name=f"Уровень {int(user.get('level', 1) or 1)}",
-            value=f"{progress_bar}\n`{int(user.get('xp', 0) or 0)}/{xp_needed} XP`",
-            inline=True,
-        )
-        embed.add_field(
-            name="Репутация",
-            value=f"**{reputation}** ({reputation_label(reputation)})",
-            inline=True,
-        )
-        embed.add_field(
-            name="Статистика",
+            name="🏠 Активы",
             value=(
-                f"Игр: **{int(user.get('games_played', 0) or 0)}** • Винрейт: **{winrate:.1f}%**\n"
+                f"Дом: **{house_name}**\n"
+                f"Бизнесов: **{total_business_types}**\n"
+                f"Пассив/день: **{format_money(total_business_income)}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="🎮 Игра",
+            value=(
+                f"Игр: **{games_played}**\n"
+                f"Винрейт: **{winrate:.1f}%**\n"
+                f"Серия: **{streak_now}** / лучший: **{streak_best}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="📊 Итоги по играм",
+            value=(
                 f"Выиграно: **{format_money(user.get('total_won', 0))}**\n"
                 f"Проиграно: **{format_money(user.get('total_lost', 0))}**\n"
-                f"Итог: **{format_money(net_profit)}**\n"
-                f"Серия: **{int(user.get('win_streak', 0) or 0)}** (лучшее: {int(user.get('best_streak', 0) or 0)})"
+                f"Чистый итог: **{format_money(net_profit)}**"
             ),
             inline=False,
         )
-        embed.add_field(name="Любимые игры", value=top_games_text, inline=False)
-        embed.add_field(name="Топ бизнесов", value=business_value, inline=False)
-        embed.add_field(name="Любимый улов", value=favorite_text, inline=False)
         embed.add_field(
-            name=SEASON_NAME,
+            name=f"🎟️ {SEASON_NAME}",
             value=(
                 f"Статус: **{pass_status}**\n"
-                f"Тир: **{tier}/{20}**\n"
+                f"Тир: **{tier}/20**\n"
                 f"Прогресс: **{tier_progress}/{tier_total} XP**"
             ),
             inline=False,
         )
-        if int(user.get("vip_level", 0) or 0) > 0:
+        if favorite_catch:
             embed.add_field(
-                name="VIP удобства",
-                value="Доп. слоты контрактов, extra reroll и более красивый профиль уже активны.",
+                name="🐟 Любимый улов",
+                value=(
+                    f"{favorite_catch.get('emoji', '')} **{favorite_catch.get('name', 'Улов')}**\n"
+                    f"Редкость: **{favorite_catch.get('rarity_name', 'Обычная')}**\n"
+                    f"Цена: **{format_money(favorite_catch.get('price', 0))}**"
+                ),
                 inline=False,
             )
         embed.set_footer(text=f"ID игрока: {target.id}")
@@ -714,110 +723,6 @@ class EconomyCog(commands.Cog, name="Economy"):
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
         return
-
-        user = await db.get_user(target.id, interaction.guild_id)
-        if not user:
-            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-            return
-
-        user, normalized_businesses, _ = await ensure_unique_businesses(target.id, interaction.guild_id, user=user, sync_table=False)
-        if not user:
-            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-            return
-
-        winrate = 0.0
-        if user.get("games_played", 0) > 0:
-            total_results = int(user.get("total_won", 0) or 0) + int(user.get("total_lost", 0) or 0)
-            if total_results > 0:
-                winrate = int(user.get("total_won", 0) or 0) / total_results * 100
-
-        rank = get_rank(int(user.get("balance", 0) or 0))
-        vip = get_vip_level(int(user.get("vip_level", 0) or 0))
-        is_admin = target.id in ADMIN_IDS
-        admin_badge = "АДМИН • " if is_admin else ""
-
-        xp_needed = max(int(user.get("level", 1) or 1) * 100, 1)
-        xp_progress = int((int(user.get("xp", 0) or 0) / xp_needed) * 10)
-        xp_progress = max(0, min(10, xp_progress))
-        progress_bar = "█" * xp_progress + "░" * (10 - xp_progress)
-
-        net_profit = int(user.get("total_won", 0) or 0) - int(user.get("total_lost", 0) or 0)
-        profit_emoji = "📈" if net_profit >= 0 else "📉"
-
-        game_stats = user.get("game_stats") or {}
-        if game_stats:
-            top_games = sorted(game_stats.items(), key=lambda item: int(item[1].get("played", 0) or 0), reverse=True)[:3]
-            top_games_text = "\n".join(
-                f"{index}. **{game.replace('_', ' ').title()}**: {int(stats.get('played', 0) or 0)} игр ({int(stats.get('won', 0) or 0)} побед)"
-                for index, (game, stats) in enumerate(top_games, start=1)
-            )
-        else:
-            top_games_text = "Пока нет сыгранных игр."
-
-        total_business_types = 0
-        total_business_income = 0
-        business_cards = []
-        for business_id, entries in sorted(normalized_businesses.items(), key=lambda item: int(item[0])):
-            business = BUSINESSES.get(int(business_id))
-            if business is None or not entries:
-                continue
-
-            total_business_types += 1
-            daily_income = int(business["income"] * 24 / business["time"])
-            total_business_income += daily_income
-            label = clean_business_name(business)
-            business_cards.append((daily_income, f"• **{label}** — {format_money(daily_income)}/день"))
-
-        if business_cards:
-            business_cards.sort(key=lambda item: item[0], reverse=True)
-            business_preview = "\n".join(line for _, line in business_cards[:4])
-            hidden_count = len(business_cards) - 4
-            if hidden_count > 0:
-                business_preview += f"\n+{hidden_count} ещё"
-            business_value = (
-                f"Бизнесов: **{total_business_types}**\n"
-                f"Пассив в день: **{format_money(total_business_income)}**\n"
-                f"{business_preview}"
-            )
-        else:
-            business_value = "Бизнесов пока нет.\nОткрой `/businesses`, чтобы купить первый."
-
-        rank_name = RANK_NAMES.get(rank["name"], rank["name"])
-        vip_name = VIP_NAMES.get(vip["name"], vip["name"])
-        vip_display = f"{vip['emoji']} {vip_name}".strip()
-
-        embed = discord.Embed(
-            title=f"{admin_badge}{rank['emoji']} {target.display_name}",
-            description=f"`{rank_name}` • {vip_display}",
-            color=rank["color"],
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(
-            name="💵 Финансы",
-            value=f"Наличные: **{format_money(user.get('balance', 0))}**\nГемы: **{int(user.get('gems', 0) or 0):,}**",
-            inline=True,
-        )
-        embed.add_field(
-            name=f"📊 Уровень {int(user.get('level', 1) or 1)}",
-            value=f"{progress_bar}\n`{int(user.get('xp', 0) or 0)}/{xp_needed} XP` • x{rank['bonus']}",
-            inline=True,
-        )
-        embed.add_field(
-            name="🎮 Статистика",
-            value=(
-                f"Игр: **{int(user.get('games_played', 0) or 0)}** • Винрейт: **{winrate:.1f}%**\n"
-                f"Выиграно: **{format_money(user.get('total_won', 0))}**\n"
-                f"Проиграно: **{format_money(user.get('total_lost', 0))}**\n"
-                f"{profit_emoji} Итог: **{format_money(net_profit)}**\n"
-                f"🔥 Серия: **{int(user.get('win_streak', 0) or 0)}** (лучшее: {int(user.get('best_streak', 0) or 0)})"
-            ),
-            inline=False,
-        )
-        embed.add_field(name="🃏 Любимые игры", value=top_games_text, inline=False)
-        embed.add_field(name="🏢 Топ бизнесы", value=business_value, inline=False)
-        embed.set_footer(text=f"ID игрока: {target.id}")
-        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="daily", description="Забрать ежедневный бонус")
     async def daily(self, interaction: discord.Interaction):
