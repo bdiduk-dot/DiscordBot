@@ -7,6 +7,7 @@ from config import COLORS
 LATEST_UPDATE_ID = "2026-04-02-upd-2-global-rebalance"
 UPDATE_PING_ROLE_ID = 1486391112330379304
 UPDATE_CHANNEL_ID = 1486032811809964243
+UPDATE_TITLE = "🌐 Глобальное обновление 2.0"
 
 LATEST_UPDATE_TEXT = """
 ## 🌐 Глобальное обновление 2.0
@@ -87,11 +88,43 @@ LATEST_UPDATE_TEXT = """
 """
 
 
+def _split_update_text(text: str, limit: int = 3800) -> list[str]:
+    lines = text.strip().splitlines()
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in lines:
+        extra = len(line) + (1 if current else 0)
+        if current and current_len + extra > limit:
+            chunks.append("\n".join(current).strip())
+            current = [line]
+            current_len = len(line)
+        else:
+            current.append(line)
+            current_len += extra
+
+    if current:
+        chunks.append("\n".join(current).strip())
+    return chunks or [text[:limit]]
+
+
+def build_update_embeds() -> list[discord.Embed]:
+    chunks = _split_update_text(LATEST_UPDATE_TEXT)
+    embeds: list[discord.Embed] = []
+
+    for index, chunk in enumerate(chunks, start=1):
+        title = UPDATE_TITLE if index == 1 else f"{UPDATE_TITLE} • продолжение {index}/{len(chunks)}"
+        embed = discord.Embed(
+            title=title,
+            description=chunk,
+            color=COLORS["info"],
+        )
+        embed.set_footer(text=f"Update ID: {LATEST_UPDATE_ID}")
+        embeds.append(embed)
+
+    return embeds
+
+
 def build_update_embed() -> discord.Embed:
-    embed = discord.Embed(
-        title="🌐 Глобальное обновление 2.0",
-        description=LATEST_UPDATE_TEXT,
-        color=COLORS["info"],
-    )
-    embed.set_footer(text=f"Update ID: {LATEST_UPDATE_ID}")
-    return embed
+    return build_update_embeds()[0]

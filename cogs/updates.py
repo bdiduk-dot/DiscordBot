@@ -11,6 +11,7 @@ from update_notes import (
     UPDATE_CHANNEL_ID,
     UPDATE_PING_ROLE_ID,
     build_update_embed,
+    build_update_embeds,
 )
 from utils import check_channel, send_wrong_channel_message
 
@@ -36,7 +37,10 @@ class UpdatesCog(commands.Cog, name="Updates"):
     def _is_update_message(message: discord.Message) -> bool:
         if not message.author.bot or not message.embeds:
             return False
-        return message.embeds[0].title == build_update_embed().title
+        first_embed = message.embeds[0]
+        expected_title = build_update_embed().title
+        footer_text = f"Update ID: {LATEST_UPDATE_ID}"
+        return first_embed.title == expected_title and bool(first_embed.footer and first_embed.footer.text == footer_text)
 
     async def _pin_message(self, message: discord.Message) -> None:
         try:
@@ -114,22 +118,25 @@ class UpdatesCog(commands.Cog, name="Updates"):
             return False
 
         desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
-        desired_embed = build_update_embed()
+        desired_embeds = build_update_embeds()
         existing = await self._find_latest_update_message(channel)
         if existing is not None:
-            current_embed = existing.embeds[0] if existing.embeds else None
+            current_embeds = list(existing.embeds)
             needs_refresh = (
                 existing.content != desired_content
-                or current_embed is None
-                or current_embed.title != desired_embed.title
-                or current_embed.description != desired_embed.description
-                or (current_embed.footer.text if current_embed.footer else None) != (desired_embed.footer.text if desired_embed.footer else None)
+                or len(current_embeds) != len(desired_embeds)
+                or any(
+                    (current.title != desired.title)
+                    or (current.description != desired.description)
+                    or ((current.footer.text if current.footer else None) != (desired.footer.text if desired.footer else None))
+                    for current, desired in zip(current_embeds, desired_embeds)
+                )
             )
             if needs_refresh:
                 try:
                     await existing.edit(
                         content=desired_content,
-                        embed=desired_embed,
+                        embeds=desired_embeds,
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
                 except Exception as exc:
@@ -143,7 +150,7 @@ class UpdatesCog(commands.Cog, name="Updates"):
         try:
             message = await channel.send(
                 desired_content,
-                embed=desired_embed,
+                embeds=desired_embeds,
                 allowed_mentions=discord.AllowedMentions(roles=True),
             )
         except Exception as exc:
@@ -197,7 +204,7 @@ class UpdatesCog(commands.Cog, name="Updates"):
             await send_wrong_channel_message(interaction)
             return
 
-        await interaction.response.send_message(embed=build_update_embed())
+        await interaction.response.send_message(embeds=build_update_embeds())
 
 
 async def setup(bot):
