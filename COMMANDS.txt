@@ -7,15 +7,11 @@
 /crime - risky money action
 /slut - high risk quick money
 /stats - detailed stats
-/leaderboard - global and weekly leaderboard
+/top - leaderboard by net worth
 
 ## Bank
 
-/bank - view bank account
-/bankdep - deposit cash to bank
-/bankwith - withdraw cash from bank
-/deposit - open timed deposit
-/withdraw_deposit - close timed deposit
+/bank - bank account, deposit and withdrawal interface
 /transfer - send money to another player
 
 ## Games
@@ -34,14 +30,13 @@
 ## Fishing
 
 /fish - go fishing
-/fishshop - fishing shop
+/inventory - fish and items inventory
 
 ## Business and House
 
 /businesses - business market
 /mybusinesses - owned businesses and income
-/house - your house, rent and basement system
-/houseshop - house market and purchases
+/house - your house, garden, crypto, rent and decor
 
 ## Systems
 
@@ -77,6 +72,6 @@
 
 ## Notes
 
-- `/shop` is now the main purchase hub for VIP, exchange, upgrades and seasonal access
+- `/shop` is now the main purchase hub for VIP, exchange, real estate, fishing, gardening and decor
 - `/battlepass` and `/bp` open the same seasonal battle pass view
-- `/house` opens your personal home screen, while `/houseshop` opens the house market
+- `/house` opens your personal home screen with tabs for home, garden, crypto, rent and decor

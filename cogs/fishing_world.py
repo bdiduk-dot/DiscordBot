@@ -836,6 +836,7 @@ def _rarity_weights(
 ) -> dict[str, float]:
     weights = {rarity: float(value) for rarity, value in zone["rarity_weights"].items()}
     event_bonus = active_event.get("rarity_bonus", {}) if active_event else {}
+    has_real_bait = bait is not None and not bool(bait.get("_synthetic"))
     for rarity in list(weights):
         factor = 1.0 + max(0.0, rod_bonus - 1.0) * {"common": -0.18, "uncommon": -0.05, "rare": 0.12, "epic": 0.18, "legendary": 0.24}.get(rarity, 0.0)
         factor *= _source_bonus_factor(zone, rarity)
@@ -995,6 +996,7 @@ def _rarity_weights(
 ) -> dict[str, float]:
     weights = {rarity: float(value) for rarity, value in zone["rarity_weights"].items()}
     event_bonus = active_event.get("rarity_bonus", {}) if active_event else {}
+    has_real_bait = bait is not None and not bool(bait.get("_synthetic"))
     for rarity in list(weights):
         factor = 1.0 + max(0.0, rod_bonus - 1.0) * {"common": -0.18, "uncommon": -0.05, "rare": 0.12, "epic": 0.18, "legendary": 0.24}.get(rarity, 0.0)
         factor *= _source_bonus_factor(zone, rarity)
@@ -1013,6 +1015,9 @@ def _rarity_weights(
         factor *= float(event_bonus.get(rarity, 1.0))
         if hotspot_bonus and rarity in {"uncommon", "rare", "epic", "legendary"}:
             factor *= {"uncommon": 1.02, "rare": 1.06, "epic": 1.08, "legendary": 1.10}[rarity]
+        if rarity == "legendary" and not has_real_bait:
+            weights[rarity] = 0.0
+            continue
         weights[rarity] = max(0.1, weights[rarity] * factor)
     return weights
 
@@ -1027,6 +1032,8 @@ def _roll_boss(
     hotspot_bonus: bool,
 ) -> dict[str, Any] | None:
     if active_event is None or not FISHING_ZONES[zone_key].get("boss_enabled"):
+        return None
+    if bait is None or bool(bait.get("_synthetic")):
         return None
     candidates = [boss for boss in BOSS_SPECIES if zone_key in boss["zones"] and active_event["key"] in boss["event_keys"]]
     if not candidates:
@@ -1168,6 +1175,7 @@ def _rarity_weights(
 ) -> dict[str, float]:
     weights = {rarity: float(value) for rarity, value in zone["rarity_weights"].items()}
     event_bonus = active_event.get("rarity_bonus", {}) if active_event else {}
+    has_real_bait = bait is not None and not bool(bait.get("_synthetic"))
     for rarity in list(weights):
         factor = 1.0 + max(0.0, rod_bonus - 1.0) * {"common": -0.18, "uncommon": -0.05, "rare": 0.12, "epic": 0.18, "legendary": 0.24}.get(rarity, 0.0)
         factor *= _source_bonus_factor(zone, rarity)
@@ -1186,6 +1194,9 @@ def _rarity_weights(
         factor *= float(event_bonus.get(rarity, 1.0))
         if hotspot_bonus and rarity in {"uncommon", "rare", "epic", "legendary"}:
             factor *= {"uncommon": 1.02, "rare": 1.06, "epic": 1.08, "legendary": 1.10}[rarity]
+        if rarity == "legendary" and not has_real_bait:
+            weights[rarity] = 0.0
+            continue
         weights[rarity] = max(0.1, weights[rarity] * factor)
     return weights
 
@@ -1200,6 +1211,8 @@ def _roll_boss(
     hotspot_bonus: bool,
 ) -> dict[str, Any] | None:
     if active_event is None or not FISHING_ZONES[zone_key].get("boss_enabled"):
+        return None
+    if bait is None or bool(bait.get("_synthetic")):
         return None
     candidates = [boss for boss in BOSS_SPECIES if zone_key in boss["zones"] and active_event["key"] in boss["event_keys"]]
     if not candidates:

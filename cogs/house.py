@@ -1,0 +1,1125 @@
+from __future__ import annotations
+
+import asyncio
+import random
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from cogs.mining import (
+    FURNITURE_ITEMS,
+    GARDEN_CROPS,
+    GPU_MODELS,
+    GPU_ORDER,
+    WATERING_CANS,
+    _current_market_rows,
+    _house_current_data,
+    _house_rental_capacity,
+    _house_state,
+    _house_vip_bonus,
+    _parse_utc,
+    format_money,
+)
+from config import COLORS, CRYPTO_TYPES
+from database import db, get_user_lock
+from inventory_system import add_general_item, consume_general_item, count_general_items
+from utils import (
+    check_channel,
+    check_quest_progress,
+    format_discord_deadline,
+    get_crypto_price,
+    record_player_progress,
+    safe_defer,
+    safe_edit_original_response,
+    send_wrong_channel_message,
+)
+
+TENANT_EVENTS: dict[str, list[dict[str, Any]]] = {
+    "positive": [
+        {"name": "оставили чаевые за чистую ванну", "multiplier": 1.20, "emoji": "🔔"},
+        {"name": "продлили аренду и заплатили сверху", "multiplier": 1.15, "emoji": "✨"},
+        {"name": "оставили идеальный отзыв о доме", "multiplier": 1.10, "emoji": "💌"},
+    ],
+    "negative": [
+        {"name": "сломали кран", "multiplier": 0.90, "emoji": "⚠️"},
+        {"name": "сожгли ковер", "multiplier": 0.82, "emoji": "🔥"},
+        {"name": "устроили шумную вечеринку и испортили мебель", "multiplier": 0.88, "emoji": "🧯"},
+    ],
+}
+
+FURNITURE_BUFFS = {
+    "gaming_chair": "Даёт +2% к криптодобыче.",
+    "aquarium": "Даёт +5% к редкой, эпической и легендарной рыбе.",
+    "plasma_tv": "Даёт +5% к арендной выплате.",
+}
+
+
+def _empty_plot() -> dict[str, Any]:
+    return {
+        "crop_code": None,
+        "planted_at": None,
+        "last_watered_at": None,
+        "last_progress_at": None,
+        "growth_seconds_total": 0,
+        "growth_seconds_accumulated": 0,
+        "state": "empty",
+    }
+
+
+def _seed_display_name(crop_code: str) -> str:
+    crop = GARDEN_CROPS[crop_code]
+    return f"Семена: {crop['name']}"
+
+
+def _harvest_display_name(crop_code: str) -> str:
+    crop = GARDEN_CROPS[crop_code]
+    return f"Урожай: {crop['name']}"
+
+
+def _format_crypto_amount(symbol: str, amount: float) -> str:
+    precision = 8 if symbol in {"BTC", "ETH", "LTC"} else 4
+    return f"{amount:.{precision}f}".rstrip("0").rstrip(".") or "0"
+
+
+def _active_watering_can(house_state: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    garden = house_state.get("garden") if isinstance(house_state.get("garden"), dict) else {}
+    can_key = str(garden.get("watering_can") or "basic")
+    if can_key not in WATERING_CANS:
+        can_key = "basic"
+    return can_key, WATERING_CANS[can_key]
+
+
+def _normalize_garden(house_state: dict[str, Any]) -> list[dict[str, Any]]:
+    garden = house_state.get("garden")
+    if not isinstance(garden, dict):
+        garden = {}
+        house_state["garden"] = garden
+    garden.setdefault("watering_can", "basic")
+    raw_plots = garden.get("plots")
+    if not isinstance(raw_plots, list):
+        raw_plots = []
+    max_plots = max(0, int(house_state.get("max_garden_level", 0) or 0))
+    plots: list[dict[str, Any]] = []
+    for raw_plot in raw_plots[:max_plots]:
+        if not isinstance(raw_plot, dict):
+            raw_plot = {}
+        plot = _empty_plot()
+        plot.update(raw_plot)
+        plots.append(plot)
+    while len(plots) < max_plots:
+        plots.append(_empty_plot())
+    garden["plots"] = plots
+    return plots
+
+
+def _refresh_garden_state(house_state: dict[str, Any], now: datetime | None = None) -> list[dict[str, Any]]:
+    now = now or datetime.now(timezone.utc)
+    plots = _normalize_garden(house_state)
+    _, can = _active_watering_can(house_state)
+    water_interval = timedelta(hours=int(can.get("water_interval_hours", 8) or 8))
+
+    for plot in plots:
+        crop_code = plot.get("crop_code")
+        if not crop_code or crop_code not in GARDEN_CROPS:
+            plot.clear()
+            plot.update(_empty_plot())
+            continue
+
+        planted_at = _parse_utc(str(plot.get("planted_at") or ""), now)
+        last_watered = _parse_utc(str(plot.get("last_watered_at") or ""), planted_at)
+        last_progress = _parse_utc(str(plot.get("last_progress_at") or ""), planted_at)
+        watered_until = last_watered + water_interval
+        progress_until = min(now, watered_until)
+        if progress_until > last_progress:
+            gained = int((progress_until - last_progress).total_seconds())
+            plot["growth_seconds_accumulated"] = int(plot.get("growth_seconds_accumulated", 0) or 0) + gained
+            plot["last_progress_at"] = progress_until.isoformat()
+        total = max(1, int(plot.get("growth_seconds_total", 0) or 0))
+        accumulated = int(plot.get("growth_seconds_accumulated", 0) or 0)
+        if accumulated >= total:
+            plot["state"] = "ready"
+            plot["growth_seconds_accumulated"] = total
+        elif now > watered_until:
+            plot["state"] = "dry"
+            plot["last_progress_at"] = progress_until.isoformat()
+        else:
+            plot["state"] = "growing"
+            plot["last_progress_at"] = now.isoformat()
+    return plots
+
+
+def _plot_status_line(index: int, plot: dict[str, Any], house_state: dict[str, Any], now: datetime | None = None) -> str:
+    now = now or datetime.now(timezone.utc)
+    state = str(plot.get("state") or "empty")
+    if state == "empty":
+        return f"`{index}` Свободно"
+
+    crop_code = str(plot.get("crop_code") or "")
+    crop = GARDEN_CROPS.get(crop_code)
+    if crop is None:
+        return f"`{index}` Свободно"
+
+    _, can = _active_watering_can(house_state)
+    water_interval = timedelta(hours=int(can.get("water_interval_hours", 8) or 8))
+    last_watered = _parse_utc(str(plot.get("last_watered_at") or ""), now)
+    dry_at = last_watered + water_interval
+    total = max(1, int(plot.get("growth_seconds_total", 0) or 0))
+    accumulated = max(0, int(plot.get("growth_seconds_accumulated", 0) or 0))
+    progress = min(100, int((accumulated / total) * 100))
+    emoji = str(crop.get("emoji") or "🌱")
+
+    if state == "ready":
+        return f"`{index}` {emoji} **{crop['name']}** • готово к сбору"
+    if state == "dry":
+        return f"`{index}` {emoji} **{crop['name']}** • без воды • прогресс **{progress}%**"
+    return (
+        f"`{index}` {emoji} **{crop['name']}** • прогресс **{progress}%** • "
+        f"полить до {format_discord_deadline(dry_at)}"
+    )
+
+
+def _migrate_house_state(user: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    house_state = _house_state(user)
+    changed = False
+    if int(house_state.get("mining_version", 1) or 1) < 2:
+        legacy_total = int(house_state.get("legacy_mining_wallet", 0) or 0) + int(house_state.get("mining_wallet", 0) or 0)
+        house_state["legacy_mining_wallet"] = legacy_total
+        house_state["mining_wallet"] = 0
+        house_state["mining_version"] = 2
+        changed = True
+    before = len(house_state.get("garden", {}).get("plots", [])) if isinstance(house_state.get("garden"), dict) else 0
+    plots = _normalize_garden(house_state)
+    if len(plots) != before:
+        changed = True
+    return house_state, changed
+
+
+async def buy_seed_packet(user_id: int, guild_id: int, crop_code: str) -> tuple[bool, discord.Embed | str]:
+    if crop_code not in GARDEN_CROPS:
+        return False, "Таких семян нет."
+
+    crop = GARDEN_CROPS[crop_code]
+    async with get_user_lock(user_id):
+        user = await db.get_user(user_id, guild_id)
+        if not user:
+            return False, "Не удалось загрузить профиль."
+        if int(user.get("balance", 0) or 0) < int(crop["price"]):
+            return False, f"Не хватает {format_money(int(crop['price']) - int(user.get('balance', 0) or 0))}."
+        user["balance"] = int(user.get("balance", 0) or 0) - int(crop["price"])
+        add_general_item(
+            user,
+            item_type="seed_packet",
+            code=crop_code,
+            name=_seed_display_name(crop_code),
+            description="Посади семена в `/house` во вкладке `Сад`.",
+            quantity=1,
+            emoji=str(crop.get("emoji") or "🌱"),
+        )
+        await db.update_user(
+            user_id,
+            guild_id,
+            {"balance": user["balance"], "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})},
+        )
+    return True, discord.Embed(
+        title="Семена куплены",
+        description=f"Куплены **{_seed_display_name(crop_code)}**.\nБаланс: **{format_money(user['balance'])}**",
+        color=COLORS["success"],
+    )
+
+
+async def buy_watering_can_upgrade(user_id: int, guild_id: int, can_key: str) -> tuple[bool, discord.Embed | str]:
+    if can_key not in WATERING_CANS:
+        return False, "Такой лейки нет."
+    can = WATERING_CANS[can_key]
+    async with get_user_lock(user_id):
+        user = await db.get_user(user_id, guild_id)
+        if not user:
+            return False, "Не удалось загрузить профиль."
+        house_state, _ = _migrate_house_state(user)
+        if not _house_current_data(house_state):
+            return False, "Сначала купи дом."
+        current_key, _ = _active_watering_can(house_state)
+        if current_key == can_key:
+            return False, "Эта лейка уже установлена."
+        if int(user.get("balance", 0) or 0) < int(can["price"]):
+            return False, f"Не хватает {format_money(int(can['price']) - int(user.get('balance', 0) or 0))}."
+        user["balance"] = int(user.get("balance", 0) or 0) - int(can["price"])
+        house_state["garden"]["watering_can"] = can_key
+        await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+    return True, discord.Embed(
+        title="Лейка установлена",
+        description=(
+            f"Теперь у тебя **{can['name']}**.\n"
+            f"Интервал полива: **{int(can['water_interval_hours'])} ч**.\n"
+            f"Баланс: **{format_money(user['balance'])}**"
+        ),
+        color=COLORS["success"],
+    )
+
+
+async def buy_furniture_item(user_id: int, guild_id: int, furniture_key: str) -> tuple[bool, discord.Embed | str]:
+    if furniture_key not in FURNITURE_ITEMS:
+        return False, "Такой мебели нет."
+    furniture = FURNITURE_ITEMS[furniture_key]
+    async with get_user_lock(user_id):
+        user = await db.get_user(user_id, guild_id)
+        if not user:
+            return False, "Не удалось загрузить профиль."
+        house_state, _ = _migrate_house_state(user)
+        if not _house_current_data(house_state):
+            return False, "Сначала купи дом."
+        owned = house_state.get("furniture", [])
+        if furniture_key in owned:
+            return False, "Эта мебель уже куплена."
+        if int(user.get("balance", 0) or 0) < int(furniture["price"]):
+            return False, f"Не хватает {format_money(int(furniture['price']) - int(user.get('balance', 0) or 0))}."
+        user["balance"] = int(user.get("balance", 0) or 0) - int(furniture["price"])
+        owned.append(furniture_key)
+        house_state["furniture"] = owned
+        await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+    return True, discord.Embed(
+        title="Покупка для дома",
+        description=(
+            f"Куплен предмет **{furniture['name']}**.\n"
+            f"{FURNITURE_BUFFS.get(furniture_key, 'Бафф активирован.')}\n"
+            f"Баланс: **{format_money(user['balance'])}**"
+        ),
+        color=COLORS["success"],
+    )
+
+
+class HouseV2View(discord.ui.View):
+    def __init__(
+        self,
+        cog: "HouseCommandsCog",
+        user_id: int,
+        guild_id: int,
+        *,
+        tab: str = "home",
+        selected_plot: int = 0,
+        selected_seed: str | None = None,
+        selected_symbol: str | None = None,
+        selected_gpu: str | None = None,
+    ):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.tab = tab
+        self.selected_plot = selected_plot
+        self.selected_seed = selected_seed
+        self.selected_symbol = selected_symbol
+        self.selected_gpu = selected_gpu or GPU_ORDER[0]
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+        self._build_static_tabs()
+        self._build_tab_controls()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это не твой экран дома.", ephemeral=True)
+            return False
+        return True
+
+    def _build_static_tabs(self):
+        buttons = [
+            ("Дом", "home"),
+            ("Сад", "garden"),
+            ("Крипта", "crypto"),
+            ("Аренда", "rent"),
+            ("Обустройство", "decor"),
+        ]
+        for label, value in buttons:
+            button = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.primary if self.tab == value else discord.ButtonStyle.secondary,
+                row=0,
+            )
+
+            async def callback(interaction: discord.Interaction, target_tab: str = value):
+                async with self._view_lock:
+                    if not await safe_defer(interaction):
+                        return
+                    await self._swap(interaction, tab=target_tab)
+
+            button.callback = callback
+            self.add_item(button)
+
+    def _build_tab_controls(self):
+        if self.tab == "garden":
+            self._build_garden_controls()
+        elif self.tab == "crypto":
+            self._build_crypto_controls()
+        elif self.tab == "rent":
+            self._build_rent_controls()
+        elif self.tab == "decor":
+            self._build_refresh_only()
+        else:
+            self._build_refresh_only()
+
+    def _build_refresh_only(self):
+        refresh = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+
+        async def refresh_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction)
+
+        refresh.callback = refresh_callback
+        self.add_item(refresh)
+
+    def _build_garden_controls(self):
+        plot_options = [discord.SelectOption(label=f"Грядка {index + 1}", value=str(index), default=index == self.selected_plot) for index in range(25)]
+        self.plot_select = discord.ui.Select(placeholder="Выбери грядку", row=1, options=plot_options)
+
+        async def plot_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                value = str(self.plot_select.values[0]) if self.plot_select.values else "0"
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, selected_plot=int(value))
+
+        self.plot_select.callback = plot_callback
+        self.add_item(self.plot_select)
+
+        seed_options = [
+            discord.SelectOption(label=_seed_display_name(crop_code)[:100], value=crop_code, default=crop_code == self.selected_seed)
+            for crop_code in GARDEN_CROPS
+        ]
+        self.seed_select = discord.ui.Select(placeholder="Какие семена посадить", row=2, options=seed_options[:25])
+
+        async def seed_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                value = str(self.seed_select.values[0]) if self.seed_select.values else next(iter(GARDEN_CROPS))
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, selected_seed=value)
+
+        self.seed_select.callback = seed_callback
+        self.add_item(self.seed_select)
+
+        plant_btn = discord.ui.Button(label="Посадить", style=discord.ButtonStyle.success, row=3)
+        water_btn = discord.ui.Button(label="Полить", style=discord.ButtonStyle.primary, row=3)
+        harvest_btn = discord.ui.Button(label="Собрать", style=discord.ButtonStyle.success, row=3)
+        water_all_btn = discord.ui.Button(label="Полить всё", style=discord.ButtonStyle.secondary, row=4)
+        harvest_all_btn = discord.ui.Button(label="Собрать всё", style=discord.ButtonStyle.secondary, row=4)
+        refresh_btn = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=4)
+
+        async def plant_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.plant_seed(self.user_id, self.guild_id, self.selected_plot, self.selected_seed or next(iter(GARDEN_CROPS)))
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def water_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.water_garden(self.user_id, self.guild_id, plot_index=self.selected_plot)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def harvest_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.harvest_garden(self.user_id, self.guild_id, plot_index=self.selected_plot)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def water_all_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.water_garden(self.user_id, self.guild_id, plot_index=None)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def harvest_all_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.harvest_garden(self.user_id, self.guild_id, plot_index=None)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def refresh_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction)
+
+        plant_btn.callback = plant_callback
+        water_btn.callback = water_callback
+        harvest_btn.callback = harvest_callback
+        water_all_btn.callback = water_all_callback
+        harvest_all_btn.callback = harvest_all_callback
+        refresh_btn.callback = refresh_callback
+        for item in (plant_btn, water_btn, harvest_btn, water_all_btn, harvest_all_btn, refresh_btn):
+            self.add_item(item)
+
+    def _build_crypto_controls(self):
+        gpu_options = [
+            discord.SelectOption(label=GPU_MODELS[gpu_id]["name"][:100], value=gpu_id, default=gpu_id == self.selected_gpu)
+            for gpu_id in GPU_ORDER
+        ]
+        self.gpu_select = discord.ui.Select(placeholder="Выбери видеокарту", row=1, options=gpu_options[:25])
+
+        async def gpu_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                value = str(self.gpu_select.values[0]) if self.gpu_select.values else GPU_ORDER[0]
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, selected_gpu=value)
+
+        self.gpu_select.callback = gpu_callback
+        self.add_item(self.gpu_select)
+
+        symbol_options = [
+            discord.SelectOption(label=f"{symbol} • {CRYPTO_TYPES[symbol]['name']}"[:100], value=symbol, default=symbol == self.selected_symbol)
+            for symbol in CRYPTO_TYPES
+        ]
+        self.coin_select = discord.ui.Select(placeholder="Выбери монету для продажи", row=2, options=symbol_options[:25])
+
+        async def symbol_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                value = str(self.coin_select.values[0]) if self.coin_select.values else next(iter(CRYPTO_TYPES))
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, selected_symbol=value)
+
+        self.coin_select.callback = symbol_callback
+        self.add_item(self.coin_select)
+
+        collect_btn = discord.ui.Button(label="Собрать", style=discord.ButtonStyle.success, row=3)
+        sell_all_btn = discord.ui.Button(label="Продать всё", style=discord.ButtonStyle.primary, row=3)
+        sell_one_btn = discord.ui.Button(label="Продать по монете", style=discord.ButtonStyle.secondary, row=3)
+        upgrade_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.secondary, row=4)
+        buy_gpu_btn = discord.ui.Button(label="Купить GPU", style=discord.ButtonStyle.success, row=4)
+        legacy_btn = discord.ui.Button(label="Забрать старый кошелёк", style=discord.ButtonStyle.secondary, row=4)
+
+        async def collect_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.collect_crypto(self.user_id, self.guild_id)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def sell_all_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.sell_crypto(self.user_id, self.guild_id, symbol=None)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def sell_one_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                target_symbol = self.selected_symbol or next(iter(CRYPTO_TYPES))
+                payload = await self.cog.sell_crypto(self.user_id, self.guild_id, symbol=target_symbol)
+                await self._swap(interaction, selected_symbol=target_symbol)
+                await self._send_payload(interaction, payload[1])
+
+        async def upgrade_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                house_cog = self.cog._house_core()
+                payload = await house_cog.upgrade_basement(self.user_id, self.guild_id) if house_cog is not None else (False, "Система дома недоступна.")
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def buy_gpu_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                house_cog = self.cog._house_core()
+                payload = await house_cog.buy_gpu(self.user_id, self.guild_id, self.selected_gpu) if house_cog is not None else (False, "Система дома недоступна.")
+                await self._swap(interaction, selected_gpu=self.selected_gpu)
+                await self._send_payload(interaction, payload[1])
+
+        async def legacy_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.withdraw_legacy_wallet(self.user_id, self.guild_id)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        collect_btn.callback = collect_callback
+        sell_all_btn.callback = sell_all_callback
+        sell_one_btn.callback = sell_one_callback
+        upgrade_btn.callback = upgrade_callback
+        buy_gpu_btn.callback = buy_gpu_callback
+        legacy_btn.callback = legacy_callback
+        for item in (collect_btn, sell_all_btn, sell_one_btn, upgrade_btn, buy_gpu_btn, legacy_btn):
+            self.add_item(item)
+
+    def _build_rent_controls(self):
+        offer_1 = discord.ui.Button(label="Заявка 1", style=discord.ButtonStyle.success, row=1)
+        offer_2 = discord.ui.Button(label="Заявка 2", style=discord.ButtonStyle.success, row=1)
+        offer_3 = discord.ui.Button(label="Заявка 3", style=discord.ButtonStyle.success, row=1)
+        collect_btn = discord.ui.Button(label="Собрать аренду", style=discord.ButtonStyle.primary, row=2)
+        refresh_btn = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
+
+        async def offer_callback(interaction: discord.Interaction, offer_index: int):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                house_cog = self.cog._house_core()
+                payload = await house_cog.accept_rental_offer(self.user_id, self.guild_id, offer_index) if house_cog is not None else (False, "Система дома недоступна.")
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def collect_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.collect_rent(self.user_id, self.guild_id)
+                await self._swap(interaction)
+                await self._send_payload(interaction, payload[1])
+
+        async def refresh_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction)
+
+        offer_1.callback = lambda interaction: offer_callback(interaction, 0)
+        offer_2.callback = lambda interaction: offer_callback(interaction, 1)
+        offer_3.callback = lambda interaction: offer_callback(interaction, 2)
+        collect_btn.callback = collect_callback
+        refresh_btn.callback = refresh_callback
+        for item in (offer_1, offer_2, offer_3, collect_btn, refresh_btn):
+            self.add_item(item)
+
+    async def _send_payload(self, interaction: discord.Interaction, payload: discord.Embed | str | None):
+        if isinstance(payload, discord.Embed):
+            await interaction.followup.send(embed=payload, ephemeral=True)
+        elif payload:
+            await interaction.followup.send(str(payload), ephemeral=True)
+
+    async def _swap(self, interaction: discord.Interaction, **overrides: Any):
+        view = HouseV2View(
+            self.cog,
+            self.user_id,
+            self.guild_id,
+            tab=str(overrides.get("tab", self.tab)),
+            selected_plot=int(overrides.get("selected_plot", self.selected_plot)),
+            selected_seed=overrides.get("selected_seed", self.selected_seed),
+            selected_symbol=overrides.get("selected_symbol", self.selected_symbol),
+            selected_gpu=overrides.get("selected_gpu", self.selected_gpu),
+        )
+        embed = await view.render_embed()
+        if not await safe_edit_original_response(interaction, embed=embed, view=view):
+            return
+        view.message = await interaction.original_response()
+
+    async def render_embed(self) -> discord.Embed:
+        if self.tab == "garden":
+            return await self.cog.build_garden_embed(self.user_id, self.guild_id, selected_plot=self.selected_plot, selected_seed=self.selected_seed)
+        if self.tab == "crypto":
+            return await self.cog.build_crypto_embed(self.user_id, self.guild_id, selected_symbol=self.selected_symbol, selected_gpu=self.selected_gpu)
+        if self.tab == "rent":
+            return await self.cog.build_rent_embed(self.user_id, self.guild_id)
+        if self.tab == "decor":
+            return await self.cog.build_decor_embed(self.user_id, self.guild_id)
+        return await self.cog.build_home_embed(self.user_id, self.guild_id)
+
+
+class HouseCommandsCog(commands.Cog, name="HouseUI"):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    def _house_core(self):
+        return self.bot.get_cog("House")
+
+    async def _load_user(self, user_id: int, guild_id: int, *, persist: bool = True) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        user = await db.get_user(user_id, guild_id)
+        if not user:
+            return None, None
+        house_state, changed = _migrate_house_state(user)
+        _refresh_garden_state(house_state)
+        if changed and persist:
+            await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+        return user, house_state
+
+    async def build_home_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        user, house_state = await self._load_user(user_id, guild_id)
+        if not user or not house_state:
+            return discord.Embed(title="Дом", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+
+        house_cog = self._house_core()
+        snapshot = house_cog._house_snapshot(user, guild_id) if house_cog is not None else {}
+        house_data = _house_current_data(house_state)
+        embed = discord.Embed(title="Дом", color=COLORS["info"])
+        if house_data is None:
+            embed.description = "У тебя пока нет дома. Открой `/shop` и выбери категорию **Недвижимость**, чтобы купить первый дом."
+            embed.add_field(name="Что откроется после покупки", value="Аренда, подвал, крипта, сад и обустройство в одном экране `/house`.", inline=False)
+            return embed
+
+        vip_bonus = _house_vip_bonus(user)
+        rental_ready = house_cog._rental_status(user) if house_cog is not None else {"ready_total": 0, "ongoing_rentals": []}
+        _, can = _active_watering_can(house_state)
+        embed.description = f"**{house_data['name']}**\n{house_data['description']}"
+        embed.add_field(
+            name="Обзор",
+            value=(
+                f"Комнаты: **{house_data['rooms']}**\n"
+                f"Престиж: **{house_data['prestige']}**\n"
+                f"Подвал: **{int(snapshot.get('basement_level', 0) or 0)}/{int(house_data['max_basement_level'])}**\n"
+                f"Грядки: **{int(house_state.get('max_garden_level', 0) or 0)}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Пассивный доход",
+            value=(
+                f"GPU: **{int(snapshot.get('installed_count', 0) or 0)}/{int(snapshot.get('capacity', 0) or 0)}**\n"
+                f"Крипто-экв/ч: **{format_money(int(snapshot.get('hourly_income', 0) or 0))}**\n"
+                f"Готово по аренде: **{format_money(int(rental_ready.get('ready_total', 0) or 0))}**\n"
+                f"Активных жильцов: **{len(rental_ready.get('ongoing_rentals', []))}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Домовые бонусы",
+            value=(
+                f"Лейка: **{can['name']}** ({int(can['water_interval_hours'])} ч)\n"
+                f"Мебель: **{len(house_state.get('furniture', []))} шт.**\n"
+                f"VIP-слоты GPU: **+{int(vip_bonus['extra_gpu_slots'])}**\n"
+                f"VIP-аренда: **+{int(vip_bonus['extra_rental_slots'])} слот**"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Покупка новой недвижимости находится в `/shop` → `Недвижимость`.")
+        return embed
+
+    async def build_garden_embed(self, user_id: int, guild_id: int, *, selected_plot: int = 0, selected_seed: str | None = None) -> discord.Embed:
+        user, house_state = await self._load_user(user_id, guild_id)
+        if not user or not house_state:
+            return discord.Embed(title="Сад", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+        house_data = _house_current_data(house_state)
+        embed = discord.Embed(title="Сад", color=COLORS["success"])
+        if house_data is None:
+            embed.description = "Сад открывается только после покупки дома."
+            return embed
+
+        plots = _refresh_garden_state(house_state)
+        _, can = _active_watering_can(house_state)
+        selected_plot = max(0, min(selected_plot, max(0, len(plots) - 1)))
+        selected_seed = selected_seed or next(iter(GARDEN_CROPS))
+        owned_seeds = [f"{GARDEN_CROPS[crop_code]['emoji']} {_seed_display_name(crop_code)}: **{count_general_items(user, item_type='seed_packet', code=crop_code)}**" for crop_code in GARDEN_CROPS]
+        plot_lines = [_plot_status_line(index + 1, plot, house_state) for index, plot in enumerate(plots)]
+        embed.description = (
+            f"Дом: **{house_data['name']}**\n"
+            f"Грядок: **{len(plots)}**\n"
+            f"Лейка: **{can['name']}** • интервал полива **{int(can['water_interval_hours'])} ч**"
+        )
+        embed.add_field(name="Семена в инвентаре", value="\n".join(owned_seeds[:6]) if owned_seeds else "Семян пока нет.", inline=False)
+        embed.add_field(name="Грядки", value="\n".join(plot_lines[:16]) if plot_lines else "Грядок пока нет.", inline=False)
+        if plots:
+            current_plot = plots[selected_plot]
+            current_state = str(current_plot.get("state") or "empty")
+            crop_code = str(current_plot.get("crop_code") or "")
+            if current_state == "empty":
+                details = "Грядка пустая. Выбери семена и нажми `Посадить`."
+            else:
+                crop = GARDEN_CROPS.get(crop_code, {})
+                details = (
+                    f"Культура: **{crop.get('name', 'Неизвестно')}**\n"
+                    f"Статус: **{current_state}**\n"
+                    f"Прогресс: **{int(current_plot.get('growth_seconds_accumulated', 0) or 0)}/{int(current_plot.get('growth_seconds_total', 0) or 0)} сек**"
+                )
+            embed.add_field(name=f"Выбрана грядка #{selected_plot + 1}", value=details, inline=False)
+        embed.set_footer(text="Семена покупаются в `/shop` → `Садовод`.")
+        return embed
+
+    async def build_crypto_embed(
+        self,
+        user_id: int,
+        guild_id: int,
+        *,
+        selected_symbol: str | None = None,
+        selected_gpu: str | None = None,
+    ) -> discord.Embed:
+        user, house_state = await self._load_user(user_id, guild_id)
+        if not user or not house_state:
+            return discord.Embed(title="Крипта", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+        house_data = _house_current_data(house_state)
+        embed = discord.Embed(title="Крипта", color=COLORS["purple"])
+        if house_data is None:
+            embed.description = "Криптодобыча открывается только после покупки дома."
+            return embed
+
+        house_cog = self._house_core()
+        snapshot = house_cog._house_snapshot(user, guild_id) if house_cog is not None else {}
+        market_rows, _ = _current_market_rows()
+        furniture = set(house_state.get("furniture", []))
+        pending_value = int(snapshot.get("ready", 0) or 0)
+        if "gaming_chair" in furniture:
+            pending_value = int(round(pending_value * 1.02))
+        legacy_wallet = int(house_state.get("legacy_mining_wallet", 0) or 0)
+        wallet = house_state.get("crypto_wallet", {})
+        selected_symbol = selected_symbol or next(iter(CRYPTO_TYPES))
+        selected_gpu = selected_gpu or GPU_ORDER[0]
+
+        wallet_lines = []
+        total_wallet_value = 0
+        for symbol, meta in CRYPTO_TYPES.items():
+            amount = float(wallet.get(symbol, 0.0) or 0.0)
+            price = get_crypto_price(symbol)
+            approx_value = int(amount * price)
+            total_wallet_value += approx_value
+            wallet_lines.append(f"{meta['emoji']} **{symbol}**: `{_format_crypto_amount(symbol, amount)}` • **{format_money(approx_value)}**")
+
+        market_lines = []
+        for row in market_rows:
+            arrow = "📈" if float(row["change_amount"]) >= 0 else "📉"
+            market_lines.append(f"{row['emoji']} **{row['symbol']}**: `${row['current_price']:,.2f}` {arrow} `{row['change_percent']:+.1f}%`")
+
+        embed.description = (
+            f"Дом: **{house_data['name']}**\n"
+            f"GPU: **{int(snapshot.get('installed_count', 0) or 0)}/{int(snapshot.get('capacity', 0) or 0)}**\n"
+            f"Подвал: **{int(snapshot.get('basement_level', 0) or 0)}/{int(house_data['max_basement_level'])}**\n"
+            f"Хэшрейт / эквивалент: **{format_money(int(snapshot.get('hourly_income', 0) or 0))} в час**"
+        )
+        if "gaming_chair" in furniture:
+            embed.description += "\n🎮 Геймерское кресло даёт **+2%** к добыче."
+        embed.add_field(name="Кошелёк", value="\n".join(wallet_lines) + f"\n\nВсего в крипте: **{format_money(total_wallet_value)}**", inline=False)
+        embed.add_field(
+            name="Готово к сбору",
+            value=(
+                f"Эквивалент к распределению: **{format_money(pending_value)}**\n"
+                f"Старый кошелёк: **{format_money(legacy_wallet)}**\n"
+                f"Монета для продажи: **{selected_symbol}**\n"
+                f"GPU для покупки: **{GPU_MODELS[selected_gpu]['name']}**"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Курсы", value="\n".join(market_lines), inline=False)
+        embed.set_footer(text="`Собрать` распределяет накопленный эквивалент по монетам с разными шансами.")
+        return embed
+
+    async def build_rent_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        user, house_state = await self._load_user(user_id, guild_id)
+        if not user or not house_state:
+            return discord.Embed(title="Аренда", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+        house_data = _house_current_data(house_state)
+        embed = discord.Embed(title="Аренда", color=COLORS["success"])
+        if house_data is None:
+            embed.description = "Аренда открывается только после покупки дома."
+            return embed
+
+        house_cog = self._house_core()
+        if house_cog is None:
+            embed.description = "Система аренды временно недоступна."
+            return embed
+
+        vip_bonus = _house_vip_bonus(user)
+        rental_state = house_cog._rental_status(user)
+        _, next_refresh, offers, accepted = house_cog._generate_rental_offers(user, house_state, house_data)
+        capacity = _house_rental_capacity(house_data, vip_bonus)
+        ongoing_lines = []
+        for rental in rental_state.get("ongoing_rentals", []):
+            ongoing_lines.append(f"**{rental.get('tenant_name', 'Жилец')}** • {format_money(int(rental.get('payout', 0) or 0))} • до {format_discord_deadline(rental.get('ends_at'))}")
+        if not ongoing_lines:
+            ongoing_lines.append("Активных арендаторов пока нет.")
+
+        offer_lines = []
+        for index, offer in enumerate(offers, start=1):
+            status = "Уже занято" if offer["id"] in accepted else "Можно взять"
+            offer_lines.append(
+                f"**{index}. {offer['tenant_name']}** • {offer['duration_hours']}ч • **{format_money(int(offer['payout'] * (1 + vip_bonus['rent_bonus'])))}**\n"
+                f"{offer['description']}\nСтатус: **{status}**"
+            )
+        embed.description = (
+            f"Дом: **{house_data['name']}**\n"
+            f"Занято слотов: **{len(rental_state.get('ongoing_rentals', []))}/{capacity}**\n"
+            f"Готово к сбору: **{format_money(int(rental_state.get('ready_total', 0) or 0))}**\n"
+            f"Следующее обновление заявок: {format_discord_deadline(next_refresh)}"
+        )
+        embed.add_field(name="Текущие жильцы", value="\n".join(ongoing_lines), inline=False)
+        embed.add_field(name="Доступные заявки", value="\n\n".join(offer_lines), inline=False)
+        embed.set_footer(text="При сборе аренды может сработать случайное событие у жильцов.")
+        return embed
+
+    async def build_decor_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        user, house_state = await self._load_user(user_id, guild_id)
+        if not user or not house_state:
+            return discord.Embed(title="Обустройство", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+        house_data = _house_current_data(house_state)
+        embed = discord.Embed(title="Обустройство", color=COLORS["gold"])
+        if house_data is None:
+            embed.description = "Обустройство открывается только после покупки дома."
+            return embed
+        owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
+        if not owned:
+            embed.description = "В доме пока нет мебели. Загляни в `/shop` → `ИКЕА`."
+            return embed
+        embed.description = f"Дом: **{house_data['name']}**\nМебель даёт постоянные баффы к дому и связанным системам."
+        lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** — {FURNITURE_BUFFS.get(key, 'Бафф активен.')}" for key in owned]
+        embed.add_field(name="Купленные предметы", value="\n".join(lines), inline=False)
+        return embed
+
+    async def plant_seed(self, user_id: int, guild_id: int, plot_index: int, crop_code: str) -> tuple[bool, discord.Embed | str]:
+        if crop_code not in GARDEN_CROPS:
+            return False, "Таких семян нет."
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            if not _house_current_data(house_state):
+                return False, "Сначала купи дом."
+            plots = _refresh_garden_state(house_state)
+            if plot_index < 0 or plot_index >= len(plots):
+                return False, "Такой грядки нет."
+            if str(plots[plot_index].get("state") or "empty") != "empty":
+                return False, "Эта грядка уже занята."
+            if consume_general_item(user, item_type="seed_packet", code=crop_code, quantity=1) is None:
+                return False, f"У тебя нет предмета **{_seed_display_name(crop_code)}**."
+            crop = GARDEN_CROPS[crop_code]
+            now = datetime.now(timezone.utc)
+            plots[plot_index].update(
+                {
+                    "crop_code": crop_code,
+                    "planted_at": now.isoformat(),
+                    "last_watered_at": now.isoformat(),
+                    "last_progress_at": now.isoformat(),
+                    "growth_seconds_total": int(crop["growth_hours"]) * 3600,
+                    "growth_seconds_accumulated": 0,
+                    "state": "growing",
+                }
+            )
+            await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+        return True, discord.Embed(title="Посадка", description=f"На грядку **#{plot_index + 1}** посажены **{crop['name']}**.", color=COLORS["success"])
+
+    async def water_garden(self, user_id: int, guild_id: int, *, plot_index: int | None) -> tuple[bool, discord.Embed | str]:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            if not _house_current_data(house_state):
+                return False, "Сначала купи дом."
+            plots = _refresh_garden_state(house_state)
+            now = datetime.now(timezone.utc)
+            watered = 0
+            indices = range(len(plots)) if plot_index is None else [plot_index]
+            for index in indices:
+                if index < 0 or index >= len(plots):
+                    continue
+                state = str(plots[index].get("state") or "empty")
+                if state in {"empty", "ready"}:
+                    continue
+                plots[index]["last_watered_at"] = now.isoformat()
+                plots[index]["last_progress_at"] = now.isoformat()
+                plots[index]["state"] = "growing"
+                watered += 1
+            if watered <= 0:
+                return False, "Поливать сейчас нечего."
+            await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+        return True, discord.Embed(title="Полив", description=f"Полито грядок: **{watered}**.", color=COLORS["success"])
+
+    async def harvest_garden(self, user_id: int, guild_id: int, *, plot_index: int | None) -> tuple[bool, discord.Embed | str]:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            if not _house_current_data(house_state):
+                return False, "Сначала купи дом."
+            plots = _refresh_garden_state(house_state)
+            harvested: list[str] = []
+            indices = range(len(plots)) if plot_index is None else [plot_index]
+            for index in indices:
+                if index < 0 or index >= len(plots):
+                    continue
+                if str(plots[index].get("state") or "") != "ready":
+                    continue
+                crop_code = str(plots[index].get("crop_code") or "")
+                crop = GARDEN_CROPS.get(crop_code)
+                if crop is None:
+                    continue
+                amount = random.randint(int(crop["yield_min"]), int(crop["yield_max"]))
+                add_general_item(
+                    user,
+                    item_type="crop_harvest",
+                    code=crop_code,
+                    name=_harvest_display_name(crop_code),
+                    description=f"Свежий урожай культуры **{crop['name']}**.",
+                    quantity=amount,
+                    emoji=str(crop.get("emoji") or "🌾"),
+                )
+                plots[index] = _empty_plot()
+                harvested.append(f"{crop['emoji']} {crop['name']} x{amount}")
+            if not harvested:
+                return False, "Собирать пока нечего."
+            house_state["garden"]["plots"] = plots
+            await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+        return True, discord.Embed(title="Урожай собран", description="\n".join(harvested), color=COLORS["success"])
+
+    async def collect_crypto(self, user_id: int, guild_id: int) -> tuple[bool, discord.Embed | str]:
+        house_cog = self._house_core()
+        if house_cog is None:
+            return False, "Система дома недоступна."
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            snapshot = house_cog._house_snapshot(user, guild_id)
+            if not snapshot.get("house_data"):
+                return False, "Сначала купи дом."
+            equivalent_value = int(snapshot.get("ready", 0) or 0)
+            if "gaming_chair" in set(house_state.get("furniture", [])):
+                equivalent_value = int(round(equivalent_value * 1.02))
+            if equivalent_value <= 0:
+                return False, "В подвале пока ничего не накопилось."
+            wallet = house_state.get("crypto_wallet", {})
+            symbols = list(CRYPTO_TYPES.keys())
+            weights = [float(CRYPTO_TYPES[symbol].get("chance", 1.0) or 1.0) for symbol in symbols]
+            rolls = max(1, min(12, int(snapshot.get("installed_count", 0) or 0) + int(snapshot.get("basement_level", 0) or 0)))
+            remaining = float(equivalent_value)
+            breakdown: dict[str, float] = {symbol: 0.0 for symbol in symbols}
+            for index in range(rolls):
+                symbol = random.choices(symbols, weights=weights, k=1)[0]
+                price = max(float(get_crypto_price(symbol)), 0.00000001)
+                value = remaining if index == rolls - 1 else min(remaining, max(1.0, (remaining / max(1, rolls - index)) * random.uniform(0.7, 1.3)))
+                amount = value / price
+                breakdown[symbol] += amount
+                wallet[symbol] = float(wallet.get(symbol, 0.0) or 0.0) + amount
+                remaining -= value
+            house_state["crypto_wallet"] = wallet
+            house_state["mining_wallet"] = 0
+            house_state["last_mining_collect"] = datetime.now(timezone.utc).isoformat()
+            house_state["mining_runs"] = int(house_state.get("mining_runs", 0) or 0) + 1
+            await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+
+        await check_quest_progress(user_id, guild_id, "mine", 1)
+        asyncio.create_task(record_player_progress(user_id, guild_id, action="mine", amount=1, money=equivalent_value))
+        systems_cog = self.bot.get_cog("Systems")
+        if systems_cog is not None:
+            asyncio.create_task(systems_cog.progress_contracts(user_id, guild_id, "mine", 1))
+
+        lines = [f"{CRYPTO_TYPES[symbol]['emoji']} **{symbol}**: `{_format_crypto_amount(symbol, amount)}`" for symbol, amount in breakdown.items() if amount > 0]
+        return True, discord.Embed(
+            title="Крипта собрана",
+            description=f"Кошелёк пополнен на эквивалент **{format_money(equivalent_value)}**.\n" + ("\n".join(lines) if lines else "Монеты не выпали."),
+            color=COLORS["success"],
+        )
+
+    async def sell_crypto(self, user_id: int, guild_id: int, *, symbol: str | None) -> tuple[bool, discord.Embed | str]:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            if not _house_current_data(house_state):
+                return False, "Сначала купи дом."
+            wallet = house_state.get("crypto_wallet", {})
+            symbols = [symbol] if symbol else list(CRYPTO_TYPES.keys())
+            total_money = 0
+            sold_lines = []
+            for current_symbol in symbols:
+                if current_symbol not in CRYPTO_TYPES:
+                    continue
+                amount = float(wallet.get(current_symbol, 0.0) or 0.0)
+                if amount <= 0:
+                    continue
+                payout = int(amount * float(get_crypto_price(current_symbol)))
+                total_money += payout
+                wallet[current_symbol] = 0.0
+                sold_lines.append(f"{CRYPTO_TYPES[current_symbol]['emoji']} **{current_symbol}**: `{_format_crypto_amount(current_symbol, amount)}` → **{format_money(payout)}**")
+            if total_money <= 0:
+                return False, "Продавать пока нечего."
+            user["balance"] = int(user.get("balance", 0) or 0) + total_money
+            house_state["crypto_wallet"] = wallet
+            await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+        return True, discord.Embed(title="Крипта продана", description="\n".join(sold_lines) + f"\n\nБаланс: **{format_money(user['balance'])}**", color=COLORS["success"])
+
+    async def withdraw_legacy_wallet(self, user_id: int, guild_id: int) -> tuple[bool, discord.Embed | str]:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            legacy_wallet = int(house_state.get("legacy_mining_wallet", 0) or 0)
+            if legacy_wallet <= 0:
+                return False, "Старый кошелёк уже пуст."
+            house_state["legacy_mining_wallet"] = 0
+            user["balance"] = int(user.get("balance", 0) or 0) + legacy_wallet
+            await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+        return True, discord.Embed(title="Старый кошелёк выведен", description=f"На баланс переведено **{format_money(legacy_wallet)}**.\nБаланс: **{format_money(user['balance'])}**", color=COLORS["success"])
+
+    async def collect_rent(self, user_id: int, guild_id: int) -> tuple[bool, discord.Embed | str]:
+        house_cog = self._house_core()
+        if house_cog is None:
+            return False, "Система дома недоступна."
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state, _ = _migrate_house_state(user)
+            rental_state = house_cog._rental_status(user)
+            ready_rentals = list(rental_state.get("ready_rentals", []))
+            if not ready_rentals:
+                return False, "Готовой аренды пока нет."
+            owned_furniture = set(house_state.get("furniture", []))
+            total_value = 0
+            event_lines = []
+            for rental in ready_rentals:
+                payout = int(rental.get("payout", 0) or 0)
+                if "plasma_tv" in owned_furniture:
+                    payout = int(round(payout * 1.05))
+                if random.random() <= 0.20:
+                    event = random.choice(TENANT_EVENTS["positive" if random.random() < 0.5 else "negative"])
+                    payout = max(0, int(round(payout * float(event["multiplier"]))))
+                    event_lines.append(f"{event['emoji']} <@{user_id}>, жильцы **{rental.get('tenant_name', 'из дома')}** {event['name']}.")
+                total_value += payout
+            ready_ids = {rental.get("id") for rental in ready_rentals}
+            house_state["active_rentals"] = [rental for rental in house_state.get("active_rentals", []) if rental.get("id") not in ready_ids]
+            user["balance"] = int(user.get("balance", 0) or 0) + total_value
+            await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+
+        await check_quest_progress(user_id, guild_id, "rent", len(ready_rentals))
+        asyncio.create_task(record_player_progress(user_id, guild_id, action="rent", amount=len(ready_rentals), money=total_value))
+        systems_cog = self.bot.get_cog("Systems")
+        if systems_cog is not None:
+            asyncio.create_task(systems_cog.progress_contracts(user_id, guild_id, "rent", len(ready_rentals)))
+
+        embed = discord.Embed(
+            title="Аренда собрана",
+            description=f"Закрыто заявок: **{len(ready_rentals)}**\nПолучено: **{format_money(total_value)}**\nБаланс: **{format_money(user['balance'])}**",
+            color=COLORS["success"],
+        )
+        if event_lines:
+            embed.add_field(name="События жильцов", value="\n".join(event_lines[:6]), inline=False)
+        return True, embed
+
+    @app_commands.command(name="house", description="Открыть дом, сад, крипту, аренду и обустройство")
+    async def house(self, interaction: discord.Interaction):
+        if not await check_channel(interaction):
+            await send_wrong_channel_message(interaction)
+            return
+        if not await safe_defer(interaction):
+            return
+        view = HouseV2View(self, interaction.user.id, interaction.guild_id, tab="home")
+        embed = await view.render_embed()
+        if not await safe_edit_original_response(interaction, embed=embed, view=view):
+            return
+        view.message = await interaction.original_response()
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(HouseCommandsCog(bot))

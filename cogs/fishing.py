@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from cogs.mining import _house_state
 from cogs.fishing_world import (
     CHISINAU_TZ,
     FISHING_BAITS as WORLD_FISHING_BAITS,
@@ -1581,8 +1582,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         view.message = await interaction.original_response()
         return
 
-    @app_commands.command(name="fishshop", description="Открыть рыболовный магазин")
-    async def fishshop(self, interaction: discord.Interaction):
+    async def open_legacy_fishshop(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
@@ -1975,9 +1975,21 @@ class FishingCog(commands.Cog, name="Fishing"):
 
             tackle = FISHING_TACKLES.get(fishing.get("equipped_tackle", "starter"), FISHING_TACKLES["starter"])
             bait = FISHING_BAITS.get(bait_key) if bait_key else None
+            house_state = _house_state(user)
+            house_furniture = set(house_state.get("furniture", [])) if isinstance(house_state, dict) else set()
+            bait_for_roll = dict(bait) if bait else None
+            if "aquarium" in house_furniture and house_state.get("owned_house_id"):
+                if bait_for_roll is None:
+                    bait_for_roll = {"chance_bonus": {"rare": 1.05, "epic": 1.05}, "luck_mult": 1.0, "boss_bonus": 1.0, "value_bonus": 1.0, "_synthetic": True}
+                else:
+                    chance_bonus = dict(bait_for_roll.get("chance_bonus", {}))
+                    chance_bonus["rare"] = float(chance_bonus.get("rare", 1.0)) * 1.05
+                    chance_bonus["epic"] = float(chance_bonus.get("epic", 1.0)) * 1.05
+                    chance_bonus["legendary"] = float(chance_bonus.get("legendary", 1.0)) * 1.05
+                    bait_for_roll["chance_bonus"] = chance_bonus
             zone_key = str(fishing.get("selected_zone", "river_bank") or "river_bank")
             fish_multiplier, event = self._market_multiplier(guild_id, "fish")
-            fish_data = roll_catch(rod_bonus=float(rod["bonus"]), tackle=tackle, bait=bait, zone_key=zone_key, now=now)
+            fish_data = roll_catch(rod_bonus=float(rod["bonus"]), tackle=tackle, bait=bait_for_roll, zone_key=zone_key, now=now)
             world_state = fish_data["world_state"]
             fish_name = _display_species_name(fish_data.get("species_id"), fish_data.get("name"))
             rarity_name = _display_rarity_name(fish_data.get("rarity"))
@@ -1989,6 +2001,109 @@ class FishingCog(commands.Cog, name="Fishing"):
 
             if fish_multiplier > 1:
                 fish_data["price"] = int(fish_data["price"] * fish_multiplier)
+
+            if random.random() < 0.005:
+                chest_title = "Затонувший сундук"
+                if random.random() < 0.5:
+                    cash_reward = random.randint(12000, 65000)
+                    user["balance"] = int(user.get("balance", 0) or 0) + cash_reward
+                    fishing["total_catches"] = int(fishing.get("total_catches", 0) or 0) + 1
+                    user["last_fish"] = now.isoformat()
+                    await db.update_user(
+                        user_id,
+                        guild_id,
+                        {
+                            "balance": user["balance"],
+                            "last_fish": user["last_fish"],
+                            "inventory": user.get("inventory"),
+                            "game_stats": user.get("game_stats", {}),
+                        },
+                    )
+                    chest_embed = discord.Embed(
+                        title="🪙 Затонувший сундук",
+                        description=(
+                            f"Ты поднял со дна **{chest_title}**.\n"
+                            f"Внутри было **{format_money(cash_reward)}**.\n"
+                            f"Баланс: **{format_money(user['balance'])}**"
+                        ),
+                        color=COLORS["success"],
+                    )
+                    chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
+                    await check_quest_progress(user_id, guild_id, "fish", 1)
+                    await check_quest_progress(user_id, guild_id, "earn", cash_reward)
+                    asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
+                    asyncio.create_task(record_player_progress(user_id, guild_id, action="fish", amount=1, money=cash_reward))
+                    return True, chest_embed
+
+                crypto_drop = get_random_crypto()
+                fishing["total_catches"] = int(fishing.get("total_catches", 0) or 0) + 1
+                user["last_fish"] = now.isoformat()
+                if house_state.get("owned_house_id"):
+                    crypto_wallet = house_state.setdefault("crypto_wallet", {})
+                    symbol = str(crypto_drop["symbol"])
+                    crypto_wallet[symbol] = float(crypto_wallet.get(symbol, 0.0) or 0.0) + float(crypto_drop["amount"])
+                    await db.update_user(
+                        user_id,
+                        guild_id,
+                        {
+                            "last_fish": user["last_fish"],
+                            "inventory": user.get("inventory"),
+                            "game_stats": user.get("game_stats", {}),
+                        },
+                    )
+                    chest_embed = discord.Embed(
+                        title="💠 Затонувший сундук",
+                        description=(
+                            f"Ты поднял со дна **{chest_title}**.\n"
+                            f"Внутри оказалось **{crypto_drop['amount']} {crypto_drop['symbol']}**.\n"
+                            f"Монеты отправлены в домашний криптокошелёк."
+                        ),
+                        color=crypto_drop["color"],
+                    )
+                    chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
+                    await check_quest_progress(user_id, guild_id, "fish", 1)
+                    asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
+                    asyncio.create_task(record_player_progress(user_id, guild_id, action="fish", amount=1))
+                    return True, chest_embed
+
+                add_general_item(
+                    user,
+                    item_type="crypto_cache",
+                    code=str(crypto_drop["symbol"]),
+                    name=f"Крипто-кеш: {crypto_drop['name']}",
+                    description="Старинный криптоклад без дома. Используй предмет в `/inventory`, чтобы продать его.",
+                    quantity=1,
+                    emoji=str(crypto_drop["emoji"]),
+                    payload={
+                        "amount": int(crypto_drop["value"]),
+                        "crypto_name": str(crypto_drop["name"]),
+                        "crypto_amount": str(crypto_drop["amount"]),
+                    },
+                    stackable=False,
+                )
+                await db.update_user(
+                    user_id,
+                    guild_id,
+                    {
+                        "last_fish": user["last_fish"],
+                        "inventory": user.get("inventory"),
+                        "game_stats": user.get("game_stats", {}),
+                    },
+                )
+                chest_embed = discord.Embed(
+                    title="💠 Затонувший сундук",
+                    description=(
+                        f"Ты поднял со дна **{chest_title}**.\n"
+                        f"Внутри оказалось **{crypto_drop['amount']} {crypto_drop['symbol']}**.\n"
+                        f"Так как дома нет, клад отправлен предметом в `/inventory`."
+                    ),
+                    color=crypto_drop["color"],
+                )
+                chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
+                await check_quest_progress(user_id, guild_id, "fish", 1)
+                asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
+                asyncio.create_task(record_player_progress(user_id, guild_id, action="fish", amount=1))
+                return True, chest_embed
 
             fish_item = add_fish_item(
                 user,
@@ -2062,8 +2177,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         result.set_footer(text=f"Улов сохранён в /inventory под ID #{fish_item['id']}. Там его можно продать или залочить.")
         return True, result
 
-    @app_commands.command(name="inventory", description="Открыть инвентарь рыбалки и предметов")
-    async def inventory(self, interaction: discord.Interaction):
+    async def open_legacy_inventory(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return

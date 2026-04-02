@@ -98,6 +98,35 @@ HOUSE_TYPES: dict[str, dict[str, Any]] = {
 }
 
 HOUSE_ORDER = list(HOUSE_TYPES.keys())
+GARDEN_SLOT_LIMITS = {
+    "studio": 6,
+    "flat_one": 8,
+    "flat_two": 10,
+    "townhouse": 12,
+    "country_house": 14,
+    "penthouse": 16,
+}
+
+GARDEN_CROPS: dict[str, dict[str, Any]] = {
+    "carrot": {"name": "Морковь", "price": 1_200, "growth_hours": 2, "yield_min": 2, "yield_max": 4, "emoji": "🥕"},
+    "potato": {"name": "Картофель", "price": 1_800, "growth_hours": 3, "yield_min": 2, "yield_max": 5, "emoji": "🥔"},
+    "tomato": {"name": "Помидор", "price": 2_500, "growth_hours": 4, "yield_min": 2, "yield_max": 4, "emoji": "🍅"},
+    "cucumber": {"name": "Огурец", "price": 3_100, "growth_hours": 4, "yield_min": 2, "yield_max": 4, "emoji": "🥒"},
+    "pumpkin": {"name": "Тыква", "price": 4_800, "growth_hours": 6, "yield_min": 1, "yield_max": 3, "emoji": "🎃"},
+    "strawberry": {"name": "Клубника", "price": 5_600, "growth_hours": 5, "yield_min": 2, "yield_max": 5, "emoji": "🍓"},
+}
+
+WATERING_CANS: dict[str, dict[str, Any]] = {
+    "basic": {"name": "Базовая лейка", "price": 18_000, "water_interval_hours": 8, "emoji": "🪣"},
+    "metal": {"name": "Металлическая лейка", "price": 55_000, "water_interval_hours": 12, "emoji": "🚿"},
+    "drip": {"name": "Капельный набор", "price": 180_000, "water_interval_hours": 24, "emoji": "💧"},
+}
+
+FURNITURE_ITEMS: dict[str, dict[str, Any]] = {
+    "gaming_chair": {"name": "Геймерское кресло", "price": 120_000, "emoji": "🪑", "buff": "crypto"},
+    "aquarium": {"name": "Аквариум", "price": 260_000, "emoji": "🐠", "buff": "fishing"},
+    "plasma_tv": {"name": "Плазменный ТВ", "price": 410_000, "emoji": "📺", "buff": "rent"},
+}
 
 GPU_MODELS: dict[str, dict[str, Any]] = {
     "gtx_1060": {
@@ -207,14 +236,29 @@ def _house_state(user: dict[str, Any]) -> dict[str, Any]:
     house.setdefault("installed_gpus", [])
     house.setdefault("last_mining_collect", None)
     house.setdefault("mining_wallet", 0)
+    house.setdefault("legacy_mining_wallet", 0)
     house.setdefault("mining_runs", 0)
     house.setdefault("active_rentals", [])
+    house.setdefault("crypto_wallet", {symbol: 0.0 for symbol in CRYPTO_TYPES})
+    house.setdefault("furniture", [])
+    current_house_id = str(house.get("owned_house_id") or "")
+    house.setdefault("max_garden_level", GARDEN_SLOT_LIMITS.get(current_house_id, 0))
+    garden_state = house.get("garden")
+    if not isinstance(garden_state, dict):
+        garden_state = {}
+    garden_state.setdefault("watering_can", "basic")
+    garden_state.setdefault("plots", [])
+    house["garden"] = garden_state
     accepted = house.get("accepted_offers")
     if not isinstance(accepted, dict):
         accepted = {"window": None, "keys": []}
     accepted.setdefault("window", None)
     accepted.setdefault("keys", [])
     house["accepted_offers"] = accepted
+    for symbol in CRYPTO_TYPES:
+        house["crypto_wallet"].setdefault(symbol, 0.0)
+    if current_house_id:
+        house["max_garden_level"] = GARDEN_SLOT_LIMITS.get(current_house_id, int(house.get("max_garden_level", 0) or 0))
     systems["house"] = house
     return house
 
@@ -1062,7 +1106,7 @@ class HouseCog(commands.Cog, name="House"):
 
         embed = discord.Embed(title="Дом", color=COLORS["info"])
         if house_data is None:
-            embed.description = "У тебя пока нет дома. Используй `/houseshop`, чтобы посмотреть доступные дома и купить первый."
+            embed.description = "У тебя пока нет дома. Используй `/shop`, чтобы посмотреть недвижимость и купить первый дом."
             embed.add_field(
                 name="Что откроется после покупки",
                 value=(
@@ -1098,7 +1142,7 @@ class HouseCog(commands.Cog, name="House"):
                 name="Быстрый обзор",
                 value=(
                     f"Готово по аренде: **{format_money(rental_state['ready_total'])}**\n"
-                    "Покупка новых домов вынесена в `/houseshop`."
+                    "Покупка новых домов вынесена в `/shop` → `Недвижимость`."
                 ),
                 inline=False,
             )
@@ -1113,7 +1157,7 @@ class HouseCog(commands.Cog, name="House"):
             ),
             inline=False,
         )
-        embed.set_footer(text="Здесь отображается только твой дом. Покупка новых домов перенесена в `/houseshop`.")
+        embed.set_footer(text="Здесь отображается только твой дом. Покупка новых домов перенесена в `/shop` → `Недвижимость`.")
         return embed
 
         user = await db.get_user(user_id, guild_id)
@@ -1602,8 +1646,7 @@ class HouseCog(commands.Cog, name="House"):
         )
         return True, embed
 
-    @app_commands.command(name="house", description="Открыть систему домов, аренды и подвала")
-    async def house(self, interaction: discord.Interaction):
+    async def open_legacy_house(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
@@ -1617,8 +1660,7 @@ class HouseCog(commands.Cog, name="House"):
             return
         view.message = await interaction.original_response()
 
-    @app_commands.command(name="houseshop", description="Открыть магазин домов")
-    async def houseshop(self, interaction: discord.Interaction):
+    async def open_legacy_houseshop(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return

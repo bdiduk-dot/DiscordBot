@@ -9,6 +9,16 @@ from cogs.views import GamesMenuView, MainMenuView
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+LEGACY_COMMANDS = [
+    "quest",
+    "bankdep",
+    "bankwith",
+    "deposit",
+    "withdraw_deposit",
+    "leaderboard",
+    "houseshop",
+    "fishshop",
+]
 
 
 class CasinoBot(commands.Bot):
@@ -45,7 +55,10 @@ class CasinoBot(commands.Bot):
             "cogs.help",
             "cogs.updates",
             "cogs.mining",
+            "cogs.house",
             "cogs.user",
+            "cogs.shop",
+            "cogs.inventory",
         ]
 
         for cog in cogs:
@@ -56,7 +69,8 @@ class CasinoBot(commands.Bot):
                 print(f"Failed to load {cog}: {exc}")
 
         self._register_persistent_views()
-        self.tree.remove_command("quest")
+        for command_name in LEGACY_COMMANDS:
+            self.tree.remove_command(command_name)
 
 
 bot = CasinoBot()
@@ -86,7 +100,8 @@ async def on_ready():
             for guild in bot.guilds:
                 bot.tree.clear_commands(guild=guild)
                 bot.tree.copy_global_to(guild=guild)
-                bot.tree.remove_command("quest", guild=guild)
+                for command_name in LEGACY_COMMANDS:
+                    bot.tree.remove_command(command_name, guild=guild)
                 await bot.tree.sync(guild=guild)
                 guild_commands = sorted(command.name for command in bot.tree.get_commands(guild=guild))
                 print(f"Synced {guild.name} ({guild.id}): {', '.join(guild_commands)}")

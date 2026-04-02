@@ -11,6 +11,7 @@ from discord.ext import commands
 from cogs.fishing_world import describe_world_lines, get_world_state
 from config import BUSINESSES, COLORS, FISHING_RODS, VIP_LEVELS, get_vip_level
 from database import db, get_user_lock
+from inventory_system import get_general_items
 from progression import (
     PROFILE_TITLES,
     SEASON_FREE_REWARDS,
@@ -151,6 +152,17 @@ def vip_status_label(current_level: int, level: int) -> str:
     if current_level > level:
         return "Уже куплен"
     return "Доступен"
+
+
+def general_item_quantity(user: dict[str, Any], item_type: str, code: str) -> int:
+    total = 0
+    for item in get_general_items(user):
+        if str(item.get("item_type") or "") != item_type:
+            continue
+        if str(item.get("code") or "") != code:
+            continue
+        total += int(item.get("quantity", 0) or 0)
+    return total
 
 
 class ExchangeModal(discord.ui.Modal):
@@ -1452,11 +1464,6 @@ class UserCog(commands.Cog, name="User"):
 
     @staticmethod
     def _fish_cooldown_minutes(user: dict[str, Any]) -> int:
-        fishing = ((user.get("game_stats") or {}).get("_systems") or {}).get("fishing") or {}
-        bait_key = fishing.get("equipped_bait")
-        bait_stock = fishing.get("bait_stock", {})
-        if bait_key and int(bait_stock.get(bait_key, 0) or 0) > 0:
-            return 0
         current_rod = str(user.get("fishing_rod", "none") or "none")
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
         base_cd = 10
@@ -1488,8 +1495,7 @@ class UserCog(commands.Cog, name="User"):
         await interaction.response.send_message(embed=await view.build_embed(), view=view)
         view.message = await interaction.original_response()
 
-    @app_commands.command(name="shop", description="Открыть магазин")
-    async def shop(self, interaction: discord.Interaction):
+    async def open_legacy_shop(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return

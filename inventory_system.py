@@ -414,6 +414,22 @@ def get_general_items(user: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in inventory.get("general_items", []) if isinstance(item, dict)]
 
 
+def count_general_items(
+    user: dict[str, Any],
+    *,
+    item_type: str | None = None,
+    code: str | None = None,
+) -> int:
+    total = 0
+    for item in get_general_items(user):
+        if item_type is not None and str(item.get("item_type") or "") != str(item_type):
+            continue
+        if code is not None and str(item.get("code") or "") != str(code):
+            continue
+        total += max(0, _safe_int(item.get("quantity"), 0))
+    return total
+
+
 def find_fish_item(user: dict[str, Any], item_id: int) -> dict[str, Any] | None:
     target = int(item_id)
     for item in get_fish_items(user):
@@ -481,6 +497,23 @@ def decrement_general_item(user: dict[str, Any], item_id: int, quantity: int = 1
         else:
             item["quantity"] = current - amount
         return item_copy
+    return None
+
+
+def consume_general_item(
+    user: dict[str, Any],
+    *,
+    item_type: str | None = None,
+    code: str | None = None,
+    quantity: int = 1,
+) -> dict[str, Any] | None:
+    amount = max(1, int(quantity or 1))
+    for item in get_general_items(user):
+        if item_type is not None and str(item.get("item_type") or "") != str(item_type):
+            continue
+        if code is not None and str(item.get("code") or "") != str(code):
+            continue
+        return decrement_general_item(user, int(item.get("id", 0) or 0), amount)
     return None
 
 

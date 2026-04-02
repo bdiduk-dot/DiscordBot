@@ -15,6 +15,117 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 user_locks: Dict[int, asyncio.Lock] = {}
 active_commands = set()
 
+HOUSE_NET_WORTH = {
+    "studio": 80_000,
+    "flat_one": 220_000,
+    "flat_two": 520_000,
+    "townhouse": 1_250_000,
+    "country_house": 3_200_000,
+    "penthouse": 7_500_000,
+}
+
+GPU_NET_WORTH = {
+    "gtx_1060": 42_000,
+    "rtx_2060": 112_000,
+    "rtx_3060_ti": 245_000,
+    "rtx_4080": 590_000,
+    "rtx_5090": 1_380_000,
+}
+
+FURNITURE_NET_WORTH = {
+    "gaming_chair": 120_000,
+    "aquarium": 260_000,
+    "plasma_tv": 410_000,
+}
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _house_basement_upgrade_spend(house_id: str | None, basement_level: int) -> int:
+    base_price = HOUSE_NET_WORTH.get(str(house_id or ""))
+    if not base_price or basement_level <= 1:
+        return 0
+    total = 0
+    for current_level in range(1, basement_level):
+        total += max(35_000, int(base_price * (0.18 + current_level * 0.08)))
+    return total
+
+
+def _business_upgrade_spend(cost: int, upgrade_level: int) -> int:
+    total = 0
+    for previous_level in range(max(0, upgrade_level)):
+        total += int(cost * 0.6 * (previous_level + 1))
+    return total
+
+
+def _house_net_worth(game_stats: Any) -> dict[str, int]:
+    systems = game_stats.get("_systems") if isinstance(game_stats, dict) else None
+    house = systems.get("house") if isinstance(systems, dict) else None
+    if not isinstance(house, dict):
+        return {
+            "house_value": 0,
+            "basement_value": 0,
+            "gpu_value": 0,
+            "furniture_value": 0,
+        }
+
+    house_id = str(house.get("owned_house_id") or "")
+    basement_level = _safe_int(house.get("basement_level"), 0)
+    installed_gpus = house.get("installed_gpus", [])
+    furniture = house.get("furniture", [])
+
+    house_value = HOUSE_NET_WORTH.get(house_id, 0)
+    basement_value = _house_basement_upgrade_spend(house_id, basement_level)
+    gpu_value = sum(GPU_NET_WORTH.get(str(gpu_id), 0) for gpu_id in installed_gpus if gpu_id is not None)
+
+    furniture_value = 0
+    for item in furniture if isinstance(furniture, list) else []:
+        if isinstance(item, dict):
+            furniture_value += _safe_int(item.get("price"), 0)
+        else:
+            furniture_value += FURNITURE_NET_WORTH.get(str(item), 0)
+
+    return {
+        "house_value": house_value,
+        "basement_value": basement_value,
+        "gpu_value": gpu_value,
+        "furniture_value": furniture_value,
+    }
+
+
+def _business_net_worth(raw_businesses: Any) -> dict[str, int]:
+    from config import BUSINESSES
+
+    if not isinstance(raw_businesses, dict):
+        return {"business_value": 0, "business_upgrade_value": 0}
+
+    purchase_value = 0
+    upgrade_value = 0
+
+    for raw_business_id, raw_entries in raw_businesses.items():
+        try:
+            business_id = int(raw_business_id)
+        except (TypeError, ValueError):
+            continue
+
+        business = BUSINESSES.get(business_id)
+        if business is None:
+            continue
+
+        entries = raw_entries if isinstance(raw_entries, list) else [raw_entries]
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            purchase_value += _safe_int(business.get("cost"), 0)
+            upgrade_value += _business_upgrade_spend(_safe_int(business.get("cost"), 0), _safe_int(entry.get("upgrade_level"), 0))
+
+    return {"business_value": purchase_value, "business_upgrade_value": upgrade_value}
+
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
     if user_id not in user_locks:
@@ -395,7 +506,7 @@ class Database:
         if not isinstance(house, dict):
             return False
 
-        payload = {
+        base_payload = {
             "user_id": user_id,
             "guild_id": guild_id,
             "owned_house_id": house.get("owned_house_id"),
@@ -407,15 +518,42 @@ class Database:
             "accepted_offers": house.get("accepted_offers", {"window": None, "keys": []}),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        extended_payload = {
+            **base_payload,
+            "garden": house.get("garden", {}),
+            "max_garden_level": int(house.get("max_garden_level", 0) or 0),
+            "crypto_wallet": house.get("crypto_wallet", {}),
+            "furniture": house.get("furniture", []),
+            "legacy_mining_wallet": int(house.get("legacy_mining_wallet", 0) or 0),
+        }
 
         try:
             await asyncio.to_thread(
-                lambda: supabase.table("house_states").upsert(payload, on_conflict="user_id,guild_id").execute()
+                lambda: supabase.table("house_states").upsert(extended_payload, on_conflict="user_id,guild_id").execute()
             )
             return True
         except Exception as exc:
             error_msg = str(exc)
             lowered = error_msg.lower()
+            if any(
+                marker in lowered
+                for marker in (
+                    "garden",
+                    "max_garden_level",
+                    "crypto_wallet",
+                    "furniture",
+                    "legacy_mining_wallet",
+                )
+            ):
+                try:
+                    await asyncio.to_thread(
+                        lambda: supabase.table("house_states").upsert(base_payload, on_conflict="user_id,guild_id").execute()
+                    )
+                    return True
+                except Exception as fallback_exc:
+                    exc = fallback_exc
+                    error_msg = str(fallback_exc)
+                    lowered = error_msg.lower()
             if "42p01" in lowered or "does not exist" in lowered or "schema cache" in lowered:
                 Database._disable_sync_feature(
                     "house_states_write",
@@ -641,6 +779,79 @@ class Database:
         except Exception as exc:
             print(f"Global leaderboard backfill error: {exc}")
             return 0
+
+    @staticmethod
+    async def get_top_net_worth(limit: int = 10) -> List[Dict[str, Any]]:
+        try:
+            users_result = await asyncio.to_thread(lambda: supabase.table("users").select("*").execute())
+            user_rows = users_result.data or []
+        except Exception as exc:
+            print(f"Top net worth fetch error: {exc}")
+            return []
+
+        username_map: Dict[int, str] = {}
+        try:
+            names_result = await asyncio.to_thread(
+                lambda: supabase.table("global_leaderboard").select("user_id, username").execute()
+            )
+            for row in names_result.data or []:
+                raw_user_id = row.get("user_id")
+                if raw_user_id is None:
+                    continue
+                username = str(row.get("username") or "").strip()
+                if username:
+                    username_map[int(raw_user_id)] = username
+        except Exception:
+            pass
+
+        aggregated: Dict[int, Dict[str, Any]] = {}
+        for row in user_rows:
+            raw_user_id = row.get("user_id")
+            if raw_user_id is None:
+                continue
+
+            user_id = int(raw_user_id)
+            entry = aggregated.setdefault(
+                user_id,
+                {
+                    "user_id": user_id,
+                    "username": username_map.get(user_id, str(row.get("username") or f"User {user_id}")),
+                    "net_worth": 0,
+                    "balance_value": 0,
+                    "house_value": 0,
+                    "basement_value": 0,
+                    "gpu_value": 0,
+                    "furniture_value": 0,
+                    "business_value": 0,
+                    "business_upgrade_value": 0,
+                },
+            )
+
+            liquid_value = (
+                int(row.get("balance", 0) or 0)
+                + int(row.get("bank", 0) or 0)
+                + int(row.get("deposit_amount", 0) or 0)
+            )
+            house_values = _house_net_worth(row.get("game_stats"))
+            business_values = _business_net_worth(row.get("businesses"))
+            row_total = liquid_value + sum(house_values.values()) + sum(business_values.values())
+
+            entry["balance_value"] += liquid_value
+            entry["house_value"] += house_values["house_value"]
+            entry["basement_value"] += house_values["basement_value"]
+            entry["gpu_value"] += house_values["gpu_value"]
+            entry["furniture_value"] += house_values["furniture_value"]
+            entry["business_value"] += business_values["business_value"]
+            entry["business_upgrade_value"] += business_values["business_upgrade_value"]
+            entry["net_worth"] += row_total
+
+            if user_id in username_map:
+                entry["username"] = username_map[user_id]
+
+        entries = sorted(aggregated.values(), key=lambda item: int(item.get("net_worth", 0) or 0), reverse=True)
+        for index, entry in enumerate(entries[: max(1, limit)], start=1):
+            entry["rank"] = index
+        return entries[: max(1, limit)]
 
     @staticmethod
     def _build_live_leaderboard_entries(

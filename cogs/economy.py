@@ -2,11 +2,13 @@ import asyncio
 import random
 import re
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from economy_events import CRIME_POOL, SLUT_POOL, WORK_POOL
 from config import ADMIN_IDS, BUSINESSES, COLORS, get_rank, get_vip_level
 from database import db, get_user_lock
 from progression import (
@@ -118,6 +120,166 @@ class ProfileView(discord.ui.View):
             embed = await self.cog.build_profile_embed(member, self.guild_id)
             await interaction.response.edit_message(embed=embed, view=self)
             await self._remember_message(interaction)
+
+
+class WorkChoiceView(discord.ui.View):
+    def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, choices: list[dict[str, Any]]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.choices = choices[:3]
+        self.message: discord.Message | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню работы открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _resolve(self, interaction: discord.Interaction, index: int):
+        if index >= len(self.choices):
+            await interaction.response.send_message("Этот вариант сейчас недоступен.", ephemeral=True)
+            return
+        choice = self.choices[index]
+        async with get_user_lock(self.user_id):
+            user = await db.get_user(self.user_id, self.guild_id)
+            if not user:
+                await interaction.response.send_message("Ошибка загрузки профиля.", ephemeral=True)
+                return
+            now = datetime.now(timezone.utc)
+            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+            cooldown_minutes = int(10 * (1 - vip["cooldown_reduction"]))
+            if user.get("last_work"):
+                last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
+                if now - last_work < timedelta(minutes=cooldown_minutes):
+                    next_work_at = last_work + timedelta(minutes=cooldown_minutes)
+                    await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
+                    return
+            salary = random.randint(int(choice["reward_min"]), int(choice["reward_max"]))
+            if vip["daily_bonus"] > 1:
+                salary = int(salary * vip["daily_bonus"])
+            event_multiplier, active_event = self.cog._market_multiplier(self.guild_id, "economy")
+            if event_multiplier > 1:
+                salary = int(salary * event_multiplier)
+            user["balance"] = int(user.get("balance", 0) or 0) + salary
+            user["last_work"] = now.isoformat()
+            await db.update_user(self.user_id, self.guild_id, user)
+
+        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "work", 1))
+        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "earn", salary))
+        asyncio.create_task(self.cog._progress_contracts(self.user_id, self.guild_id, "work", 1))
+        asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="work", amount=1, money=salary))
+
+        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
+        embed = create_embed(
+            "💼 РАБОТА ВЫПОЛНЕНА",
+            f"{choice['summary']}\n\n✅ Получено: `{format_money(salary)}`\n💰 Баланс: `{format_money(user['balance'])}`{event_note}",
+            COLORS["success"],
+        )
+        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="Вариант 1", style=discord.ButtonStyle.success, row=0)
+    async def option_one(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._resolve(interaction, 0)
+
+    @discord.ui.button(label="Вариант 2", style=discord.ButtonStyle.success, row=0)
+    async def option_two(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._resolve(interaction, 1)
+
+    @discord.ui.button(label="Вариант 3", style=discord.ButtonStyle.success, row=0)
+    async def option_three(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._resolve(interaction, 2)
+
+
+class CrimeChoiceView(discord.ui.View):
+    def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, choices: list[dict[str, Any]]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.choices = choices[:3]
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню преступлений открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _resolve(self, interaction: discord.Interaction, index: int):
+        if index >= len(self.choices):
+            await interaction.response.send_message("Этот вариант сейчас недоступен.", ephemeral=True)
+            return
+        choice = self.choices[index]
+        async with get_user_lock(self.user_id):
+            user = await db.get_user(self.user_id, self.guild_id)
+            if not user:
+                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                return
+            now = datetime.now(timezone.utc)
+            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+            cooldown_minutes = int(30 * (1 - vip["cooldown_reduction"]))
+            if user.get("last_crime"):
+                last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
+                if now - last_crime < timedelta(minutes=cooldown_minutes):
+                    next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
+                    await interaction.response.send_message(f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.", ephemeral=True)
+                    return
+            reputation = get_reputation(user)
+            success_rate = max(0.15, min(0.92, float(choice["success_rate"]) + reputation_crime_bonus(reputation)))
+            event_multiplier, active_event = self.cog._market_multiplier(self.guild_id, "crime")
+            if active_event is None:
+                event_multiplier, active_event = self.cog._market_multiplier(self.guild_id, "economy")
+            if random.random() < success_rate:
+                reward = random.randint(int(choice["reward_min"]), int(choice["reward_max"]))
+                reward = int(reward * event_multiplier) if event_multiplier > 1 else reward
+                gems_bonus = random.randint(2, 6)
+                user["balance"] = int(user.get("balance", 0) or 0) + reward
+                user["gems"] = int(user.get("gems", 0) or 0) + gems_bonus
+                message = (
+                    f"{choice['success_text']}\n"
+                    f"✅ Успех\n"
+                    f"💵 Добыча: `{format_money(reward)}`\n"
+                    f"💎 Бонус: `{gems_bonus} гем.`"
+                )
+                color = COLORS["success"]
+                asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "earn", reward))
+                asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, money=reward, gems=gems_bonus, reputation=4, crime_runs=1))
+            else:
+                shielded = has_active_shield(user)
+                fine = 0 if shielded else min(random.randint(int(choice["fine_min"]), int(choice["fine_max"])), int(user.get("balance", 0) or 0))
+                user["balance"] = int(user.get("balance", 0) or 0) - fine
+                if shielded:
+                    message = f"{choice['fail_text']}\n🛡️ Теневая страховка спасла тебя.\n🚫 Штраф: `{format_money(0)}`"
+                    color = COLORS["warning"]
+                    asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-2, crime_runs=1))
+                else:
+                    message = f"{choice['fail_text']}\n❌ Провал\n🚫 Штраф: `-{format_money(fine)}`"
+                    color = COLORS["error"]
+                    asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-6, crime_runs=1))
+            user["last_crime"] = now.isoformat()
+            await db.update_user(self.user_id, self.guild_id, user)
+
+        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "crime", 1))
+        asyncio.create_task(self.cog._progress_contracts(self.user_id, self.guild_id, "crime", 1))
+
+        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
+        embed = create_embed("🕵️ ПРЕСТУПЛЕНИЕ", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
+        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="Риск 1", style=discord.ButtonStyle.danger, row=0)
+    async def option_one(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._resolve(interaction, 0)
+
+    @discord.ui.button(label="Риск 2", style=discord.ButtonStyle.danger, row=0)
+    async def option_two(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._resolve(interaction, 1)
+
+    @discord.ui.button(label="Риск 3", style=discord.ButtonStyle.danger, row=0)
+    async def option_three(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._resolve(interaction, 2)
 
 
 class ProfileCustomizeView(discord.ui.View):
@@ -412,6 +574,99 @@ class EconomyCog(commands.Cog, name="Economy"):
         embed.set_footer(text=f"ID игрока: {target.id}")
         return embed
 
+    async def _build_profile_embed_legacy(self, target: discord.Member, guild_id: int) -> discord.Embed:
+        user = await db.get_user(target.id, guild_id)
+        if not user:
+            return discord.Embed(title="Профиль", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+
+        user, normalized_businesses, _ = await ensure_unique_businesses(target.id, guild_id, user=user, sync_table=False)
+        if not user:
+            return discord.Embed(title="Профиль", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+
+        total_results = int(user.get("total_won", 0) or 0) + int(user.get("total_lost", 0) or 0)
+        winrate = (int(user.get("total_won", 0) or 0) / total_results * 100) if total_results > 0 else 0.0
+        rank = get_rank(int(user.get("balance", 0) or 0))
+        vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+        title_text = get_profile_title_text(user)
+        embed_color = get_profile_theme_color(user, rank["color"])
+        admin_badge = "ADMIN • " if target.id in ADMIN_IDS else ""
+
+        xp_needed = max(int(user.get("level", 1) or 1) * 100, 1)
+        xp_current = int(user.get("xp", 0) or 0)
+        xp_progress = max(0, min(10, int((xp_current / xp_needed) * 10)))
+        progress_bar = "█" * xp_progress + "░" * (10 - xp_progress)
+
+        total_business_types = 0
+        total_business_income = 0
+        for business_id, entries in sorted(normalized_businesses.items(), key=lambda item: int(item[0])):
+            business = BUSINESSES.get(int(business_id))
+            if business is None or not entries:
+                continue
+            total_business_types += 1
+            total_business_income += int(business["income"] * 24 / business["time"])
+
+        systems = ((user.get("game_stats") or {}).get("_systems") or {})
+        house_state = systems.get("house") if isinstance(systems, dict) else {}
+        house_id = str((house_state or {}).get("owned_house_id") or "").strip()
+        house_name = house_id.replace("_", " ").title() if house_id else "Нет"
+
+        net_profit = int(user.get("total_won", 0) or 0) - int(user.get("total_lost", 0) or 0)
+        rank_name = RANK_NAMES.get(rank["name"], rank["name"])
+        vip_name = VIP_NAMES.get(vip["name"], vip["name"])
+        vip_display = f"{vip['emoji']} {vip_name}".strip() if vip.get("emoji") else vip_name
+
+        embed = discord.Embed(
+            title=f"{admin_badge}{title_text} {target.display_name}",
+            description=(
+                f"**Ранг:** {rank_name}\n"
+                f"**VIP:** {vip_display}\n"
+                f"**Уровень:** {int(user.get('level', 1) or 1)} • `{xp_current}/{xp_needed} XP`\n"
+                f"`{progress_bar}`"
+            ),
+            color=embed_color,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(
+            name="Деньги",
+            value=(
+                f"Наличные: **{format_money(user.get('balance', 0))}**\n"
+                f"Банк: **{format_money(user.get('bank', 0))}**\n"
+                f"Гемы: **{int(user.get('gems', 0) or 0):,}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Активность",
+            value=(
+                f"Игр: **{int(user.get('games_played', 0) or 0)}**\n"
+                f"Винрейт: **{winrate:.1f}%**\n"
+                f"Серия: **{int(user.get('win_streak', 0) or 0)}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Имущество",
+            value=(
+                f"Дом: **{house_name}**\n"
+                f"Бизнесов: **{total_business_types}**\n"
+                f"Пассив/день: **{format_money(total_business_income)}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Краткая статистика",
+            value=(
+                f"Выиграно: **{format_money(user.get('total_won', 0))}**\n"
+                f"Проиграно: **{format_money(user.get('total_lost', 0))}**\n"
+                f"Итог по играм: **{format_money(net_profit)}**\n"
+                f"Лучшая серия: **{int(user.get('best_streak', 0) or 0)}**"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text=f"ID игрока: {target.id}")
+        return embed
+
     async def build_profile_customize_embed(self, target: discord.Member, guild_id: int) -> discord.Embed:
         user = await db.get_user(target.id, guild_id)
         if not user:
@@ -602,42 +857,47 @@ class EconomyCog(commands.Cog, name="Economy"):
                 bonus = int(bonus * event_multiplier)
                 gems = int(gems + max(1, round((event_multiplier - 1) * 6)))
 
-            streak_bonus = 0
-            streak_gems = 0
+            streak_multiplier = 1
             if user.get("last_daily"):
                 last_daily = datetime.fromisoformat(user["last_daily"]).replace(tzinfo=timezone.utc)
-                if (now - last_daily).days == 1:
+                if now - last_daily <= timedelta(hours=48):
                     user["daily_streak"] = int(user.get("daily_streak", 0) or 0) + 1
-                    if user["daily_streak"] >= 7:
-                        streak_bonus = 15000
-                        streak_gems = 20
                 else:
                     user["daily_streak"] = 1
             else:
                 user["daily_streak"] = 1
 
-            user["balance"] += bonus + streak_bonus
-            user["gems"] += gems + streak_gems
+            if int(user.get("daily_streak", 1) or 1) % 7 == 0:
+                streak_multiplier = 2
+
+            final_bonus = int(bonus * streak_multiplier)
+            user["balance"] += final_bonus
+            user["gems"] += gems
             user["last_daily"] = now.isoformat()
             await db.update_user(interaction.user.id, interaction.guild_id, user)
 
-        asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "earn", bonus + streak_bonus))
+        asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "earn", final_bonus))
         asyncio.create_task(
             record_player_progress(
                 interaction.user.id,
                 interaction.guild_id,
-                money=bonus + streak_bonus,
-                gems=gems + streak_gems,
+                money=final_bonus,
+                gems=gems,
             )
         )
 
         embed = discord.Embed(title="🎁 ЕЖЕДНЕВНЫЙ БОНУС", color=COLORS["success"])
-        embed.add_field(name="Деньги", value=f"**+{format_money(bonus)}**", inline=True)
+        embed.add_field(name="Деньги", value=f"**+{format_money(final_bonus)}**", inline=True)
         embed.add_field(name="Гемы", value=f"**+{gems}**", inline=True)
         embed.add_field(name="Серия", value=f"**{int(user.get('daily_streak', 1) or 1)} дней**", inline=True)
         embed.add_field(name="Следующий бонус", value=format_discord_deadline(now + timedelta(hours=cooldown_hours)), inline=False)
-        if streak_bonus or streak_gems:
-            embed.add_field(name="Бонус за серию", value=f"+{format_money(streak_bonus)} • +{streak_gems} гемов", inline=False)
+        embed.add_field(
+            name="Окно серии",
+            value="Серия не сбрасывается, если забирать `/daily` хотя бы раз в **48 часов**.",
+            inline=False,
+        )
+        if streak_multiplier > 1:
+            embed.add_field(name="Бонус серии", value="Это **7-й daily** в серии, поэтому денежная часть награды удвоена.", inline=False)
         if active_event:
             embed.add_field(name="Событие", value=f"`{active_event['name']}`", inline=False)
         embed.add_field(name="Новый баланс", value=f"**{format_money(user['balance'])}**", inline=False)
@@ -648,177 +908,77 @@ class EconomyCog(commands.Cog, name="Economy"):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
-
-        if not await safe_defer(interaction):
+        user = await db.get_user(interaction.user.id, interaction.guild_id)
+        if not user:
+            await interaction.response.send_message("Ошибка загрузки профиля.", ephemeral=True)
             return
-
-        async with get_user_lock(interaction.user.id):
-            user = await db.get_user(interaction.user.id, interaction.guild_id)
-            if not user:
-                await interaction.edit_original_response(content="Ошибка загрузки профиля.")
+        now = datetime.now(timezone.utc)
+        vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+        cooldown_minutes = int(10 * (1 - vip["cooldown_reduction"]))
+        if user.get("last_work"):
+            last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
+            if now - last_work < timedelta(minutes=cooldown_minutes):
+                next_work_at = last_work + timedelta(minutes=cooldown_minutes)
+                await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
                 return
 
-            now = datetime.now(timezone.utc)
-            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
-            cooldown_minutes = int(10 * (1 - vip["cooldown_reduction"]))
-
-            if user.get("last_work"):
-                last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
-                if now - last_work < timedelta(minutes=cooldown_minutes):
-                    next_work_at = last_work + timedelta(minutes=cooldown_minutes)
-                    await interaction.edit_original_response(
-                        content=f"😓 Ты устал. Можно снова работать {format_discord_deadline(next_work_at)}."
-                    )
-                    return
-
-            jobs = [
-                ("🍕 Доставка пиццы", 80, 200),
-                ("🚕 Такси", 100, 250),
-                ("💻 Фриланс-разработка", 150, 400),
-            ]
-            job = random.choice(jobs)
-            salary = int(random.randint(job[1], job[2]) * 1.35)
-            if vip["daily_bonus"] > 1:
-                salary = int(salary * vip["daily_bonus"])
-            event_multiplier, active_event = self._market_multiplier(interaction.guild_id, "economy")
-            if event_multiplier > 1:
-                salary = int(salary * event_multiplier)
-
-            user["balance"] += salary
-            user["last_work"] = now.isoformat()
-            await db.update_user(interaction.user.id, interaction.guild_id, user)
-
-        asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "work", 1))
-        asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "earn", salary))
-        asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "work", 1))
-        asyncio.create_task(
-            record_player_progress(
-                interaction.user.id,
-                interaction.guild_id,
-                action="work",
-                amount=1,
-                money=salary,
+        choices = random.sample(WORK_POOL, k=3)
+        embed = discord.Embed(
+            title="💼 Работа",
+            description="Выбери одну из трёх безопасных подработок. Успех всегда 100%.",
+            color=COLORS["success"],
+        )
+        for index, choice in enumerate(choices, start=1):
+            embed.add_field(
+                name=f"Вариант {index}",
+                value=f"{choice['summary']}\nОплата: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**",
+                inline=False,
             )
-        )
-
-        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
-        embed = create_embed(
-            "💼 РАБОТА ЗАВЕРШЕНА",
-            f"{job[0]}\n\n✅ Заработано: `{format_money(salary)}`\n💰 Баланс: `{format_money(user['balance'])}`{event_note}",
-            COLORS["success"],
-        )
-        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
-        await interaction.edit_original_response(content=None, embed=embed)
+        embed.set_footer(text="После выбора награда сразу зачислится на баланс.")
+        view = WorkChoiceView(self, interaction.user.id, interaction.guild_id, choices)
+        await interaction.response.send_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
     @app_commands.command(name="crime", description="Пойти на преступление ради денег")
     async def crime(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
-
-        if not await safe_defer(interaction):
+        user = await db.get_user(interaction.user.id, interaction.guild_id)
+        if not user:
+            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
             return
-
-        async with get_user_lock(interaction.user.id):
-            user = await db.get_user(interaction.user.id, interaction.guild_id)
-            if not user:
-                await interaction.edit_original_response(content="Не удалось загрузить профиль.")
+        now = datetime.now(timezone.utc)
+        vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+        cooldown_minutes = int(30 * (1 - vip["cooldown_reduction"]))
+        if user.get("last_crime"):
+            last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
+            if now - last_crime < timedelta(minutes=cooldown_minutes):
+                next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
+                await interaction.response.send_message(f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.", ephemeral=True)
                 return
 
-            now = datetime.now(timezone.utc)
-            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
-            cooldown_minutes = int(30 * (1 - vip["cooldown_reduction"]))
-
-            if user.get("last_crime"):
-                last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
-                if now - last_crime < timedelta(minutes=cooldown_minutes):
-                    next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
-                    await interaction.edit_original_response(
-                        content=f"🚨 Нужно залечь на дно. Следующая попытка {format_discord_deadline(next_crime_at)}."
-                    )
-                    return
-
-            crimes = [
-                ("🏪 Ограбление магазина", 500, 2000, 0.65),
-                ("🏦 Налёт на банк", 1000, 5000, 0.50),
-            ]
-            crime_name, min_reward, max_reward, success_rate = random.choice(crimes)
-            reputation = get_reputation(user)
-            success_rate = max(0.15, min(0.92, success_rate + reputation_crime_bonus(reputation)))
-            event_multiplier, active_event = self._market_multiplier(interaction.guild_id, "crime")
-            if active_event is None:
-                event_multiplier, active_event = self._market_multiplier(interaction.guild_id, "economy")
-
-            if random.random() < success_rate:
-                reward = int(random.randint(min_reward, max_reward) * 1.25)
-                gems_bonus = random.randint(2, 6)
-                if event_multiplier > 1:
-                    reward = int(reward * event_multiplier)
-                    gems_bonus += max(1, round((event_multiplier - 1) * 4))
-                user["balance"] += reward
-                user["gems"] += gems_bonus
-                user["last_crime"] = now.isoformat()
-                await db.update_user(interaction.user.id, interaction.guild_id, user)
-                asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "crime", 1))
-                asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "earn", reward))
-                asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "crime", 1))
-                asyncio.create_task(
-                    record_player_progress(
-                        interaction.user.id,
-                        interaction.guild_id,
-                        action="crime",
-                        amount=1,
-                        money=reward,
-                        gems=gems_bonus,
-                        reputation=4,
-                        crime_runs=1,
-                    )
-                )
-                message = (
-                    f"{crime_name}\n"
-                    f"✅ Успех\n"
-                    f"💵 Добыча: `{format_money(reward)}`\n"
-                    f"💎 Бонус: `{gems_bonus} гем.`\n"
-                    f"🕶 Репутация: `{reputation + 4}`"
-                )
-                color = COLORS["success"]
-            else:
-                shielded = has_active_shield(user)
-                fine = 0 if shielded else min(random.randint(min_reward // 2, min_reward), int(user.get("balance", 0) or 0))
-                user["balance"] -= fine
-                user["last_crime"] = now.isoformat()
-                await db.update_user(interaction.user.id, interaction.guild_id, user)
-                asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "crime", 1))
-                asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "crime", 1))
-                asyncio.create_task(
-                    record_player_progress(
-                        interaction.user.id,
-                        interaction.guild_id,
-                        action="crime",
-                        amount=1,
-                        reputation=-6 if not shielded else -2,
-                        crime_runs=1,
-                    )
-                )
-                if shielded:
-                    message = (
-                        f"{crime_name}\n🛡️ Тебя спасла теневая страховка\n"
-                        f"🚔 Штраф: `{format_money(0)}`\n"
-                        f"🕶 Репутация: `{reputation - 2}`"
-                    )
-                    color = COLORS["warning"]
-                else:
-                    message = (
-                        f"{crime_name}\n❌ Поймали\n"
-                        f"🚔 Штраф: `-{format_money(fine)}`\n"
-                        f"🕶 Репутация: `{reputation - 6}`"
-                    )
-                    color = COLORS["error"]
-
-        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
-        embed = create_embed("🕵️ ПРЕСТУПЛЕНИЕ", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
-        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
-        await interaction.edit_original_response(content=None, embed=embed)
+        choices = random.sample(CRIME_POOL, k=3)
+        embed = discord.Embed(
+            title="🕵️ Преступление",
+            description="Выбери один из трёх рисковых вариантов. На кнопках ниже — только выбор, подробности здесь.",
+            color=COLORS["error"],
+        )
+        for index, choice in enumerate(choices, start=1):
+            embed.add_field(
+                name=f"Риск {index}",
+                value=(
+                    f"{choice['summary']}\n"
+                    f"Шанс успеха: **{int(choice['success_rate'] * 100)}%**\n"
+                    f"Куш: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**\n"
+                    f"Штраф: **{format_money(choice['fine_min'])} - {format_money(choice['fine_max'])}**"
+                ),
+                inline=False,
+            )
+        embed.set_footer(text="Выбор фиксирует попытку и запускает кулдаун.")
+        view = CrimeChoiceView(self, interaction.user.id, interaction.guild_id, choices)
+        await interaction.response.send_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
     @app_commands.command(name="slut", description="Рискованный способ быстро заработать")
     async def slut(self, interaction: discord.Interaction):
@@ -848,29 +1008,25 @@ class EconomyCog(commands.Cog, name="Economy"):
                     )
                     return
 
-            outcomes = [
-                ("📹 Ночной стрим", 300, 800, 0.70),
-                ("💃 Выступление в клубе", 400, 1000, 0.65),
-            ]
-            job_name, min_earn, max_earn, success_rate = random.choice(outcomes)
+            outcome = random.choice(SLUT_POOL)
             event_multiplier, active_event = self._market_multiplier(interaction.guild_id, "economy")
 
-            if random.random() < success_rate:
-                earnings = int(random.randint(min_earn, max_earn) * 1.2)
+            if random.random() < float(outcome["success_rate"]):
+                earnings = int(random.randint(int(outcome["reward_min"]), int(outcome["reward_max"])) * 1.2)
                 if event_multiplier > 1:
                     earnings = int(earnings * event_multiplier)
                 user["balance"] += earnings
-                message = f"{job_name}\n✅ Успех\n💵 Заработано: `{format_money(earnings)}`"
+                message = f"{outcome['success_text']}\n✅ Успех\n💵 Заработано: `{format_money(earnings)}`"
                 color = COLORS["success"]
             else:
                 shielded = has_active_shield(user)
-                loss = 0 if shielded else min(random.randint(100, 500), int(user.get("balance", 0) or 0))
+                loss = 0 if shielded else min(random.randint(int(outcome["loss_min"]), int(outcome["loss_max"])), int(user.get("balance", 0) or 0))
                 user["balance"] -= loss
                 if shielded:
-                    message = f"{job_name}\n🛡️ Страховка прикрыла провал\n🧾 Потеряно: `{format_money(0)}`"
+                    message = f"{outcome['fail_text']}\n🛡️ Страховка прикрыла провал\n🧾 Потеряно: `{format_money(0)}`"
                     color = COLORS["warning"]
                 else:
-                    message = f"{job_name}\n❌ Не повезло\n🧾 Потеряно: `-{format_money(loss)}`"
+                    message = f"{outcome['fail_text']}\n❌ Не повезло\n🧾 Потеряно: `-{format_money(loss)}`"
                     color = COLORS["error"]
 
             user["last_slut"] = now.isoformat()

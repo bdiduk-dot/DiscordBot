@@ -21,10 +21,9 @@ class HoHelpView(discord.ui.View):
         embed = _build_info_embed(
             "Экономика и профиль",
             (
-                "`/profile`, `/stats`, `/rank`, `/leaderboard`\n"
+                "`/profile`, `/stats`, `/rank`, `/top`\n"
                 "`/daily`, `/hourly`, `/work`, `/crime`, `/slut`\n"
-                "`/bank`, `/bankdep`, `/bankwith`\n"
-                "`/deposit`, `/withdraw_deposit`, `/transfer`\n\n"
+                "`/bank`, `/transfer`\n\n"
                 "Баланс, банк, заработок, профиль и таблицы лидеров."
             ),
             COLORS["gold"],
@@ -51,7 +50,7 @@ class HoHelpView(discord.ui.View):
         embed = _build_info_embed(
             "Рыбалка и инвентарь",
             (
-                "`/fish`, `/fishshop`, `/inventory`, `/timers`\n\n"
+                "`/fish`, `/inventory`, `/timers`, `/shop`\n\n"
                 "Удочки, снасти, наживка, споты, хот-споты, мир рыбалки, "
                 "ивенты и весь улов в одном инвентаре."
             ),
@@ -64,8 +63,8 @@ class HoHelpView(discord.ui.View):
         embed = _build_info_embed(
             "Дом и майнинг",
             (
-                "`/house`, `/houseshop`\n\n"
-                "Недвижимость, аренда, подвал, видеокарты и добыча."
+                "`/house`, `/shop`\n\n"
+                "Недвижимость, аренда, огород, крипта, мебель и добыча."
             ),
             COLORS["warning"],
         )
@@ -101,7 +100,7 @@ class HoHelpView(discord.ui.View):
             "Магазин и сезон",
             (
                 "`/shop`, `/battlepass`, `/bp`\n\n"
-                "VIP, обмен, улучшения, серверные товары и боевой пропуск."
+                "Главный магазин со вкладками VIP, обмена, рыбалки, недвижимости, садоводства, мебели и боевого пропуска."
             ),
             COLORS["info"],
         )
