@@ -40,6 +40,7 @@ from utils import (
     get_kyiv_timezone,
     get_user_preferences,
     has_active_shield,
+    notification_type_enabled,
     normalize_businesses,
     normalize_datetime,
     safe_defer,
@@ -60,6 +61,13 @@ SERVER_ITEMS_PER_PAGE = 3
 VIP_LEVELS_PER_PAGE = 3
 TITLE_ITEMS_PER_PAGE = 3
 KYIV_TZ = get_kyiv_timezone()
+SMART_NOTIFICATION_SETTINGS: dict[str, dict[str, str]] = {
+    "notify_deposit": {"label": "Депозит", "marker": "deposit_ready"},
+    "notify_rent": {"label": "Аренда", "marker": "rent_ready"},
+    "notify_business": {"label": "Бизнес", "marker": "business_ready"},
+    "notify_harvest": {"label": "Урожай", "marker": "harvest_ready"},
+    "notify_daily_streak": {"label": "Daily streak", "marker": "daily_warning"},
+}
 
 
 async def _remember_interaction_message(
@@ -1461,6 +1469,7 @@ class SettingsView(discord.ui.View):
         self.guild_id = guild_id
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
+        self.notification_type_select.row = 1
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -1517,6 +1526,31 @@ class SettingsView(discord.ui.View):
                     message += " Роль снята и больше не будет выдаваться автоматически."
             await interaction.followup.send(message, ephemeral=True)
 
+    @discord.ui.select(
+        placeholder="Переключить конкретное уведомление",
+        min_values=1,
+        max_values=1,
+        options=[
+            discord.SelectOption(label="Депозит", value="notify_deposit", emoji="🏦"),
+            discord.SelectOption(label="Аренда", value="notify_rent", emoji="🏠"),
+            discord.SelectOption(label="Бизнес", value="notify_business", emoji="🏢"),
+            discord.SelectOption(label="Урожай", value="notify_harvest", emoji="🌱"),
+            discord.SelectOption(label="Daily streak", value="notify_daily_streak", emoji="⏰"),
+        ],
+    )
+    async def notification_type_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            preference_key = select.values[0]
+            enabled = await self.cog.toggle_notification_type(self.user_id, self.guild_id, preference_key)
+            await self._refresh(interaction)
+            label = SMART_NOTIFICATION_SETTINGS.get(preference_key, {}).get("label", "Уведомление")
+            await interaction.followup.send(
+                f"Уведомление «{label}» {'включено' if enabled else 'выключено'}.",
+                ephemeral=True,
+            )
+
     @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
@@ -1551,11 +1585,18 @@ class UserCog(commands.Cog, name="User"):
         for key in stale_keys:
             self._smart_notification_markers.pop(key, None)
 
+    def _clear_notification_marker(self, user_id: int, guild_id: int, key: str) -> None:
+        self._smart_notification_markers.pop((int(user_id), int(guild_id), key), None)
+
     async def build_settings_embed(self, member: discord.Member | discord.User, guild_id: int) -> discord.Embed:
         user = await db.get_user(member.id, guild_id)
         preferences = get_user_preferences(user or {})
         auto_role = bool(preferences.get("auto_casino_role", True))
         notifications = bool(preferences.get("smart_notifications", True))
+        notification_lines = [
+            f"• {config['label']}: **{'Вкл' if bool(preferences.get(key, True)) else 'Выкл'}**"
+            for key, config in SMART_NOTIFICATION_SETTINGS.items()
+        ]
 
         role_text = "Роль недоступна"
         if isinstance(member, discord.Member):
@@ -1579,7 +1620,9 @@ class UserCog(commands.Cog, name="User"):
             value=(
                 f"Статус: **{'Включены' if notifications else 'Выключены'}**\n"
                 f"Канал: <#{ALLOWED_CHANNEL_ID}>\n"
-                "Следят за депозитом, арендой, бизнесами, урожаем и почти сгорающим daily streak."
+                "Следят за депозитом, арендой, бизнесами, урожаем и почти сгорающим daily streak.\n\n"
+                "**Отдельные типы:**\n"
+                + "\n".join(notification_lines)
             ),
             inline=False,
         )
@@ -1592,7 +1635,7 @@ class UserCog(commands.Cog, name="User"):
             ),
             inline=False,
         )
-        embed.set_footer(text="Кнопками ниже можно быстро включить или отключить нужные функции.")
+        embed.set_footer(text="Сверху общий тумблер, ниже можно отключать отдельные типы уведомлений.")
         return embed
 
     async def toggle_smart_notifications(self, user_id: int, guild_id: int) -> bool:
@@ -1607,6 +1650,24 @@ class UserCog(commands.Cog, name="User"):
 
         if not new_value:
             self._clear_notification_markers_for_user(user_id, guild_id)
+        return new_value
+
+    async def toggle_notification_type(self, user_id: int, guild_id: int, preference_key: str) -> bool:
+        if preference_key not in SMART_NOTIFICATION_SETTINGS:
+            return True
+
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return True
+            preferences = get_user_preferences(user)
+            new_value = not bool(preferences.get(preference_key, True))
+            preferences[preference_key] = new_value
+            await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+
+        if not new_value:
+            marker_key = SMART_NOTIFICATION_SETTINGS[preference_key]["marker"]
+            self._clear_notification_marker(user_id, guild_id, marker_key)
         return new_value
 
     async def toggle_auto_casino_role(self, member: discord.Member | discord.User, guild_id: int) -> tuple[bool, bool]:
@@ -1684,14 +1745,21 @@ class UserCog(commands.Cog, name="User"):
             return []
 
         lines: list[str] = []
+        deposit_enabled = notification_type_enabled(user, "notify_deposit")
+        rent_enabled = notification_type_enabled(user, "notify_rent")
+        business_enabled = notification_type_enabled(user, "notify_business")
+        harvest_enabled = notification_type_enabled(user, "notify_harvest")
+        daily_enabled = notification_type_enabled(user, "notify_daily_streak")
 
         deposit = deposit_snapshot(user)
         deposit_marker = deposit["matures_at"].isoformat() if deposit["active"] and deposit["matured"] and deposit["matures_at"] else None
-        if self._notification_marker_changed(user_id, guild_id, "deposit_ready", deposit_marker):
+        if deposit_enabled and self._notification_marker_changed(user_id, guild_id, "deposit_ready", deposit_marker):
             lines.append("🏦 Депозит созрел и готов к выдаче через `/bank`.")
+        elif not deposit_enabled:
+            self._notification_marker_changed(user_id, guild_id, "deposit_ready", None)
 
         auto_collect_state = get_business_autocollect_state(user)
-        if not auto_collect_state.get("enabled"):
+        if business_enabled and not auto_collect_state.get("enabled"):
             business_count, business_marker = self._get_business_ready_marker(user, now)
             if self._notification_marker_changed(user_id, guild_id, "business_ready", business_marker):
                 lines.append(f"🏢 Бизнесы готовы к сбору: **{business_count}** шт.")
@@ -1703,8 +1771,10 @@ class UserCog(commands.Cog, name="User"):
             rental_state = house_cog._rental_status(user)
             ready_rentals = rental_state.get("ready_rentals", [])
             rent_marker = "|".join(sorted(str(rental.get("id")) for rental in ready_rentals if rental.get("id"))) or None
-            if self._notification_marker_changed(user_id, guild_id, "rent_ready", rent_marker):
+            if rent_enabled and self._notification_marker_changed(user_id, guild_id, "rent_ready", rent_marker):
                 lines.append(f"🏠 Аренда готова к сбору: **{len(ready_rentals)}** заявок.")
+            elif not rent_enabled:
+                self._notification_marker_changed(user_id, guild_id, "rent_ready", None)
 
             game_stats = user.get("game_stats") if isinstance(user.get("game_stats"), dict) else {}
             systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
@@ -1717,12 +1787,19 @@ class UserCog(commands.Cog, name="User"):
                     if isinstance(plot, dict) and str(plot.get("state") or "") == "ready"
                 ]
                 harvest_marker = "|".join(ready_plot_tokens) or None
-                if self._notification_marker_changed(user_id, guild_id, "harvest_ready", harvest_marker):
+                if harvest_enabled and self._notification_marker_changed(user_id, guild_id, "harvest_ready", harvest_marker):
                     lines.append(f"🌱 Урожай готов: **{len(ready_plot_tokens)}** грядок можно собрать.")
+                elif not harvest_enabled:
+                    self._notification_marker_changed(user_id, guild_id, "harvest_ready", None)
+        else:
+            self._notification_marker_changed(user_id, guild_id, "rent_ready", None)
+            self._notification_marker_changed(user_id, guild_id, "harvest_ready", None)
 
         daily_warning_marker = self._get_daily_warning_marker(user, now)
-        if self._notification_marker_changed(user_id, guild_id, "daily_warning", daily_warning_marker):
+        if daily_enabled and self._notification_marker_changed(user_id, guild_id, "daily_warning", daily_warning_marker):
             lines.append("⏰ Daily streak почти сгорает. Забери `/daily`, чтобы не потерять серию.")
+        elif not daily_enabled:
+            self._notification_marker_changed(user_id, guild_id, "daily_warning", None)
 
         return lines
 

@@ -34,6 +34,11 @@ INACTIVE_MESSAGE_DELETE_DELAY = 120
 _MESSAGE_CLEANUP_TASKS: dict[int, asyncio.Task[Any]] = {}
 DEFAULT_USER_PREFERENCES: dict[str, Any] = {
     "smart_notifications": True,
+    "notify_deposit": True,
+    "notify_rent": True,
+    "notify_business": True,
+    "notify_harvest": True,
+    "notify_daily_streak": True,
     "auto_casino_role": True,
 }
 
@@ -149,6 +154,10 @@ def get_user_preferences(user: Dict[str, Any]) -> Dict[str, Any]:
 
 def smart_notifications_enabled(user: Dict[str, Any]) -> bool:
     return bool(get_user_preferences(user).get("smart_notifications", True))
+
+
+def notification_type_enabled(user: Dict[str, Any], key: str) -> bool:
+    return bool(get_user_preferences(user).get(key, True))
 
 
 def auto_casino_role_enabled(user: Dict[str, Any]) -> bool:
