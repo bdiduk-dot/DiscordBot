@@ -35,6 +35,28 @@ class MainCategoryView(LegacyMainShopView):
         self.category_select = discord.ui.Select(placeholder="Категория магазина", row=4, options=_category_options("main"))
         self.category_select.callback = self._on_category
         self.add_item(self.category_select)
+        self._sync_buttons()
+
+    def _toggle_visibility(self, item: discord.ui.Item[Any], visible: bool):
+        if visible and item not in self.children:
+            self.add_item(item)
+        elif not visible and item in self.children:
+            self.remove_item(item)
+
+    def _sync_buttons(self):
+        super()._sync_buttons()
+        is_overview = self.active_page == "overview"
+        self.customize_btn.row = 1 if is_overview else 2
+
+        category_select = getattr(self, "category_select", None)
+        if category_select is not None:
+            category_select.row = 2 if is_overview else 4
+            self._toggle_visibility(category_select, True)
+
+        for item in (self.prev_btn, self.next_btn, self.action_btn_2, self.action_btn_3):
+            self._toggle_visibility(item, not is_overview)
+        self._toggle_visibility(self.action_btn_1, True)
+        self._toggle_visibility(self.customize_btn, True)
 
     async def _on_category(self, interaction: discord.Interaction):
         target = str(self.category_select.values[0]) if self.category_select.values else "main"
