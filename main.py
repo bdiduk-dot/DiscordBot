@@ -116,6 +116,13 @@ async def on_ready():
         except Exception as exc:
             print(f"Guild sync error: {exc}")
 
+    updates_cog = bot.get_cog("Updates")
+    if updates_cog is not None:
+        try:
+            await updates_cog.ensure_startup_post()
+        except Exception as exc:
+            print(f"Updates startup hook error: {exc}")
+
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:

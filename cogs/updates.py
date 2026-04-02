@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -17,6 +19,8 @@ class UpdatesCog(commands.Cog, name="Updates"):
     def __init__(self, bot):
         self.bot = bot
         self._startup_post_sent = False
+        self._startup_lock = asyncio.Lock()
+        self._startup_task: asyncio.Task[bool] | None = None
 
     async def _get_updates_channel(self) -> discord.TextChannel | None:
         channel = self.bot.get_channel(UPDATE_CHANNEL_ID)
@@ -103,10 +107,11 @@ class UpdatesCog(commands.Cog, name="Updates"):
                 return message
         return None
 
-    async def _announce_updates(self) -> None:
+    async def _announce_updates(self) -> bool:
         channel = await self._get_updates_channel()
         if channel is None:
-            return
+            print("Updates startup: channel not found or unavailable")
+            return False
 
         desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
         desired_embed = build_update_embed()
@@ -127,11 +132,13 @@ class UpdatesCog(commands.Cog, name="Updates"):
                         embed=desired_embed,
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
-                except Exception:
-                    pass
-            await self._pin_message(existing)
-            await self._remove_old_update_messages(channel, keep_message_id=existing.id)
-            return
+                except Exception as exc:
+                    print(f"Updates startup: failed to refresh existing post: {exc}")
+                    existing = None
+            if existing is not None:
+                await self._pin_message(existing)
+                await self._remove_old_update_messages(channel, keep_message_id=existing.id)
+                return True
 
         try:
             message = await channel.send(
@@ -139,19 +146,50 @@ class UpdatesCog(commands.Cog, name="Updates"):
                 embed=desired_embed,
                 allowed_mentions=discord.AllowedMentions(roles=True),
             )
-        except Exception:
-            return
+        except Exception as exc:
+            print(f"Updates startup: failed to send update post: {exc}")
+            return False
 
         await self._pin_message(message)
         await self._remove_old_update_messages(channel, keep_message_id=message.id)
+        return True
+
+    async def ensure_startup_post(self) -> bool:
+        if self._startup_post_sent:
+            return True
+
+        async with self._startup_lock:
+            if self._startup_post_sent:
+                return True
+
+            for attempt in range(1, 6):
+                try:
+                    await self.bot.wait_until_ready()
+                    success = await self._announce_updates()
+                except Exception as exc:
+                    success = False
+                    print(f"Updates startup: unexpected error on attempt {attempt}: {exc}")
+
+                if success:
+                    self._startup_post_sent = True
+                    print(f"Updates startup: post ensured on attempt {attempt}")
+                    return True
+
+                if attempt < 5:
+                    await asyncio.sleep(min(5 * attempt, 20))
+
+            print("Updates startup: failed to ensure update post after retries")
+            return False
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         if self._startup_post_sent:
             return
 
-        self._startup_post_sent = True
-        await self._announce_updates()
+        if self._startup_task is not None and not self._startup_task.done():
+            return
+
+        self._startup_task = asyncio.create_task(self.ensure_startup_post())
 
     @app_commands.command(name="updates", description="Показать последние изменения бота")
     async def updates(self, interaction: discord.Interaction) -> None:
