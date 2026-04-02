@@ -39,6 +39,7 @@ from utils import (
     normalize_datetime,
     safe_defer,
     safe_edit_original_response,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -963,13 +964,14 @@ class _BaseShopView(discord.ui.View):
 
     async def on_timeout(self):
         for child in self.children:
-            if isinstance(child, discord.ui.Button):
+            if hasattr(child, "disabled"):
                 child.disabled = True
         if self.message is not None:
             try:
                 await self.message.edit(view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message)
 
 class BattlePassView(discord.ui.View):
     def __init__(self, user_id: int, guild_id: int):
@@ -1268,13 +1270,14 @@ class BattlePassView(discord.ui.View):
 
     async def on_timeout(self):
         for child in self.children:
-            if isinstance(child, discord.ui.Button):
+            if hasattr(child, "disabled"):
                 child.disabled = True
         if self.message is not None:
             try:
                 await self.message.edit(view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message)
 
 
 # Legacy CleanBattlePassView removed; the active BattlePassView above stays canonical.
@@ -1622,49 +1625,91 @@ class UserCog(commands.Cog, name="User"):
         else:
             world_lines.append("Следующее ивент-окно: пока не найдено")
 
+        ready_count = sum(
+            1
+            for ready_at in (daily_ready, hourly_ready, work_ready, crime_ready, slut_ready)
+            if ready_at is None
+        )
+        if fish_cd <= 0 or fish_ready is None:
+            ready_count += 1
+        if ready_businesses > 0:
+            ready_count += 1
+        if basement_text.startswith("**Готово:**"):
+            ready_count += 1
+        if rent_text.startswith("**Готово:**"):
+            ready_count += 1
+
+        fishing_status = "**Без кд**" if fish_cd <= 0 else self._timer_value(now, fish_ready)
+        if fishing_world["active_event"] is not None:
+            event_status = f"Активен `[{fishing_world['active_event']['name']}]` до {format_discord_deadline(fishing_world['active_event']['end_at'].astimezone(timezone.utc))}"
+        elif next_event is not None:
+            event_status = f"Следующее окно {format_discord_deadline(next_event['start_at'].astimezone(timezone.utc))}"
+        else:
+            event_status = "Следующее окно пока не найдено"
+
         embed = discord.Embed(
-            title="Таймеры",
-            description="Быстрый дашборд по основным игровым системам аккаунта.",
+            title="⏱️ Таймеры",
+            description=(
+                "Быстрая сводка по ключевым системам аккаунта.\n"
+                f"Сейчас готово действий: **{ready_count}** • Удочка: **{rod_name}**"
+            ),
             color=COLORS["info"],
+            timestamp=now,
         )
         embed.add_field(
-            name="Экономика",
+            name="💸 Экономика",
             value=(
-                f"`/daily` - {self._timer_value(now, daily_ready)}\n"
-                f"`/hourly` - {self._timer_value(now, hourly_ready)}\n"
-                f"`/work` - {self._timer_value(now, work_ready)}\n"
-                f"`/crime` - {self._timer_value(now, crime_ready)}\n"
-                f"`/slut` - {self._timer_value(now, slut_ready)}"
+                f"**/daily:** {self._timer_value(now, daily_ready)}\n"
+                f"**/hourly:** {self._timer_value(now, hourly_ready)}\n"
+                f"**/work:** {self._timer_value(now, work_ready)}"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="🎲 Активности",
+            value=(
+                f"**/crime:** {self._timer_value(now, crime_ready)}\n"
+                f"**/slut:** {self._timer_value(now, slut_ready)}\n"
+                f"**/fish:** {fishing_status}"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="🏠 Дом",
+            value=(
+                f"**Подвал:** {basement_text}\n"
+                f"**Аренда:** {rent_text}"
             ),
             inline=False,
         )
         embed.add_field(
-            name="Активности",
+            name="🏢 Бизнесы",
             value=(
-                f"`/fish` - {('**Без кд с наживкой**' if fish_cd <= 0 else self._timer_value(now, fish_ready))}\n"
-                f"Текущая удочка - **{rod_name}**"
-            ),
-            inline=False,
-        )
-        embed.add_field(name="Мир рыбалки", value="\n".join(world_lines), inline=False)
-        embed.add_field(
-            name="Бизнесы",
-            value=(
-                f"Ручной сбор - {business_collect_text}\n"
-                f"Автосбор - {auto_collect_text}\n"
-                f"Всего бизнесов - **{total_businesses}**"
+                f"**Ручной сбор:** {business_collect_text}\n"
+                f"**Автосбор:** {auto_collect_text}\n"
+                f"**Всего бизнесов:** **{total_businesses}**"
             ),
             inline=False,
         )
         embed.add_field(
-            name="Дом",
+            name="🎣 Мир рыбалки",
             value=(
-                f"Подвал - {basement_text}\n"
-                f"Аренда - {rent_text}"
+                f"{world_lines[0]}\n"
+                f"{world_lines[1]}\n"
+                f"{world_lines[2]}\n"
+                f"{event_status}"
             ),
             inline=False,
         )
-        embed.add_field(name="Следующий сброс", value=f"BP daily - {format_discord_deadline(reset_at)}", inline=False)
+        embed.add_field(
+            name="🌙 Сбросы",
+            value=(
+                f"**BP daily:** {format_discord_deadline(reset_at)}\n"
+                f"**Фаза мира:** {format_discord_deadline(fishing_world['next_phase_change_at'])}\n"
+                f"**Погода:** {format_discord_deadline(fishing_world['next_weather_change_at'])}"
+            ),
+            inline=False,
+        )
         await interaction.response.send_message(embed=embed)
 
 

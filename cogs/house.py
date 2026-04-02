@@ -34,6 +34,7 @@ from utils import (
     record_player_progress,
     safe_defer,
     safe_edit_original_response,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -634,6 +635,17 @@ class HouseV2View(discord.ui.View):
         if self.tab == "decor":
             return await self.cog.build_decor_embed(self.user_id, self.guild_id)
         return await self.cog.build_home_embed(self.user_id, self.guild_id)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
 
 
 class HouseCommandsCog(commands.Cog, name="HouseUI"):

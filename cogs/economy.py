@@ -35,6 +35,7 @@ from utils import (
     has_active_shield,
     record_player_progress,
     safe_defer,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -149,6 +150,42 @@ class ProfileView(discord.ui.View):
             await self._remember_message(interaction)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
+
+    @discord.ui.button(label="Дом", style=discord.ButtonStyle.secondary, row=1)
+    async def house_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            member = interaction.guild.get_member(self.target_id) if interaction.guild else None
+            if member is None:
+                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+                return
+            view = ProfileInfoView(self.cog, self.user_id, self.guild_id, self.target_id, section="house")
+            embed = await self.cog.build_profile_house_embed(member, self.guild_id)
+            await interaction.response.edit_message(embed=embed, view=view)
+            await view._remember_message(interaction)
+
+    @discord.ui.button(label="Бизнесы", style=discord.ButtonStyle.secondary, row=1)
+    async def businesses_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            member = interaction.guild.get_member(self.target_id) if interaction.guild else None
+            if member is None:
+                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+                return
+            view = ProfileInfoView(self.cog, self.user_id, self.guild_id, self.target_id, section="businesses")
+            embed = await self.cog.build_profile_businesses_embed(member, self.guild_id)
+            await interaction.response.edit_message(embed=embed, view=view)
+            await view._remember_message(interaction)
+
+
 class WorkChoiceView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, choices: list[dict[str, Any]]):
         super().__init__(timeout=120)
@@ -163,6 +200,17 @@ class WorkChoiceView(discord.ui.View):
             await interaction.response.send_message("Это меню работы открыто не тобой.", ephemeral=True)
             return False
         return True
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
 
     async def _resolve(self, interaction: discord.Interaction, index: int):
         if index >= len(self.choices):
@@ -206,6 +254,8 @@ class WorkChoiceView(discord.ui.View):
         )
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Вариант 1", style=discord.ButtonStyle.success, row=0)
     async def option_one(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -227,12 +277,24 @@ class CrimeChoiceView(discord.ui.View):
         self.user_id = user_id
         self.guild_id = guild_id
         self.choices = choices[:3]
+        self.message: discord.Message | None = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("Это меню преступлений открыто не тобой.", ephemeral=True)
             return False
         return True
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
 
     async def _resolve(self, interaction: discord.Interaction, index: int):
         if index >= len(self.choices):
@@ -295,6 +357,8 @@ class CrimeChoiceView(discord.ui.View):
         embed = create_embed("🕵️ ПРЕСТУПЛЕНИЕ", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Риск 1", style=discord.ButtonStyle.danger, row=0)
     async def option_one(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -444,6 +508,65 @@ class ProfileCustomizeView(discord.ui.View):
             await view._remember_message(interaction)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
+
+
+class ProfileInfoView(discord.ui.View):
+    def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int, *, section: str):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.target_id = target_id
+        self.section = section
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню профиля открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = interaction.message or self.message
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
+
+    @discord.ui.button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=0)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            member = interaction.guild.get_member(self.target_id) if interaction.guild else None
+            if member is None:
+                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+                return
+            view = ProfileView(self.cog, self.user_id, self.guild_id, self.target_id)
+            embed = await self.cog.build_profile_embed(member, self.guild_id)
+            await interaction.response.edit_message(embed=embed, view=view)
+            await view._remember_message(interaction)
+
+
 class EconomyCog(commands.Cog, name="Economy"):
     def __init__(self, bot):
         self.bot = bot
@@ -581,6 +704,156 @@ class EconomyCog(commands.Cog, name="Economy"):
                 inline=False,
             )
         embed.set_footer(text=f"ID игрока: {target.id}")
+        return embed
+
+    async def build_profile_house_embed(self, target: discord.Member, guild_id: int) -> discord.Embed:
+        user = await db.get_user(target.id, guild_id)
+        if not user:
+            return discord.Embed(title="Дом", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+
+        house_cog = self.bot.get_cog("House")
+        embed = discord.Embed(title="🏠 Дом", color=COLORS["info"], timestamp=datetime.now(timezone.utc))
+        embed.set_author(name=target.display_name, icon_url=target.display_avatar.url)
+        if house_cog is None:
+            embed.description = "Система дома сейчас недоступна."
+            return embed
+
+        snapshot = house_cog._house_snapshot(user, guild_id)
+        house_state = snapshot.get("house_state") or {}
+        house_data = snapshot.get("house_data")
+        if not house_data:
+            embed.description = f"{target.mention} пока не купил дом."
+            embed.add_field(
+                name="Что появится после покупки",
+                value="Подвал, крипта, аренда, сад и обустройство доступны через `/house`.",
+                inline=False,
+            )
+            return embed
+
+        rental_state = house_cog._rental_status(user)
+        ongoing_rentals = rental_state.get("ongoing_rentals", [])
+        next_rent_at = None
+        for rental in ongoing_rentals:
+            raw_ends_at = rental.get("ends_at")
+            if isinstance(raw_ends_at, str):
+                try:
+                    ready_at = datetime.fromisoformat(raw_ends_at)
+                except ValueError:
+                    continue
+                if ready_at.tzinfo is None:
+                    ready_at = ready_at.replace(tzinfo=timezone.utc)
+                else:
+                    ready_at = ready_at.astimezone(timezone.utc)
+            else:
+                ready_at = raw_ends_at
+            if ready_at is None:
+                continue
+            if next_rent_at is None or ready_at < next_rent_at:
+                next_rent_at = ready_at
+
+        garden_state = house_state.get("garden") if isinstance(house_state.get("garden"), dict) else {}
+        plots = garden_state.get("plots") if isinstance(garden_state, dict) else []
+        total_plots = max(int(house_state.get("max_garden_level", 0) or 0), len(plots))
+        active_plots = sum(1 for plot in plots if str(plot.get("state") or "empty") != "empty")
+        ready_plots = sum(1 for plot in plots if str(plot.get("state") or "") == "ready")
+        furniture = [str(code).replace("_", " ").title() for code in house_state.get("furniture", [])]
+        wallet = house_state.get("crypto_wallet", {}) if isinstance(house_state.get("crypto_wallet"), dict) else {}
+        wallet_lines = [
+            f"**{symbol}:** `{float(amount):.6f}`"
+            for symbol, amount in wallet.items()
+            if float(amount or 0) > 0
+        ] or ["Криптокошелёк пока пуст."]
+
+        embed.description = f"**{house_data['name']}**\n{house_data['description']}"
+        embed.add_field(
+            name="Обзор",
+            value=(
+                f"Комнаты: **{house_data['rooms']}**\n"
+                f"Престиж: **{house_data['prestige']}**\n"
+                f"Подвал: **{int(snapshot.get('basement_level', 0) or 0)}/{int(house_data['max_basement_level'])}**\n"
+                f"Грядки: **{total_plots}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Крипта",
+            value=(
+                f"GPU: **{int(snapshot.get('installed_count', 0) or 0)}/{int(snapshot.get('capacity', 0) or 0)}**\n"
+                f"Экв/ч: **{format_money(int(snapshot.get('hourly_income', 0) or 0))}**\n"
+                f"Готово к сбору: **{format_money(int(snapshot.get('ready', 0) or 0))}**\n"
+                f"Старый кошелёк: **{format_money(int(house_state.get('legacy_mining_wallet', 0) or 0))}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Аренда и сад",
+            value=(
+                f"Активных жильцов: **{len(ongoing_rentals)}**\n"
+                f"Готово по аренде: **{format_money(int(rental_state.get('ready_total', 0) or 0))}**\n"
+                f"Следующая аренда: **{format_discord_deadline(next_rent_at) if next_rent_at else 'Нет'}**\n"
+                f"Сад: **{active_plots}/{total_plots}** занято, **{ready_plots}** готово"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Криптокошелёк", value="\n".join(wallet_lines[:6]), inline=False)
+        embed.add_field(
+            name="Обустройство",
+            value=(
+                f"Мебель: **{len(furniture)} шт.**\n"
+                f"{', '.join(furniture[:4]) if furniture else 'Пока без мебели.'}"
+            ),
+            inline=False,
+        )
+        return embed
+
+    async def build_profile_businesses_embed(self, target: discord.Member, guild_id: int) -> discord.Embed:
+        business_cog = self.bot.get_cog("Business")
+        embed = discord.Embed(title="🏢 Бизнесы", color=COLORS["gold"], timestamp=datetime.now(timezone.utc))
+        embed.set_author(name=target.display_name, icon_url=target.display_avatar.url)
+        if business_cog is None:
+            embed.description = "Система бизнесов сейчас недоступна."
+            return embed
+
+        summaries, totals = await business_cog.get_owned_summaries(target.id, guild_id, sync_table=False)
+        if not summaries:
+            embed.description = f"{target.mention} пока не купил ни одного бизнеса."
+            embed.add_field(
+                name="Старт",
+                value="Первый источник пассивного дохода можно купить через `/businesses` или `/shop`.",
+                inline=False,
+            )
+            return embed
+
+        portfolio_lines = []
+        for item in summaries[:6]:
+            if item["ready_count"] > 0:
+                status = f"Готово: **{item['ready_count']}**"
+            elif item["next_ready_at"] is not None:
+                status = f"Следующий сбор {format_discord_deadline(item['next_ready_at'])}"
+            else:
+                status = "Ожидает цикла"
+            portfolio_lines.append(
+                f"**{item['name']}** ×{item['count']}\n"
+                f"Доход/день: **{format_money(item['daily_income'])}** • {status}"
+            )
+
+        embed.description = (
+            f"Всего бизнесов: **{totals['total_owned']}**\n"
+            f"Пассив/день: **{format_money(totals['total_income_per_day'])}**\n"
+            f"Готово к сбору: **{totals['ready_total']}**"
+        )
+        embed.add_field(
+            name="Сводка",
+            value=(
+                f"Вложено: **{format_money(totals['total_invested'])}**\n"
+                f"Заработано: **{format_money(totals['total_earned'])}**\n"
+                f"Баланс игрока: **{format_money(totals['balance'])}**"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Портфель", value="\n\n".join(portfolio_lines), inline=False)
+        if len(summaries) > 6:
+            embed.set_footer(text=f"Показано 6 из {len(summaries)} типов бизнесов.")
         return embed
 
     async def _build_profile_embed_legacy(self, target: discord.Member, guild_id: int) -> discord.Embed:

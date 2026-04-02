@@ -7,7 +7,7 @@ from discord.ext import commands
 
 from config import COLORS, EMOJI, get_vip_level
 from database import db, get_user_lock
-from utils import add_xp, check_channel, create_embed, format_discord_deadline, has_active_shield, send_wrong_channel_message
+from utils import add_xp, check_channel, create_embed, format_discord_deadline, has_active_shield, schedule_message_cleanup, send_wrong_channel_message
 
 
 class DuelView(discord.ui.View):
@@ -17,6 +17,7 @@ class DuelView(discord.ui.View):
         self.opponent = opponent
         self.guild_id = guild_id
         self.bet = bet
+        self.message: discord.Message | None = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id not in {self.challenger.id, self.opponent.id}:
@@ -52,6 +53,8 @@ class DuelView(discord.ui.View):
                         embed=None,
                         view=self,
                     )
+                    self.message = interaction.message or self.message
+                    schedule_message_cleanup(self.message)
                     self.stop()
                     return
 
@@ -68,6 +71,8 @@ class DuelView(discord.ui.View):
                         embed=None,
                         view=self,
                     )
+                    self.message = interaction.message or self.message
+                    schedule_message_cleanup(self.message)
                     self.stop()
                     return
 
@@ -94,6 +99,8 @@ class DuelView(discord.ui.View):
             embed=None,
             view=self,
         )
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
         self.stop()
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.secondary, row=0)
@@ -108,10 +115,18 @@ class DuelView(discord.ui.View):
             embed=None,
             view=self,
         )
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
         self.stop()
 
     async def on_timeout(self):
         self._disable_all()
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
 
 
 class SocialCog(commands.Cog, name="Social"):
@@ -235,10 +250,12 @@ class SocialCog(commands.Cog, name="Social"):
         )
         embed.set_footer(text="Challenge expires in 60 seconds.")
 
+        view = DuelView(interaction.user, opponent, interaction.guild_id, bet)
         await interaction.response.send_message(
             embed=embed,
-            view=DuelView(interaction.user, opponent, interaction.guild_id, bet),
+            view=view,
         )
+        view.message = await interaction.original_response()
 
 
 async def setup(bot):

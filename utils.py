@@ -30,6 +30,7 @@ def get_kyiv_timezone():
 KYIV_TZ = get_kyiv_timezone()
 DAILY_QUEST_COUNT = 4
 WEEKLY_QUEST_COUNT = 7
+INACTIVE_MESSAGE_DELETE_DELAY = 120
 
 
 def _parse_quest_timestamp(raw_value: str | None) -> Optional[datetime]:
@@ -190,6 +191,22 @@ async def safe_edit_original_response(interaction: discord.Interaction, **kwargs
             return False
     except discord.HTTPException:
         return False
+
+
+async def delete_message_after_delay(message: discord.Message | None, delay_seconds: int = INACTIVE_MESSAGE_DELETE_DELAY) -> None:
+    if message is None:
+        return
+    await asyncio.sleep(max(0, int(delay_seconds)))
+    try:
+        await message.delete()
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return
+
+
+def schedule_message_cleanup(message: discord.Message | None, delay_seconds: int = INACTIVE_MESSAGE_DELETE_DELAY) -> asyncio.Task | None:
+    if message is None:
+        return None
+    return asyncio.create_task(delete_message_after_delay(message, delay_seconds=delay_seconds))
 
 
 def has_active_shield(user: Dict[str, Any]) -> bool:

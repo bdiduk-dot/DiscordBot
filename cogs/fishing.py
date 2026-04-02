@@ -42,6 +42,7 @@ from utils import (
     record_player_progress,
     safe_defer,
     safe_edit_original_response,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -633,6 +634,18 @@ class FishShopView(discord.ui.View):
             await self._refresh(interaction)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
+
+
 class EnhancedFishShopView(FishShopView):
     def _sync_buttons(self, state: dict[str, Any]):
         self.rods_btn.style = discord.ButtonStyle.primary if self.active_tab == "rods" else discord.ButtonStyle.secondary
@@ -756,6 +769,8 @@ class FishingCastView(discord.ui.View):
                 return
             await self.cog._play_cast_animation(interaction, fishing_state)
             await safe_edit_original_response(interaction, embed=payload, view=None)
+            self.message = interaction.message or self.message
+            schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -763,6 +778,18 @@ class FishingCastView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             await self._refresh(interaction)
+
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
 
 
 class FishingCog(commands.Cog, name="Fishing"):
@@ -2709,13 +2736,14 @@ class InventoryView(discord.ui.View):
 
     async def on_timeout(self):
         for child in self.children:
-            if isinstance(child, discord.ui.Button):
+            if hasattr(child, "disabled"):
                 child.disabled = True
         if self.message is not None:
             try:
                 await self.message.edit(view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message)
 
 
 async def setup(bot):

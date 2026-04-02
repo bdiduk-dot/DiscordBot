@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from config import COLORS
 from database import db, get_user_lock
-from utils import check_channel, format_discord_deadline, send_wrong_channel_message
+from utils import check_channel, format_discord_deadline, schedule_message_cleanup, send_wrong_channel_message
 
 DEPOSIT_TERMS: dict[str, dict[str, Any]] = {
     "1d": {"days": 1, "rate": 0.02, "label": "1 день"},
@@ -87,6 +87,54 @@ async def remember_interaction_message(
         return await interaction.original_response()
     except Exception:
         return interaction.message or current
+
+
+def build_bank_embed(
+    user: dict[str, Any],
+    *,
+    member: discord.Member | discord.User | None = None,
+    read_only: bool = False,
+) -> discord.Embed:
+    snapshot = deposit_snapshot(user)
+    title = "Банк"
+    if member is not None and read_only:
+        title = f"Банк • {member.display_name}"
+
+    embed = discord.Embed(
+        title=title,
+        description=(
+            f"**Наличные:** {format_money(user.get('balance', 0))}\n"
+            f"**Банковский счёт:** {format_money(user.get('bank', 0))}"
+        ),
+        color=COLORS["info"],
+        timestamp=datetime.now(timezone.utc),
+    )
+    if member is not None:
+        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+
+    if not snapshot["active"]:
+        deposit_text = (
+            "**Активный депозит:** нет\n"
+            "**Ставки:** 1 день = 2% • 3 дня = 7% • 7 дней = 20%\n"
+            f"**Штраф за моментальный вывод:** {int(EARLY_WITHDRAW_PENALTY * 100)}% от суммы"
+        )
+    else:
+        status = "Созрел" if snapshot["matured"] else format_discord_deadline(snapshot["matures_at"])
+        deposit_text = (
+            f"**Сумма:** {format_money(snapshot['amount'])}\n"
+            f"**Процент:** {snapshot['rate'] * 100:.0f}%\n"
+            f"**Срок:** {snapshot['days']} дн.\n"
+            f"**До завершения:** {status}\n"
+            f"**Штраф за моментальный вывод:** -{format_money(snapshot['early_penalty'])}\n"
+            f"**К выплате при завершении:** {format_money(snapshot['normal_payout'])}"
+        )
+
+    embed.add_field(name="Депозит", value=deposit_text, inline=False)
+    if read_only:
+        embed.set_footer(text="Чужой банковский счёт доступен только для просмотра.")
+    else:
+        embed.set_footer(text="Депозит открывается с банковского счёта.")
+    return embed
 
 
 class BankAmountModal(discord.ui.Modal):
@@ -326,6 +374,7 @@ class BankView(discord.ui.View):
         self.user_data = await db.get_user(self.user_id, self.guild_id) or {}
 
     def build_embed(self) -> discord.Embed:
+        return build_bank_embed(self.user_data or {})
         user = self.user_data or {}
         snapshot = deposit_snapshot(user)
         embed = discord.Embed(
@@ -488,13 +537,14 @@ class BankView(discord.ui.View):
 
     async def on_timeout(self):
         for child in self.children:
-            if isinstance(child, discord.ui.Button):
+            if hasattr(child, "disabled"):
                 child.disabled = True
         if self.message is not None:
             try:
                 await self.message.edit(view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message)
 
 
 class BankCog(commands.Cog, name="Bank"):
@@ -502,14 +552,19 @@ class BankCog(commands.Cog, name="Bank"):
         self.bot = bot
 
     @app_commands.command(name="bank", description="Открыть банковский интерфейс")
-    async def bank(self, interaction: discord.Interaction):
+    async def bank(self, interaction: discord.Interaction, player: discord.Member | None = None):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
 
-        user = await db.get_user(interaction.user.id, interaction.guild_id)
+        target = player or interaction.user
+        user = await db.get_user(target.id, interaction.guild_id)
         if not user:
             await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            return
+
+        if target.id != interaction.user.id:
+            await interaction.response.send_message(embed=build_bank_embed(user, member=target, read_only=True))
             return
 
         view = BankView(interaction.user.id, interaction.guild_id, user)

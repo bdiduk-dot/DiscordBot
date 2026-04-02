@@ -21,6 +21,7 @@ from utils import (
     record_player_progress,
     safe_defer,
     safe_edit_original_response,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -252,6 +253,7 @@ class BaseBusinessView(discord.ui.View):
             await self.message.edit(view=self)
         except Exception:
             pass
+        schedule_message_cleanup(self.message)
 
 
 class BusinessShopView(BaseBusinessView):

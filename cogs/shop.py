@@ -12,7 +12,7 @@ from cogs.mining import FURNITURE_ITEMS, GARDEN_CROPS, HOUSE_ORDER, HOUSE_TYPES,
 from cogs.user import ShopView as LegacyMainShopView
 from config import COLORS
 from database import db
-from utils import check_channel, safe_defer, send_wrong_channel_message
+from utils import check_channel, safe_defer, schedule_message_cleanup, send_wrong_channel_message
 
 SHOP_PAGE_SIZE = 3
 SHOP_CATEGORIES = [
@@ -108,6 +108,17 @@ class _BaseCategoryView(discord.ui.View):
             await interaction.followup.send(embed=payload, ephemeral=True)
         else:
             await interaction.followup.send(str(payload), ephemeral=True)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message)
 
 
 class PropertyCategoryView(_BaseCategoryView):

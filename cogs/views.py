@@ -5,7 +5,7 @@ import discord
 
 from config import COLORS
 from database import db, get_user_lock
-from utils import add_xp, record_player_progress
+from utils import add_xp, record_player_progress, schedule_message_cleanup
 
 
 def format_money(value: int) -> str:
@@ -128,6 +128,7 @@ class BlackjackView(discord.ui.View):
             await self.message.edit(view=self)
         except Exception:
             pass
+        schedule_message_cleanup(self.message)
 
     async def _finish_game(self, interaction: discord.Interaction):
         if self.game.finished:
@@ -239,6 +240,8 @@ class BlackjackView(discord.ui.View):
             f"Баланс: **{format_money(int(user.get('balance', 0)))}**"
         )
         await interaction.edit_original_response(embed=embed, view=self)
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Ещё карту", style=discord.ButtonStyle.success, row=0)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -401,6 +404,7 @@ class BlackjackPvpInviteView(discord.ui.View):
                 await self.message.edit(embed=embed, view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Принять", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -477,6 +481,8 @@ class BlackjackPvpInviteView(discord.ui.View):
             color=COLORS["warning"],
         )
         await interaction.response.edit_message(embed=embed, view=None)
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
 
 
 class BlackjackPvpView(discord.ui.View):
@@ -546,6 +552,7 @@ class BlackjackPvpView(discord.ui.View):
             embed = self.game.get_embed(description=reason)
             embed.color = COLORS["warning"]
             await self.message.edit(embed=embed, view=self)
+            schedule_message_cleanup(self.message)
 
     async def on_timeout(self):
         if self.game.finished:
@@ -639,6 +646,8 @@ class BlackjackPvpView(discord.ui.View):
         embed = self.game.get_embed(description=description)
         embed.color = color
         await interaction.response.edit_message(embed=embed, view=self)
+        self.message = interaction.message or self.message
+        schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Ещё карту", style=discord.ButtonStyle.success, row=0)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
