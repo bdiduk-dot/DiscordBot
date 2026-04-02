@@ -88,29 +88,6 @@ class UpdatesCog(commands.Cog, name="Updates"):
         except Exception:
             return
 
-    async def _find_latest_update_message(self, channel: discord.TextChannel) -> discord.Message | None:
-        footer_text = f"Update ID: {LATEST_UPDATE_ID}"
-
-        try:
-            pinned_messages = await channel.pins()
-        except Exception:
-            pinned_messages = []
-
-        for message in pinned_messages:
-            if not self._is_update_message(message):
-                continue
-            embed = message.embeds[0]
-            if embed.footer and embed.footer.text == footer_text:
-                return message
-
-        async for message in channel.history(limit=25):
-            if not self._is_update_message(message):
-                continue
-            embed = message.embeds[0]
-            if embed.footer and embed.footer.text == footer_text:
-                return message
-        return None
-
     async def _announce_updates(self) -> bool:
         channel = await self._get_updates_channel()
         if channel is None:
@@ -119,33 +96,6 @@ class UpdatesCog(commands.Cog, name="Updates"):
 
         desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
         desired_embeds = build_update_embeds()
-        existing = await self._find_latest_update_message(channel)
-        if existing is not None:
-            current_embeds = list(existing.embeds)
-            needs_refresh = (
-                existing.content != desired_content
-                or len(current_embeds) != len(desired_embeds)
-                or any(
-                    (current.title != desired.title)
-                    or (current.description != desired.description)
-                    or ((current.footer.text if current.footer else None) != (desired.footer.text if desired.footer else None))
-                    for current, desired in zip(current_embeds, desired_embeds)
-                )
-            )
-            if needs_refresh:
-                try:
-                    await existing.edit(
-                        content=desired_content,
-                        embeds=desired_embeds,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                except Exception as exc:
-                    print(f"Updates startup: failed to refresh existing post: {exc}")
-                    existing = None
-            if existing is not None:
-                await self._pin_message(existing)
-                await self._remove_old_update_messages(channel, keep_message_id=existing.id)
-                return True
 
         try:
             message = await channel.send(
