@@ -453,7 +453,7 @@ def _roll_fish_drop(rod_bonus: float, tackle: dict[str, Any], bait: dict[str, An
 
 class FishShopView(discord.ui.View):
     def __init__(self, cog: "FishingCog", user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -643,7 +643,7 @@ class FishShopView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class EnhancedFishShopView(FishShopView):
@@ -714,7 +714,7 @@ class EnhancedFishShopView(FishShopView):
 
 class FishingCastView(discord.ui.View):
     def __init__(self, cog: "FishingCog", user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -789,7 +789,7 @@ class FishingCastView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class FishingCog(commands.Cog, name="Fishing"):
@@ -1905,18 +1905,18 @@ class FishingCog(commands.Cog, name="Fishing"):
                 bait_key = str(payload.get("bait") or "worms")
                 amount = int(payload.get("amount", 0) or 0)
                 bait_stock[bait_key] = int(bait_stock.get(bait_key, 0) or 0) + amount
-                result_lines.append(f"Added **{amount}x {_display_bait_name(bait_key)}** to bait stock.")
+                result_lines.append(f"Добавлено **{amount}x {_display_bait_name(bait_key)}** в запас наживки.")
             elif item_type == "shield_card":
                 hours = int(payload.get("hours", 24) or 24)
                 current_until = _parse_iso_datetime(user.get("shield_until"))
                 base_time = current_until if current_until and current_until > now else now
                 new_until = base_time + timedelta(hours=hours)
                 user["shield_until"] = new_until.isoformat()
-                result_lines.append(f"Shadow insurance is active until {format_discord_deadline(new_until)}.")
+                result_lines.append(f"Теневая страховка активна до {format_discord_deadline(new_until)}.")
             elif item_type == "cash_bundle":
                 amount = int(payload.get("amount", 0) or 0)
                 user["balance"] = int(user.get("balance", 0) or 0) + amount
-                result_lines.append(f"Received **{format_money(amount)}**.")
+                result_lines.append(f"Получено **{format_money(amount)}**.")
             elif item_type == "house_wallet_cache":
                 amount = int(payload.get("amount", 0) or 0)
                 systems = _system_state(user)
@@ -2279,7 +2279,7 @@ class InventoryIdModal(discord.ui.Modal):
 
 class InventoryView(discord.ui.View):
     def __init__(self, cog: FishingCog, user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -2743,7 +2743,7 @@ class InventoryView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 async def setup(bot):

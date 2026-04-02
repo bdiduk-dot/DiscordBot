@@ -13,24 +13,24 @@ class ClanInviteView(discord.ui.View):
         self.member = member
         self.user_clan = user_clan
     
-    @discord.ui.button(label="Accept", style=discord.ButtonStyle.green, emoji="✅")
+    @discord.ui.button(label="Принять", style=discord.ButtonStyle.green, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.member.id:
-            return await interaction.response.send_message("❌ This invite is not for you!", ephemeral=True)
+            return await interaction.response.send_message("❌ Это приглашение не для тебя!", ephemeral=True)
         
         members = self.user_clan.get('members', [])
         members.append(self.member.id)
         await asyncio.to_thread(lambda: supabase.table('clans').update({'members': members}).eq('id', self.user_clan['id']).execute())
         
-        embed = discord.Embed(title="🏰 JOINED CLAN!", description=f"{self.member.mention} joined **{self.user_clan['name']}**!", color=COLORS['success'])
+        embed = discord.Embed(title="🏰 ВСТУПЛЕНИЕ В КЛАН", description=f"{self.member.mention} вступил в **{self.user_clan['name']}**!", color=COLORS['success'])
         await interaction.response.edit_message(embed=embed, view=None)
 
-    @discord.ui.button(label="Decline", style=discord.ButtonStyle.red, emoji="❌")
+    @discord.ui.button(label="Отклонить", style=discord.ButtonStyle.red, emoji="❌")
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.member.id:
-            return await interaction.response.send_message("❌ This invite is not for you!", ephemeral=True)
+            return await interaction.response.send_message("❌ Это приглашение не для тебя!", ephemeral=True)
         
-        embed = discord.Embed(title="🏰 INVITE DECLINED", description=f"{self.member.mention} declined the invite.", color=COLORS['error'])
+        embed = discord.Embed(title="🏰 ПРИГЛАШЕНИЕ ОТКЛОНЕНО", description=f"{self.member.mention} отклонил приглашение.", color=COLORS['error'])
         await interaction.response.edit_message(embed=embed, view=None)
 
 class ClanCog(commands.Cog, name="Clans"):

@@ -207,7 +207,7 @@ def portfolio_card_value(item: dict[str, Any]) -> str:
 
 class BaseBusinessView(discord.ui.View):
     def __init__(self, cog: "BusinessCog", user_id: int, guild_id: int, page: int = 0):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -253,7 +253,7 @@ class BaseBusinessView(discord.ui.View):
             await self.message.edit(view=self)
         except Exception:
             pass
-        schedule_message_cleanup(self.message)
+        schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class BusinessShopView(BaseBusinessView):

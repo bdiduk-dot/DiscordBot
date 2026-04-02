@@ -35,6 +35,7 @@ from utils import (
     format_discord_deadline,
     get_business_autocollect_state,
     get_kyiv_timezone,
+    has_active_shield,
     normalize_businesses,
     normalize_datetime,
     safe_defer,
@@ -238,7 +239,7 @@ class ExchangeModal(discord.ui.Modal):
 
 class _BaseShopView(discord.ui.View):
     def __init__(self, user_id: int, guild_id: int, user_data: dict[str, Any], custom_items: list[dict[str, Any]]):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.user_id = user_id
         self.guild_id = guild_id
         self.user_data = user_data or {}
@@ -971,11 +972,11 @@ class _BaseShopView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 class BattlePassView(discord.ui.View):
     def __init__(self, user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.user_id = user_id
         self.guild_id = guild_id
         self.message: discord.Message | None = None
@@ -1277,7 +1278,7 @@ class BattlePassView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 # Legacy CleanBattlePassView removed; the active BattlePassView above stays canonical.
@@ -1489,6 +1490,12 @@ class UserCog(commands.Cog, name="User"):
             tzinfo=KYIV_TZ,
         ).astimezone(timezone.utc)
 
+    @staticmethod
+    def _dashboard_status(now: datetime, ready_at: datetime | None, ready_label: str = "Готово") -> str:
+        if ready_at is None or ready_at <= now:
+            return ready_label
+        return f"Через {format_discord_deadline(ready_at)}"
+
     async def _open_battle_pass(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
@@ -1610,21 +1617,6 @@ class UserCog(commands.Cog, name="User"):
         rod_name = FISHING_RODS.get(str(user.get("fishing_rod", "none") or "none"), FISHING_RODS["none"])["name"]
         next_event = fishing_world["next_event_window"]
 
-        world_lines = describe_world_lines(fishing_world)
-        world_lines.extend(
-            [
-                f"Следующая смена времени: {format_discord_deadline(fishing_world['next_phase_change_at'])}",
-                f"Следующая погода: {format_discord_deadline(fishing_world['next_weather_change_at'])}",
-                f"Следующий хот-спот: {format_discord_deadline(fishing_world['next_hotspot_change_at'])}",
-            ]
-        )
-        if fishing_world["active_event"] is not None:
-            world_lines.append(f"Конец ивента: {format_discord_deadline(fishing_world['active_event']['end_at'].astimezone(timezone.utc))}")
-        elif next_event is not None:
-            world_lines.append(f"Следующее ивент-окно: {format_discord_deadline(next_event['start_at'].astimezone(timezone.utc))}")
-        else:
-            world_lines.append("Следующее ивент-окно: пока не найдено")
-
         ready_count = sum(
             1
             for ready_at in (daily_ready, hourly_ready, work_ready, crime_ready, slut_ready)
@@ -1639,78 +1631,114 @@ class UserCog(commands.Cog, name="User"):
         if rent_text.startswith("**Готово:**"):
             ready_count += 1
 
-        fishing_status = "**Без кд**" if fish_cd <= 0 else self._timer_value(now, fish_ready)
+        fishing_status = "Без кд" if fish_cd <= 0 else self._dashboard_status(now, fish_ready)
         if fishing_world["active_event"] is not None:
-            event_status = f"Активен `[{fishing_world['active_event']['name']}]` до {format_discord_deadline(fishing_world['active_event']['end_at'].astimezone(timezone.utc))}"
+            event_status = f"Активен `{fishing_world['active_event']['name']}` до {format_discord_deadline(fishing_world['active_event']['end_at'].astimezone(timezone.utc))}"
         elif next_event is not None:
             event_status = f"Следующее окно {format_discord_deadline(next_event['start_at'].astimezone(timezone.utc))}"
         else:
             event_status = "Следующее окно пока не найдено"
 
+        shield_until = normalize_datetime(user.get("shield_until"))
+        shield_text = "Не активна"
+        if has_active_shield(user) and shield_until is not None:
+            shield_text = f"Активна до {format_discord_deadline(shield_until)}"
+
+        game_stats = user.get("game_stats") if isinstance(user.get("game_stats"), dict) else {}
+        systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
+        house_state = systems.get("house") if isinstance(systems, dict) else {}
+        garden = house_state.get("garden") if isinstance(house_state, dict) and isinstance(house_state.get("garden"), dict) else {}
+        plots = garden.get("plots") if isinstance(garden.get("plots"), list) else []
+        ready_plots = sum(1 for plot in plots if isinstance(plot, dict) and str(plot.get("state") or "") == "ready")
+        dry_plots = sum(1 for plot in plots if isinstance(plot, dict) and str(plot.get("state") or "") == "dry")
+        active_plots = sum(1 for plot in plots if isinstance(plot, dict) and plot.get("crop_code"))
+        if basement_text == "Дом не куплен":
+            garden_text = "Дом не куплен"
+        elif active_plots <= 0:
+            garden_text = "Нет посадок"
+        elif ready_plots > 0:
+            garden_text = f"Готово: {ready_plots} гряд."
+        elif dry_plots > 0:
+            garden_text = f"Нужен полив: {dry_plots} гряд."
+        else:
+            garden_text = f"Растёт: {active_plots} гряд."
+
+        economy_lines = [
+            f"• /daily — {self._dashboard_status(now, daily_ready)}",
+            f"• /hourly — {self._dashboard_status(now, hourly_ready)}",
+            f"• /work — {self._dashboard_status(now, work_ready)}",
+        ]
+        activity_lines = [
+            f"• /crime — {self._dashboard_status(now, crime_ready)}",
+            f"• /slut — {self._dashboard_status(now, slut_ready)}",
+            f"• Теневая страховка — {shield_text}",
+        ]
+        fishing_lines = [
+            f"• Заброс — {fishing_status}",
+            f"• Погода — {describe_world_lines(fishing_world)[1].replace('• ', '')}",
+            f"• Ивент — {event_status}",
+        ]
+        business_lines = [
+            f"• Ручной сбор — {business_collect_text.replace('**', '')}",
+            f"• Автосбор — {auto_collect_text.replace('**', '')}",
+            f"• Всего точек — {total_businesses}",
+        ]
+        house_lines = [
+            f"• Подвал — {basement_text.replace('**', '')}",
+            f"• Аренда — {rent_text.replace('**', '')}",
+            f"• Сад — {garden_text}",
+        ]
+        reset_lines = [
+            f"• Новый daily — {format_discord_deadline(reset_at)}",
+            f"• Смена фазы — {format_discord_deadline(fishing_world['next_phase_change_at'])}",
+            f"• Погода/спот — {format_discord_deadline(fishing_world['next_hotspot_change_at'])}",
+        ]
+
         embed = discord.Embed(
-            title="⏱️ Таймеры",
+            title="⏱️ Панель таймеров",
             description=(
-                "Быстрая сводка по ключевым системам аккаунта.\n"
-                f"Сейчас готово действий: **{ready_count}** • Удочка: **{rod_name}**"
+                "Самое важное по кулдаунам и системам аккаунта в одном экране.\n"
+                f"Доступно прямо сейчас: **{ready_count}** • Активная удочка: **{rod_name}**"
             ),
             color=COLORS["info"],
             timestamp=now,
         )
         embed.add_field(
             name="💸 Экономика",
-            value=(
-                f"**/daily:** {self._timer_value(now, daily_ready)}\n"
-                f"**/hourly:** {self._timer_value(now, hourly_ready)}\n"
-                f"**/work:** {self._timer_value(now, work_ready)}"
-            ),
+            value="\n".join(economy_lines),
             inline=True,
         )
         embed.add_field(
             name="🎲 Активности",
-            value=(
-                f"**/crime:** {self._timer_value(now, crime_ready)}\n"
-                f"**/slut:** {self._timer_value(now, slut_ready)}\n"
-                f"**/fish:** {fishing_status}"
-            ),
+            value="\n".join(activity_lines),
+            inline=True,
+        )
+        embed.add_field(
+            name="🎣 Рыбалка",
+            value="\n".join(fishing_lines),
+            inline=True,
+        )
+        embed.add_field(
+            name="🏢 Бизнесы",
+            value="\n".join(business_lines),
             inline=True,
         )
         embed.add_field(
             name="🏠 Дом",
-            value=(
-                f"**Подвал:** {basement_text}\n"
-                f"**Аренда:** {rent_text}"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="🏢 Бизнесы",
-            value=(
-                f"**Ручной сбор:** {business_collect_text}\n"
-                f"**Автосбор:** {auto_collect_text}\n"
-                f"**Всего бизнесов:** **{total_businesses}**"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="🎣 Мир рыбалки",
-            value=(
-                f"{world_lines[0]}\n"
-                f"{world_lines[1]}\n"
-                f"{world_lines[2]}\n"
-                f"{event_status}"
-            ),
+            value="\n".join(house_lines),
             inline=False,
         )
         embed.add_field(
             name="🌙 Сбросы",
-            value=(
-                f"**BP daily:** {format_discord_deadline(reset_at)}\n"
-                f"**Фаза мира:** {format_discord_deadline(fishing_world['next_phase_change_at'])}\n"
-                f"**Погода:** {format_discord_deadline(fishing_world['next_weather_change_at'])}"
-            ),
+            value="\n".join(reset_lines),
             inline=False,
         )
+        embed.set_footer(text="Статусы с «Через …» обновляются автоматически через Discord-таймеры.")
         await interaction.response.send_message(embed=embed)
+        try:
+            schedule_message_cleanup(await interaction.original_response())
+        except Exception:
+            pass
 
 
 async def setup(bot):

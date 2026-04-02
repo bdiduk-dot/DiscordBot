@@ -12,7 +12,7 @@ from utils import add_xp, check_channel, create_embed, format_discord_deadline, 
 
 class DuelView(discord.ui.View):
     def __init__(self, challenger: discord.Member, opponent: discord.Member, guild_id: int, bet: int):
-        super().__init__(timeout=60)
+        super().__init__(timeout=120)
         self.challenger = challenger
         self.opponent = opponent
         self.guild_id = guild_id
@@ -21,7 +21,7 @@ class DuelView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id not in {self.challenger.id, self.opponent.id}:
-            await interaction.response.send_message("This duel is not yours.", ephemeral=True)
+            await interaction.response.send_message("Это приглашение не для тебя.", ephemeral=True)
             return False
         return True
 
@@ -34,10 +34,10 @@ class DuelView(discord.ui.View):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
 
-    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Принять", style=discord.ButtonStyle.success, row=0)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.opponent.id:
-            await interaction.response.send_message("Only the challenged player can accept.", ephemeral=True)
+            await interaction.response.send_message("Принять вызов может только приглашённый игрок.", ephemeral=True)
             return
 
         first_lock, second_lock = self._lock_pair()
@@ -49,7 +49,7 @@ class DuelView(discord.ui.View):
                 if challenger_user['balance'] < self.bet or opponent_user['balance'] < self.bet:
                     self._disable_all()
                     await interaction.response.edit_message(
-                        content="The duel expired because one player no longer has enough money.",
+                        content="Дуэль закрыта: у одного из игроков уже не хватает денег на ставку.",
                         embed=None,
                         view=self,
                     )
@@ -65,8 +65,8 @@ class DuelView(discord.ui.View):
                     self._disable_all()
                     await interaction.response.edit_message(
                         content=(
-                            f"Duel between {self.challenger.mention} and {self.opponent.mention} ended in a draw.\n"
-                            f"Rolls: `{challenger_roll}` vs `{opponent_roll}`"
+                            f"Дуэль между {self.challenger.mention} и {self.opponent.mention} закончилась ничьей.\n"
+                            f"Броски: `{challenger_roll}` vs `{opponent_roll}`"
                         ),
                         embed=None,
                         view=self,
@@ -93,8 +93,8 @@ class DuelView(discord.ui.View):
         self._disable_all()
         await interaction.response.edit_message(
             content=(
-                f"{winner.mention} won the duel and took **${self.bet:,}**.\n"
-                f"Rolls: `{challenger_roll}` vs `{opponent_roll}`"
+                f"{winner.mention} выиграл дуэль и забрал **${self.bet:,}**.\n"
+                f"Броски: `{challenger_roll}` vs `{opponent_roll}`"
             ),
             embed=None,
             view=self,
@@ -103,15 +103,15 @@ class DuelView(discord.ui.View):
         schedule_message_cleanup(self.message)
         self.stop()
 
-    @discord.ui.button(label="Decline", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Отклонить", style=discord.ButtonStyle.secondary, row=0)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.opponent.id:
-            await interaction.response.send_message("Only the challenged player can decline.", ephemeral=True)
+            await interaction.response.send_message("Отклонить вызов может только приглашённый игрок.", ephemeral=True)
             return
 
         self._disable_all()
         await interaction.response.edit_message(
-            content=f"{self.opponent.mention} declined the duel from {self.challenger.mention}.",
+            content=f"{self.opponent.mention} отклонил дуэль от {self.challenger.mention}.",
             embed=None,
             view=self,
         )
@@ -126,21 +126,21 @@ class DuelView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class SocialCog(commands.Cog, name="Social"):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="steal", description="Steal money from another player")
+    @app_commands.command(name="steal", description="Украсть деньги у другого игрока")
     async def steal(self, interaction: discord.Interaction, target: discord.Member):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
 
         if target.bot or target.id == interaction.user.id:
-            await interaction.response.send_message("Choose another real player.", ephemeral=True)
+            await interaction.response.send_message("Выбери другого настоящего игрока.", ephemeral=True)
             return
 
         first_id, second_id = sorted((interaction.user.id, target.id))
@@ -168,7 +168,7 @@ class SocialCog(commands.Cog, name="Social"):
                         return
 
                 if victim['balance'] < 100:
-                    await interaction.response.send_message("Target is too poor right now.", ephemeral=True)
+                    await interaction.response.send_message("Сейчас у цели слишком мало денег для кражи.", ephemeral=True)
                     return
 
                 success_chance = max(
@@ -185,10 +185,10 @@ class SocialCog(commands.Cog, name="Social"):
                     await db.update_user(interaction.user.id, interaction.guild_id, thief)
                     await db.update_user(target.id, interaction.guild_id, victim)
                     result_embed = create_embed(
-                        f"{EMOJI['steal']} Steal",
+                        f"{EMOJI['steal']} Кража",
                         (
-                            f"Success. You stole **${stolen:,}** from {target.mention}.\n"
-                            f"New balance: **${thief['balance']:,}**"
+                            f"Кража удалась. Ты вынес **${stolen:,}** у {target.mention}.\n"
+                            f"Новый баланс: **${thief['balance']:,}**"
                         ),
                         COLORS['success'],
                     )
@@ -200,14 +200,14 @@ class SocialCog(commands.Cog, name="Social"):
                     await db.update_user(interaction.user.id, interaction.guild_id, thief)
                     if shielded:
                         result_embed = create_embed(
-                            f"{EMOJI['steal']} Steal",
-                            "Your shadow insurance absorbed the failed heist penalty.",
+                            f"{EMOJI['steal']} Кража",
+                            "🛡️ Теневая страховка прикрыла провал.\n🚫 Штраф: **$0**",
                             COLORS['warning'],
                         )
                     else:
                         result_embed = create_embed(
-                            f"{EMOJI['steal']} Steal",
-                            f"You were caught and paid a fine of **${fine:,}**.",
+                            f"{EMOJI['steal']} Кража",
+                            f"Тебя поймали. Штраф: **${fine:,}**.",
                             COLORS['error'],
                         )
                     won = False
@@ -216,39 +216,43 @@ class SocialCog(commands.Cog, name="Social"):
             await add_xp(interaction.user.id, interaction.guild_id, 50)
 
         await interaction.response.send_message(embed=result_embed)
+        try:
+            schedule_message_cleanup(await interaction.original_response())
+        except Exception:
+            pass
 
-    @app_commands.command(name="duel", description="Challenge another player to a money duel")
+    @app_commands.command(name="duel", description="Вызвать игрока на денежную дуэль")
     async def duel(self, interaction: discord.Interaction, opponent: discord.Member, bet: int):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
 
         if opponent.bot or opponent.id == interaction.user.id or bet <= 0:
-            await interaction.response.send_message("Pick a valid player and a positive bet.", ephemeral=True)
+            await interaction.response.send_message("Выбери корректного игрока и положительную ставку.", ephemeral=True)
             return
 
         challenger_user = await db.get_user(interaction.user.id, interaction.guild_id)
         opponent_user = await db.get_user(opponent.id, interaction.guild_id)
 
         if challenger_user['balance'] < bet:
-            await interaction.response.send_message("You do not have enough money for that duel.", ephemeral=True)
+            await interaction.response.send_message("У тебя не хватает денег на эту дуэль.", ephemeral=True)
             return
 
         if opponent_user['balance'] < bet:
-            await interaction.response.send_message("That player cannot cover the duel bet.", ephemeral=True)
+            await interaction.response.send_message("У этого игрока не хватает денег на ставку.", ephemeral=True)
             return
 
         embed = discord.Embed(
-            title="Player Duel",
+            title="Денежная дуэль",
             description=(
-                f"{interaction.user.mention} challenged {opponent.mention}.\n\n"
-                f"Pot: **${bet:,}**\n"
-                f"Winner takes the full amount from the loser."
+                f"{interaction.user.mention} вызывает {opponent.mention} на дуэль.\n\n"
+                f"Ставка: **${bet:,}**\n"
+                f"Победитель забирает сумму у проигравшего."
             ),
             color=COLORS['gold'],
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text="Challenge expires in 60 seconds.")
+        embed.set_footer(text="Вызов сгорит через 2 минуты без ответа.")
 
         view = DuelView(interaction.user, opponent, interaction.guild_id, bet)
         await interaction.response.send_message(

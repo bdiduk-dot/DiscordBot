@@ -17,15 +17,12 @@ class InventoryV2View(LegacyInventoryView):
         super().__init__(fishing_cog, user_id, guild_id)
         self.general_btn.label = "🎒 Предметы"
         self.fish_btn.label = "🐟 Рыба"
-        if self.gear_btn in self.children:
-            self.remove_item(self.gear_btn)
+        self.gear_btn.label = "🎣 Снаряжение"
 
     async def _refresh(self, interaction: discord.Interaction):
         embed = await self.inventory_cog.build_inventory_embed(self.user_id, self.guild_id, self.active_tab, self.page)
         user, _, _, fish_items, general_items = await self.cog._inventory_snapshot(self.user_id, self.guild_id)
         self.sync_buttons(user, fish_items, general_items)
-        if self.gear_btn in self.children:
-            self.remove_item(self.gear_btn)
         if not await safe_edit_original_response(interaction, embed=embed, view=self):
             return
         await self._remember_message(interaction)
@@ -34,8 +31,7 @@ class InventoryV2View(LegacyInventoryView):
         super().sync_buttons(user, fish_items, general_items)
         self.general_btn.label = "🎒 Предметы"
         self.fish_btn.label = "🐟 Рыба"
-        if self.gear_btn in self.children:
-            self.remove_item(self.gear_btn)
+        self.gear_btn.label = "🎣 Снаряжение"
 
 
 class InventoryCommandsCog(commands.Cog, name="InventoryUI"):

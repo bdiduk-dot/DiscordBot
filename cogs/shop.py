@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from cogs.fishing import EnhancedFishShopView
 from cogs.house import buy_furniture_item, buy_seed_packet, buy_watering_can_upgrade
-from cogs.mining import FURNITURE_ITEMS, GARDEN_CROPS, HOUSE_ORDER, HOUSE_TYPES, WATERING_CANS, _house_index, _house_state, format_money
+from cogs.mining import FURNITURE_ITEMS, GARDEN_CROPS, GPU_MODELS, GPU_ORDER, HOUSE_ORDER, HOUSE_TYPES, WATERING_CANS, _house_index, _house_state, format_money
 from cogs.user import ShopView as LegacyMainShopView
 from config import COLORS
 from database import db
@@ -83,7 +83,7 @@ class _BaseCategoryView(discord.ui.View):
     category_key = "main"
 
     def __init__(self, shop_cog: "ShopCommandsCog", user_id: int, guild_id: int, *, page: int = 0):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.shop_cog = shop_cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -118,7 +118,7 @@ class _BaseCategoryView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class PropertyCategoryView(_BaseCategoryView):
@@ -141,12 +141,19 @@ class PropertyCategoryView(_BaseCategoryView):
         for item in (self.prev_btn, self.buy_1, self.buy_2, self.buy_3, self.next_btn, self.refresh_btn):
             self.add_item(item)
 
-    def _visible_houses(self) -> list[str]:
+    def _items(self) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = [("house", house_id) for house_id in HOUSE_ORDER]
+        items.extend(("gpu", gpu_id) for gpu_id in GPU_ORDER)
+        return items
+
+    def _visible_items(self) -> list[tuple[str, str]]:
         start = self.page * SHOP_PAGE_SIZE
-        return HOUSE_ORDER[start:start + SHOP_PAGE_SIZE]
+        items = self._items()
+        return items[start:start + SHOP_PAGE_SIZE]
 
     def _max_page(self) -> int:
-        return max(0, (len(HOUSE_ORDER) - 1) // SHOP_PAGE_SIZE)
+        items = self._items()
+        return max(0, (len(items) - 1) // SHOP_PAGE_SIZE)
 
     async def render_embed(self) -> discord.Embed:
         user = await db.get_user(self.user_id, self.guild_id) or {"balance": 0, "game_stats": {}}
@@ -154,31 +161,56 @@ class PropertyCategoryView(_BaseCategoryView):
         current_index = _house_index(current_house_id)
         balance = int(user.get("balance", 0) or 0)
         current_house_name = HOUSE_TYPES[current_house_id]["name"] if current_house_id in HOUSE_TYPES else "Пока нет"
+        house_cog = self.shop_cog._house_core()
+        snapshot = house_cog._house_snapshot(user, self.guild_id) if house_cog is not None else {"installed_count": 0, "capacity": 0}
         embed = discord.Embed(
             title="Магазин недвижимости",
-            description=f"Баланс: **{format_money(balance)}**\nТекущий дом: **{current_house_name}**",
+            description=(
+                f"Баланс: **{format_money(balance)}**\n"
+                f"Текущий дом: **{current_house_name}**\n"
+                f"GPU в подвале: **{int(snapshot.get('installed_count', 0) or 0)}/{int(snapshot.get('capacity', 0) or 0)}**"
+            ),
             color=COLORS["info"],
         )
         lines = []
-        for index, house_id in enumerate(self._visible_houses(), start=1):
-            item = HOUSE_TYPES[house_id]
-            item_index = _house_index(house_id)
-            if house_id == current_house_id:
-                status = "Уже куплен"
-            elif current_index >= 0 and item_index <= current_index:
-                status = "Уровень уже пройден"
-            elif balance >= int(item["price"]):
-                status = "Можно купить"
+        installed_count = int(snapshot.get("installed_count", 0) or 0)
+        capacity = int(snapshot.get("capacity", 0) or 0)
+        for index, (item_type, item_key) in enumerate(self._visible_items(), start=1):
+            if item_type == "house":
+                item = HOUSE_TYPES[item_key]
+                item_index = _house_index(item_key)
+                if item_key == current_house_id:
+                    status = "Уже куплен"
+                elif current_index >= 0 and item_index <= current_index:
+                    status = "Уровень уже пройден"
+                elif balance >= int(item["price"]):
+                    status = "Можно купить"
+                else:
+                    status = f"Не хватает {format_money(int(item['price']) - balance)}"
+                lines.append(
+                    f"**{index}. {item['name']}**\n"
+                    f"{item['description']}\n"
+                    f"Цена: **{format_money(int(item['price']))}** • Подвал: **до {int(item['max_basement_level'])} ур.**\n"
+                    f"Статус: **{status}**"
+                )
             else:
-                status = f"Не хватает {format_money(int(item['price']) - balance)}"
-            lines.append(
-                f"**{index}. {item['name']}**\n"
-                f"{item['description']}\n"
-                f"Цена: **{format_money(int(item['price']))}** • Подвал: **до {int(item['max_basement_level'])} ур.**\n"
-                f"Статус: **{status}**"
-            )
+                gpu = GPU_MODELS[item_key]
+                if current_house_id not in HOUSE_TYPES:
+                    status = "Сначала купи дом"
+                elif installed_count >= capacity:
+                    status = "Слоты подвала заполнены"
+                elif balance >= int(gpu["price"]):
+                    status = "Можно купить"
+                else:
+                    status = f"Не хватает {format_money(int(gpu['price']) - balance)}"
+                lines.append(
+                    f"**{index}. {gpu['emoji']} {gpu['name']}**\n"
+                    f"{gpu['description']}\n"
+                    f"Цена: **{format_money(int(gpu['price']))}** • Доход: **{format_money(int(gpu['hourly_income']))}/ч**\n"
+                    f"Статус: **{status}**"
+                )
         embed.add_field(name=f"Страница {self.page + 1}/{self._max_page() + 1}", value="\n\n".join(lines), inline=False)
-        embed.set_footer(text="После покупки дом открывается в `/house`.")
+        embed.set_footer(text="Дома и GPU открываются и управляются через `/house`.")
         return embed
 
     async def _rerender(self, interaction: discord.Interaction):
@@ -191,12 +223,19 @@ class PropertyCategoryView(_BaseCategoryView):
 
     async def _buy_slot(self, interaction: discord.Interaction, slot: int):
         await interaction.response.defer()
-        visible = self._visible_houses()
+        visible = self._visible_items()
         if slot >= len(visible):
-            await interaction.followup.send("На этой кнопке сейчас нет дома.", ephemeral=True)
+            await interaction.followup.send("На этой кнопке сейчас нет товара.", ephemeral=True)
             return
         house_cog = self.shop_cog._house_core()
-        payload = await house_cog.buy_house(self.user_id, self.guild_id, visible[slot]) if house_cog is not None else (False, "Система дома недоступна.")
+        if house_cog is None:
+            payload = (False, "Система дома недоступна.")
+        else:
+            item_type, item_key = visible[slot]
+            if item_type == "house":
+                payload = await house_cog.buy_house(self.user_id, self.guild_id, item_key)
+            else:
+                payload = await house_cog.buy_gpu(self.user_id, self.guild_id, item_key)
         await self._rerender(interaction)
         await self._show_result(interaction, payload[1])
 

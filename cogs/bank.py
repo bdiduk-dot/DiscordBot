@@ -356,7 +356,7 @@ class EarlyWithdrawConfirmView(discord.ui.View):
 
 class BankView(discord.ui.View):
     def __init__(self, user_id: int, guild_id: int, user_data: dict[str, Any] | None = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.user_id = user_id
         self.guild_id = guild_id
         self.user_data = user_data or {}
@@ -544,7 +544,7 @@ class BankView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class BankCog(commands.Cog, name="Bank"):

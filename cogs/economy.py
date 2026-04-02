@@ -57,12 +57,12 @@ VIP_NAMES = {
 }
 
 HOUSE_PROFILE_NAMES = {
-    "studio": "Студия",
-    "flat_one": "Квартира",
-    "flat_two": "Просторная квартира",
+    "studio": "Дачный домик",
+    "flat_one": "Небольшой дом",
+    "flat_two": "Семейный дом",
     "townhouse": "Таунхаус",
     "country_house": "Загородный дом",
-    "penthouse": "Пентхаус",
+    "penthouse": "Особняк",
 }
 
 
@@ -96,7 +96,7 @@ def _profile_house_name(user: dict[str, Any]) -> str:
 
 class ProfileView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -159,7 +159,7 @@ class ProfileView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
     @discord.ui.button(label="Дом", style=discord.ButtonStyle.secondary, row=1)
     async def house_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -210,7 +210,7 @@ class WorkChoiceView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
     async def _resolve(self, interaction: discord.Interaction, index: int):
         if index >= len(self.choices):
@@ -294,7 +294,7 @@ class CrimeChoiceView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
     async def _resolve(self, interaction: discord.Interaction, index: int):
         if index >= len(self.choices):
@@ -340,11 +340,21 @@ class CrimeChoiceView(discord.ui.View):
                 fine = 0 if shielded else min(random.randint(int(choice["fine_min"]), int(choice["fine_max"])), int(user.get("balance", 0) or 0))
                 user["balance"] = int(user.get("balance", 0) or 0) - fine
                 if shielded:
-                    message = f"{choice['fail_text']}\n🛡️ Теневая страховка спасла тебя.\n🚫 Штраф: `{format_money(0)}`"
+                    message = (
+                        f"{choice['fail_text']}\n"
+                        "🛡️ Теневая страховка спасла тебя.\n"
+                        f"🚫 Штраф: `{format_money(0)}`\n"
+                        "📉 Репутация: `0`"
+                    )
                     color = COLORS["warning"]
-                    asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-2, crime_runs=1))
+                    asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=0, crime_runs=1))
                 else:
-                    message = f"{choice['fail_text']}\n❌ Провал\n🚫 Штраф: `-{format_money(fine)}`"
+                    message = (
+                        f"{choice['fail_text']}\n"
+                        "❌ Провал\n"
+                        f"🚫 Штраф: `-{format_money(fine)}`\n"
+                        "📉 Репутация: `-6`"
+                    )
                     color = COLORS["error"]
                     asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-6, crime_runs=1))
             user["last_crime"] = now.isoformat()
@@ -375,7 +385,7 @@ class CrimeChoiceView(discord.ui.View):
 
 class ProfileCustomizeView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -517,12 +527,12 @@ class ProfileCustomizeView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class ProfileInfoView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int, *, section: str):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -552,7 +562,7 @@ class ProfileInfoView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
     @discord.ui.button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=0)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1196,15 +1206,27 @@ class EconomyCog(commands.Cog, name="Economy"):
                 user["balance"] += earnings
                 message = f"{outcome['success_text']}\n✅ Успех\n💵 Заработано: `{format_money(earnings)}`"
                 color = COLORS["success"]
+                reputation_penalty = 0
             else:
                 shielded = has_active_shield(user)
                 loss = 0 if shielded else min(random.randint(int(outcome["loss_min"]), int(outcome["loss_max"])), int(user.get("balance", 0) or 0))
                 user["balance"] -= loss
+                reputation_penalty = 0 if shielded else -4
                 if shielded:
-                    message = f"{outcome['fail_text']}\n🛡️ Страховка прикрыла провал\n🧾 Потеряно: `{format_money(0)}`"
+                    message = (
+                        f"{outcome['fail_text']}\n"
+                        "🛡️ Теневая страховка прикрыла провал\n"
+                        f"🧾 Потеряно: `{format_money(0)}`\n"
+                        "📉 Репутация: `0`"
+                    )
                     color = COLORS["warning"]
                 else:
-                    message = f"{outcome['fail_text']}\n❌ Не повезло\n🧾 Потеряно: `-{format_money(loss)}`"
+                    message = (
+                        f"{outcome['fail_text']}\n"
+                        "❌ Не повезло\n"
+                        f"🧾 Потеряно: `-{format_money(loss)}`\n"
+                        "📉 Репутация: `-4`"
+                    )
                     color = COLORS["error"]
 
             user["last_slut"] = now.isoformat()
@@ -1220,6 +1242,7 @@ class EconomyCog(commands.Cog, name="Economy"):
                     action="slut",
                     amount=1,
                     money=earnings if color == COLORS["success"] else 0,
+                    reputation=reputation_penalty,
                 )
             )
 
@@ -1227,6 +1250,10 @@ class EconomyCog(commands.Cog, name="Economy"):
         embed = create_embed("🔥 РИСКОВАННАЯ РАБОТА", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
         await interaction.edit_original_response(content=None, embed=embed)
+        try:
+            schedule_message_cleanup(await interaction.original_response())
+        except Exception:
+            pass
 
     @app_commands.command(name="hourly", description="Забрать почасовой бонус")
     async def hourly(self, interaction: discord.Interaction):

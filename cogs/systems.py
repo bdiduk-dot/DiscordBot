@@ -34,6 +34,7 @@ from utils import (
     get_random_crypto,
     record_player_progress,
     safe_defer,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -545,7 +546,7 @@ def _daily_black_market_offers(day_key: str, reputation: int = 0) -> list[dict[s
 
 class ContractsView(discord.ui.View):
     def __init__(self, cog: "SystemsCog", user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -613,10 +614,21 @@ class ContractsView(discord.ui.View):
                 return
             await self._refresh(interaction)
 
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
 
 class ContractsViewV2(discord.ui.View):
     def __init__(self, cog: "SystemsCog", user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -657,7 +669,7 @@ class ContractsViewV2(discord.ui.View):
 
         rerolls_left, rerolls_total = self.cog.get_contract_rerolls_left_sync(self.user_id, self.guild_id)
         self.reroll_btn.disabled = rerolls_left <= 0
-        self.reroll_btn.label = f"Reroll {rerolls_left}/{rerolls_total}"
+        self.reroll_btn.label = f"Обновить {rerolls_left}/{rerolls_total}"
 
     async def _claim(self, interaction: discord.Interaction, slot: int):
         async with self._view_lock:
@@ -690,7 +702,7 @@ class ContractsViewV2(discord.ui.View):
     async def claim_5(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._claim(interaction, 4)
 
-    @discord.ui.button(label="Reroll", style=discord.ButtonStyle.primary, row=2)
+    @discord.ui.button(label="Обновить список", style=discord.ButtonStyle.primary, row=2)
     async def reroll_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -709,10 +721,21 @@ class ContractsViewV2(discord.ui.View):
                 return
             await self._refresh(interaction)
 
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
 
 class BlackMarketView(discord.ui.View):
     def __init__(self, cog: "SystemsCog", user_id: int, guild_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -787,6 +810,17 @@ class BlackMarketView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             await self._refresh(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class SystemsCog(commands.Cog, name="Systems"):
@@ -1318,7 +1352,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             value=(
                 f"Репутация: **{reputation}** ({reputation_label(reputation)})\n"
                 f"Слотов: **{len(items)}**\n"
-                f"Reroll: **{rerolls_left}/{max_rerolls}**"
+                f"Обновления: **{rerolls_left}/{max_rerolls}**"
             ),
             inline=False,
         )

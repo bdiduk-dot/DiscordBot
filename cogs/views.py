@@ -104,7 +104,7 @@ class MinesGame:
 
 class BlackjackView(discord.ui.View):
     def __init__(self, game: BlackjackGame):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.game = game
         self.message: discord.Message | None = None
         self._lock = asyncio.Lock()
@@ -128,7 +128,7 @@ class BlackjackView(discord.ui.View):
             await self.message.edit(view=self)
         except Exception:
             pass
-        schedule_message_cleanup(self.message)
+        schedule_message_cleanup(self.message, delay_seconds=0)
 
     async def _finish_game(self, interaction: discord.Interaction):
         if self.game.finished:
@@ -404,7 +404,7 @@ class BlackjackPvpInviteView(discord.ui.View):
                 await self.message.edit(embed=embed, view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
     @discord.ui.button(label="Принять", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -487,7 +487,7 @@ class BlackjackPvpInviteView(discord.ui.View):
 
 class BlackjackPvpView(discord.ui.View):
     def __init__(self, game: BlackjackPvpGame):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.game = game
         self.message: discord.Message | None = None
         self._lock = asyncio.Lock()
@@ -535,7 +535,7 @@ class BlackjackPvpView(discord.ui.View):
         elif not draw:
             user["win_streak"] = 0
 
-    async def _refund_players(self, reason: str):
+    async def _refund_players(self, reason: str, *, cleanup_delay: int = 120):
         first_id, second_id = sorted([player["id"] for player in self.game.players])
         async with get_user_lock(first_id):
             async with get_user_lock(second_id):
@@ -552,13 +552,16 @@ class BlackjackPvpView(discord.ui.View):
             embed = self.game.get_embed(description=reason)
             embed.color = COLORS["warning"]
             await self.message.edit(embed=embed, view=self)
-            schedule_message_cleanup(self.message)
+            schedule_message_cleanup(self.message, delay_seconds=cleanup_delay)
 
     async def on_timeout(self):
         if self.game.finished:
             return
         try:
-            await self._refund_players("Дуэль завершилась по таймауту. Ставки возвращены обоим игрокам.")
+            await self._refund_players(
+                "Дуэль завершилась по таймауту. Ставки возвращены обоим игрокам.",
+                cleanup_delay=0,
+            )
         except Exception:
             pass
 

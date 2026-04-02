@@ -31,6 +31,7 @@ KYIV_TZ = get_kyiv_timezone()
 DAILY_QUEST_COUNT = 4
 WEEKLY_QUEST_COUNT = 7
 INACTIVE_MESSAGE_DELETE_DELAY = 120
+_MESSAGE_CLEANUP_TASKS: dict[int, asyncio.Task[Any]] = {}
 
 
 def _parse_quest_timestamp(raw_value: str | None) -> Optional[datetime]:
@@ -196,17 +197,31 @@ async def safe_edit_original_response(interaction: discord.Interaction, **kwargs
 async def delete_message_after_delay(message: discord.Message | None, delay_seconds: int = INACTIVE_MESSAGE_DELETE_DELAY) -> None:
     if message is None:
         return
-    await asyncio.sleep(max(0, int(delay_seconds)))
+    message_id = int(getattr(message, "id", 0) or 0)
     try:
-        await message.delete()
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-        return
+        await asyncio.sleep(max(0, int(delay_seconds)))
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+    except asyncio.CancelledError:
+        raise
+    finally:
+        current_task = _MESSAGE_CLEANUP_TASKS.get(message_id)
+        if current_task is asyncio.current_task():
+            _MESSAGE_CLEANUP_TASKS.pop(message_id, None)
 
 
 def schedule_message_cleanup(message: discord.Message | None, delay_seconds: int = INACTIVE_MESSAGE_DELETE_DELAY) -> asyncio.Task | None:
     if message is None:
         return None
-    return asyncio.create_task(delete_message_after_delay(message, delay_seconds=delay_seconds))
+    message_id = int(getattr(message, "id", 0) or 0)
+    existing_task = _MESSAGE_CLEANUP_TASKS.get(message_id)
+    if existing_task is not None and not existing_task.done():
+        existing_task.cancel()
+    task = asyncio.create_task(delete_message_after_delay(message, delay_seconds=delay_seconds))
+    _MESSAGE_CLEANUP_TASKS[message_id] = task
+    return task
 
 
 def has_active_shield(user: Dict[str, Any]) -> bool:

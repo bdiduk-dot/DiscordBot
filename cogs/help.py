@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import COLORS
-from utils import check_channel, send_wrong_channel_message
+from utils import check_channel, schedule_message_cleanup, send_wrong_channel_message
 
 
 def _build_info_embed(title: str, description: str, color: int) -> discord.Embed:
@@ -14,7 +14,19 @@ def _build_info_embed(title: str, description: str, color: int) -> discord.Embed
 
 class HoHelpView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
+        self.message: discord.Message | None = None
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
     @discord.ui.button(label="Экономика", style=discord.ButtonStyle.primary, row=0)
     async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -166,7 +178,9 @@ class HelpCog(commands.Cog, name="Help"):
             inline=False,
         )
         embed.set_footer(text="Открой нужный раздел кнопками ниже")
-        await interaction.response.send_message(embed=embed, view=HoHelpView())
+        view = HoHelpView()
+        await interaction.response.send_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
 
 async def setup(bot):

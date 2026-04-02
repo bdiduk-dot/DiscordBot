@@ -21,6 +21,7 @@ from utils import (
     record_player_progress,
     safe_defer,
     safe_edit_original_response,
+    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 
@@ -30,37 +31,37 @@ MAX_MINING_STORAGE_HOURS = 24
 
 HOUSE_TYPES: dict[str, dict[str, Any]] = {
     "studio": {
-        "name": "Студия",
-        "category": "Квартира",
+        "name": "Дачный домик",
+        "category": "Дом",
         "price": 80_000,
         "rooms": 1,
         "prestige": 1,
         "base_gpu_slots": 1,
         "rental_slots": 1,
         "max_basement_level": 2,
-        "description": "Дешевый старт для первых арендаторов и маленькой фермы.",
+        "description": "Первый маленький дом для старта, аренды и базового подвала.",
     },
     "flat_one": {
-        "name": "1-комнатная квартира",
-        "category": "Квартира",
+        "name": "Небольшой дом",
+        "category": "Дом",
         "price": 220_000,
         "rooms": 2,
         "prestige": 2,
         "base_gpu_slots": 2,
         "rental_slots": 1,
         "max_basement_level": 3,
-        "description": "Уверенный апгрейд с лучшими заявками и нормальным подвалом.",
+        "description": "Уютный дом с лучшими заявками, садом и нормальным подвалом.",
     },
     "flat_two": {
-        "name": "2-комнатная квартира",
-        "category": "Квартира",
+        "name": "Семейный дом",
+        "category": "Дом",
         "price": 520_000,
         "rooms": 3,
         "prestige": 3,
         "base_gpu_slots": 3,
         "rental_slots": 1,
         "max_basement_level": 3,
-        "description": "Больше места, лучше арендаторы и выше доход с рынка.",
+        "description": "Больше комнат, сильнее аренда и заметно полезнее подвал.",
     },
     "townhouse": {
         "name": "Таунхаус",
@@ -85,15 +86,15 @@ HOUSE_TYPES: dict[str, dict[str, Any]] = {
         "description": "Большой дом для сильной аренды и жирного подвала.",
     },
     "penthouse": {
-        "name": "Пентхаус",
-        "category": "Премиум",
+        "name": "Особняк",
+        "category": "Дом",
         "price": 7_500_000,
         "rooms": 6,
         "prestige": 6,
         "base_gpu_slots": 9,
         "rental_slots": 3,
         "max_basement_level": 5,
-        "description": "Топовая недвижимость без виллы и особняка, но уже с премиальными заявками.",
+        "description": "Топовый дом с премиальными заявками, сильной арендой и лучшим подвалом.",
     },
 }
 
@@ -170,7 +171,7 @@ GPU_ORDER = list(GPU_MODELS.keys())
 
 TENANT_TYPES: list[dict[str, Any]] = [
     {"name": "Студент", "description": "Снимает быстро, платит скромно, но стабильно.", "min_rooms": 1, "min_prestige": 1, "multiplier": 0.92, "durations": [6, 12]},
-    {"name": "Фрилансер", "description": "Любит короткие заезды и спокойные квартиры.", "min_rooms": 2, "min_prestige": 1, "multiplier": 1.0, "durations": [6, 12, 24]},
+    {"name": "Фрилансер", "description": "Любит короткие заезды и спокойные дома.", "min_rooms": 2, "min_prestige": 1, "multiplier": 1.0, "durations": [6, 12, 24]},
     {"name": "Семья", "description": "Нуждается в комнатах и остается подольше.", "min_rooms": 3, "min_prestige": 2, "multiplier": 1.15, "durations": [12, 24]},
     {"name": "Стример", "description": "Ищет красивое место и готов платить больше обычного.", "min_rooms": 2, "min_prestige": 3, "multiplier": 1.22, "durations": [6, 12]},
     {"name": "Стартап-команда", "description": "Любит простор и длинные заезды с жирной оплатой.", "min_rooms": 4, "min_prestige": 4, "multiplier": 1.35, "durations": [12, 24]},
@@ -179,13 +180,13 @@ TENANT_TYPES: list[dict[str, Any]] = [
 
 
 HOUSE_TYPES["studio"].update(
-    {"name": "Студия", "category": "Квартира", "description": "Базовый старт для первых арендаторов и маленького подвала."}
+    {"name": "Дачный домик", "category": "Дом", "description": "Базовый дом для старта, первых арендаторов и маленького подвала."}
 )
 HOUSE_TYPES["flat_one"].update(
-    {"name": "Однокомнатная квартира", "category": "Квартира", "description": "Нормальный апгрейд с лучшими заявками и уверенным подвалом."}
+    {"name": "Небольшой дом", "category": "Дом", "description": "Уютный дом с лучшими заявками и уверенным подвалом."}
 )
 HOUSE_TYPES["flat_two"].update(
-    {"name": "Двухкомнатная квартира", "category": "Квартира", "description": "Больше комнат, лучше аренда и сильнее доход из подвала."}
+    {"name": "Семейный дом", "category": "Дом", "description": "Больше комнат, сильнее аренда и заметно полезнее подвал."}
 )
 HOUSE_TYPES["townhouse"].update(
     {"name": "Таунхаус", "category": "Дом", "description": "Первый серьёзный дом с двумя слотами аренды и заметным подвалом."}
@@ -194,7 +195,7 @@ HOUSE_TYPES["country_house"].update(
     {"name": "Загородный дом", "category": "Дом", "description": "Большой дом для жирной аренды и мощного подвала."}
 )
 HOUSE_TYPES["penthouse"].update(
-    {"name": "Дуплекс", "category": "Дом", "description": "Топовый городской дом без вилл и особняков, но уже с премиальными заявками."}
+    {"name": "Особняк", "category": "Дом", "description": "Топовый дом с премиальными заявками, сильной арендой и лучшим подвалом."}
 )
 
 GPU_MODELS["gtx_1060"].update({"description": "Бюджетная карта для первого маленького подвала."})
@@ -204,7 +205,7 @@ GPU_MODELS["rtx_4080"].update({"description": "Мощная карта для д
 GPU_MODELS["rtx_5090"].update({"description": "Топовая видеокарта для поздней игры и сильной фермы."})
 
 TENANT_TYPES[0].update({"name": "Студент", "description": "Снимает быстро, платит скромно, но стабильно."})
-TENANT_TYPES[1].update({"name": "Фрилансер", "description": "Любит короткие заезды и спокойные квартиры."})
+TENANT_TYPES[1].update({"name": "Фрилансер", "description": "Любит короткие заезды и спокойные дома."})
 TENANT_TYPES[2].update({"name": "Семья", "description": "Нуждается в комнатах и остаётся подольше."})
 TENANT_TYPES[3].update({"name": "Стример", "description": "Ищет красивое место и готов платить выше обычного."})
 TENANT_TYPES[4].update({"name": "Стартап-команда", "description": "Любит простор и длинные заезды с хорошей оплатой."})
@@ -240,6 +241,7 @@ def _house_state(user: dict[str, Any]) -> dict[str, Any]:
     house.setdefault("mining_runs", 0)
     house.setdefault("active_rentals", [])
     house.setdefault("crypto_wallet", {symbol: 0.0 for symbol in CRYPTO_TYPES})
+    house.setdefault("crypto_focus", None)
     house.setdefault("furniture", [])
     current_house_id = str(house.get("owned_house_id") or "")
     house.setdefault("max_garden_level", GARDEN_SLOT_LIMITS.get(current_house_id, 0))
@@ -352,7 +354,7 @@ def _gpu_breakdown(installed_gpus: list[str]) -> dict[str, int]:
 
 class HouseView(discord.ui.View):
     def __init__(self, cog: "HouseCog", user_id: int, guild_id: int, *, tab: str = "house", house_page: int = 0, entry_mode: str | None = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -674,11 +676,12 @@ class HouseView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class CleanHouseView(discord.ui.View):
     def __init__(self, cog: "HouseCog", user_id: int, guild_id: int, *, tab: str = "house", house_page: int = 0, entry_mode: str | None = None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -941,6 +944,7 @@ class CleanHouseView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 HouseView = CleanHouseView

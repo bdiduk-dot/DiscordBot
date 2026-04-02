@@ -108,16 +108,35 @@ class UpdatesCog(commands.Cog, name="Updates"):
         if channel is None:
             return
 
+        desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
+        desired_embed = build_update_embed()
         existing = await self._find_latest_update_message(channel)
         if existing is not None:
+            current_embed = existing.embeds[0] if existing.embeds else None
+            needs_refresh = (
+                existing.content != desired_content
+                or current_embed is None
+                or current_embed.title != desired_embed.title
+                or current_embed.description != desired_embed.description
+                or (current_embed.footer.text if current_embed.footer else None) != (desired_embed.footer.text if desired_embed.footer else None)
+            )
+            if needs_refresh:
+                try:
+                    await existing.edit(
+                        content=desired_content,
+                        embed=desired_embed,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except Exception:
+                    pass
             await self._pin_message(existing)
             await self._remove_old_update_messages(channel, keep_message_id=existing.id)
             return
 
         try:
             message = await channel.send(
-                f"<@&{UPDATE_PING_ROLE_ID}>",
-                embed=build_update_embed(),
+                desired_content,
+                embed=desired_embed,
                 allowed_mentions=discord.AllowedMentions(roles=True),
             )
         except Exception:
