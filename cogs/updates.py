@@ -7,10 +7,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from update_notes import (
-    LATEST_UPDATE_ID,
     UPDATE_CHANNEL_ID,
     UPDATE_PING_ROLE_ID,
-    build_update_embed,
     build_update_embeds,
 )
 from utils import check_channel, send_wrong_channel_message
@@ -38,9 +36,8 @@ class UpdatesCog(commands.Cog, name="Updates"):
         if not message.author.bot or not message.embeds:
             return False
         first_embed = message.embeds[0]
-        expected_title = build_update_embed().title
-        footer_text = f"Update ID: {LATEST_UPDATE_ID}"
-        return first_embed.title == expected_title and bool(first_embed.footer and first_embed.footer.text == footer_text)
+        footer_text = first_embed.footer.text if first_embed.footer else None
+        return bool(footer_text and footer_text.startswith("Update ID: "))
 
     async def _pin_message(self, message: discord.Message) -> None:
         try:
@@ -107,8 +104,8 @@ class UpdatesCog(commands.Cog, name="Updates"):
             print(f"Updates startup: failed to send update post: {exc}")
             return False
 
-        await self._pin_message(message)
         await self._remove_old_update_messages(channel, keep_message_id=message.id)
+        await self._pin_message(message)
         return True
 
     async def ensure_startup_post(self) -> bool:
