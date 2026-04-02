@@ -6,11 +6,13 @@ from typing import Any
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
+from cogs.bank import deposit_snapshot
 from cogs.fishing_world import describe_world_lines, get_world_state
-from config import BUSINESSES, COLORS, FISHING_RODS, VIP_LEVELS, get_vip_level
-from database import db, get_user_lock
+from cogs.house import _refresh_garden_state
+from config import ALLOWED_CHANNEL_ID, BUSINESSES, CASINO_ROLE_ID, COLORS, FISHING_RODS, VIP_LEVELS, get_vip_level
+from database import db, get_user_lock, supabase
 from inventory_system import get_general_items
 from progression import (
     PROFILE_TITLES,
@@ -31,10 +33,12 @@ from progression import (
     unlock_title,
 )
 from utils import (
+    auto_casino_role_enabled,
     check_channel,
     format_discord_deadline,
     get_business_autocollect_state,
     get_kyiv_timezone,
+    get_user_preferences,
     has_active_shield,
     normalize_businesses,
     normalize_datetime,
@@ -42,6 +46,7 @@ from utils import (
     safe_edit_original_response,
     schedule_message_cleanup,
     send_wrong_channel_message,
+    smart_notifications_enabled,
 )
 
 AUTO_COLLECT_UPGRADE = {
@@ -1448,9 +1453,328 @@ class ShopView(_BaseShopView):
                 await interaction.followup.send(str(result), ephemeral=True)
 
 
+class SettingsView(discord.ui.View):
+    def __init__(self, cog: "UserCog", user_id: int, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню настроек открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        self.message = await _remember_interaction_message(interaction, self.message)
+
+    async def _refresh(self, interaction: discord.Interaction):
+        embed = await self.cog.build_settings_embed(interaction.user, self.guild_id)
+        if not await safe_edit_original_response(interaction, embed=embed, view=self):
+            return
+        await self._remember_message(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+    @discord.ui.button(label="Уведомления", style=discord.ButtonStyle.primary, row=0)
+    async def toggle_notifications(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            enabled = await self.cog.toggle_smart_notifications(self.user_id, self.guild_id)
+            await self._refresh(interaction)
+            await interaction.followup.send(
+                "Умные уведомления включены." if enabled else "Умные уведомления отключены.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="Авто-роль", style=discord.ButtonStyle.secondary, row=0)
+    async def toggle_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            enabled, role_changed = await self.cog.toggle_auto_casino_role(interaction.user, self.guild_id)
+            await self._refresh(interaction)
+            if enabled:
+                message = "Автовыдача роли снова включена."
+                if role_changed:
+                    message += " Роль выдана."
+            else:
+                message = "Автовыдача роли отключена."
+                if role_changed:
+                    message += " Роль снята и больше не будет выдаваться автоматически."
+            await interaction.followup.send(message, ephemeral=True)
+
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            await self._refresh(interaction)
+
+
 class UserCog(commands.Cog, name="User"):
     def __init__(self, bot):
         self.bot = bot
+        self._smart_notification_markers: dict[tuple[int, int, str], str] = {}
+        if not self.smart_notifications_loop.is_running():
+            self.smart_notifications_loop.start()
+
+    def cog_unload(self):
+        self.smart_notifications_loop.cancel()
+
+    def _notification_marker_changed(self, user_id: int, guild_id: int, key: str, marker: str | None) -> bool:
+        marker_key = (int(user_id), int(guild_id), key)
+        if not marker:
+            self._smart_notification_markers.pop(marker_key, None)
+            return False
+
+        previous = self._smart_notification_markers.get(marker_key)
+        self._smart_notification_markers[marker_key] = marker
+        return previous != marker
+
+    def _clear_notification_markers_for_user(self, user_id: int, guild_id: int) -> None:
+        prefix = (int(user_id), int(guild_id))
+        stale_keys = [key for key in self._smart_notification_markers if key[:2] == prefix]
+        for key in stale_keys:
+            self._smart_notification_markers.pop(key, None)
+
+    async def build_settings_embed(self, member: discord.Member | discord.User, guild_id: int) -> discord.Embed:
+        user = await db.get_user(member.id, guild_id)
+        preferences = get_user_preferences(user or {})
+        auto_role = bool(preferences.get("auto_casino_role", True))
+        notifications = bool(preferences.get("smart_notifications", True))
+
+        role_text = "Роль недоступна"
+        if isinstance(member, discord.Member):
+            role = member.guild.get_role(CASINO_ROLE_ID)
+            if role is None:
+                role_text = "Роль не найдена на сервере"
+            else:
+                has_role = role in member.roles
+                status = "есть" if has_role else "нет"
+                role_text = f"{role.mention} • сейчас: **{status}**"
+
+        embed = discord.Embed(
+            title="⚙️ Настройки",
+            description="Личный центр управления уведомлениями и автоматической ролью.",
+            color=COLORS["info"],
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+        embed.add_field(
+            name="Умные уведомления",
+            value=(
+                f"Статус: **{'Включены' if notifications else 'Выключены'}**\n"
+                f"Канал: <#{ALLOWED_CHANNEL_ID}>\n"
+                "Следят за депозитом, арендой, бизнесами, урожаем и почти сгорающим daily streak."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Авто-роль казино",
+            value=(
+                f"Статус: **{'Включена' if auto_role else 'Выключена'}**\n"
+                f"Текущая роль: {role_text}\n"
+                "Если отключить, роль снимется и больше не будет выдаваться автоматически."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Кнопками ниже можно быстро включить или отключить нужные функции.")
+        return embed
+
+    async def toggle_smart_notifications(self, user_id: int, guild_id: int) -> bool:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return True
+            preferences = get_user_preferences(user)
+            new_value = not bool(preferences.get("smart_notifications", True))
+            preferences["smart_notifications"] = new_value
+            await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+
+        if not new_value:
+            self._clear_notification_markers_for_user(user_id, guild_id)
+        return new_value
+
+    async def toggle_auto_casino_role(self, member: discord.Member | discord.User, guild_id: int) -> tuple[bool, bool]:
+        role_changed = False
+        async with get_user_lock(member.id):
+            user = await db.get_user(member.id, guild_id)
+            if not user:
+                return True, False
+            preferences = get_user_preferences(user)
+            new_value = not bool(preferences.get("auto_casino_role", True))
+            preferences["auto_casino_role"] = new_value
+            await db.update_user(member.id, guild_id, {"game_stats": user.get("game_stats", {})})
+
+        if isinstance(member, discord.Member):
+            role = member.guild.get_role(CASINO_ROLE_ID)
+            if role is not None:
+                try:
+                    if new_value and role not in member.roles:
+                        await member.add_roles(role, reason="Игрок включил автовыдачу роли казино")
+                        role_changed = True
+                    elif not new_value and role in member.roles:
+                        await member.remove_roles(role, reason="Игрок отключил автовыдачу роли казино")
+                        role_changed = True
+                except Exception:
+                    pass
+
+        if not new_value:
+            self._clear_notification_markers_for_user(member.id, guild_id)
+        return new_value, role_changed
+
+    def _get_business_ready_marker(self, user: dict[str, Any], now: datetime) -> tuple[int, str | None]:
+        ready_tokens: list[str] = []
+        businesses = normalize_businesses(user.get("businesses", {}))
+        for business_id, entries in businesses.items():
+            business = BUSINESSES.get(int(business_id)) if str(business_id).isdigit() else None
+            if business is None:
+                continue
+            for index, entry in enumerate(entries):
+                last_collect = normalize_datetime(entry.get("last_collect") or entry.get("last_collected"))
+                if last_collect is None or last_collect + timedelta(hours=int(business["time"])) <= now:
+                    marker = "none" if last_collect is None else last_collect.isoformat()
+                    ready_tokens.append(f"{business_id}:{index}:{marker}")
+        if not ready_tokens:
+            return 0, None
+        ready_tokens.sort()
+        return len(ready_tokens), "|".join(ready_tokens)
+
+    def _get_daily_warning_marker(self, user: dict[str, Any], now: datetime) -> str | None:
+        last_daily = normalize_datetime(user.get("last_daily"))
+        daily_streak = int(user.get("daily_streak", 0) or 0)
+        if last_daily is None or daily_streak <= 0:
+            return None
+
+        streak_expires_at = last_daily + timedelta(hours=48)
+        warning_at = streak_expires_at - timedelta(hours=2)
+        if warning_at <= now < streak_expires_at:
+            return last_daily.isoformat()
+        return None
+
+    async def _get_notification_channel(self, guild_id: int) -> discord.TextChannel | None:
+        channel = self.bot.get_channel(ALLOWED_CHANNEL_ID)
+        if isinstance(channel, discord.TextChannel) and channel.guild and channel.guild.id == guild_id:
+            return channel
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return None
+
+        fallback = guild.get_channel(ALLOWED_CHANNEL_ID)
+        return fallback if isinstance(fallback, discord.TextChannel) else None
+
+    async def _build_smart_notification_lines(self, user: dict[str, Any], guild_id: int, now: datetime) -> list[str]:
+        user_id = int(user.get("user_id", 0) or 0)
+        if user_id <= 0:
+            return []
+
+        lines: list[str] = []
+
+        deposit = deposit_snapshot(user)
+        deposit_marker = deposit["matures_at"].isoformat() if deposit["active"] and deposit["matured"] and deposit["matures_at"] else None
+        if self._notification_marker_changed(user_id, guild_id, "deposit_ready", deposit_marker):
+            lines.append("🏦 Депозит созрел и готов к выдаче через `/bank`.")
+
+        auto_collect_state = get_business_autocollect_state(user)
+        if not auto_collect_state.get("enabled"):
+            business_count, business_marker = self._get_business_ready_marker(user, now)
+            if self._notification_marker_changed(user_id, guild_id, "business_ready", business_marker):
+                lines.append(f"🏢 Бизнесы готовы к сбору: **{business_count}** шт.")
+        else:
+            self._notification_marker_changed(user_id, guild_id, "business_ready", None)
+
+        house_cog = self.bot.get_cog("House")
+        if house_cog is not None:
+            rental_state = house_cog._rental_status(user)
+            ready_rentals = rental_state.get("ready_rentals", [])
+            rent_marker = "|".join(sorted(str(rental.get("id")) for rental in ready_rentals if rental.get("id"))) or None
+            if self._notification_marker_changed(user_id, guild_id, "rent_ready", rent_marker):
+                lines.append(f"🏠 Аренда готова к сбору: **{len(ready_rentals)}** заявок.")
+
+            game_stats = user.get("game_stats") if isinstance(user.get("game_stats"), dict) else {}
+            systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
+            house_state = systems.get("house") if isinstance(systems, dict) else {}
+            if isinstance(house_state, dict):
+                refreshed_plots = _refresh_garden_state(house_state, now)
+                ready_plot_tokens = [
+                    f"{index}:{plot.get('crop_code')}"
+                    for index, plot in enumerate(refreshed_plots)
+                    if isinstance(plot, dict) and str(plot.get("state") or "") == "ready"
+                ]
+                harvest_marker = "|".join(ready_plot_tokens) or None
+                if self._notification_marker_changed(user_id, guild_id, "harvest_ready", harvest_marker):
+                    lines.append(f"🌱 Урожай готов: **{len(ready_plot_tokens)}** грядок можно собрать.")
+
+        daily_warning_marker = self._get_daily_warning_marker(user, now)
+        if self._notification_marker_changed(user_id, guild_id, "daily_warning", daily_warning_marker):
+            lines.append("⏰ Daily streak почти сгорает. Забери `/daily`, чтобы не потерять серию.")
+
+        return lines
+
+    @tasks.loop(minutes=2)
+    async def smart_notifications_loop(self):
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("users").select(
+                    "user_id,guild_id,deposit_amount,deposit_rate,deposit_start,deposit_days,last_daily,daily_streak,vip_level,businesses,game_stats"
+                ).execute()
+            )
+        except Exception as exc:
+            print(f"Smart notifications loop error: {exc}")
+            return
+
+        now = datetime.now(timezone.utc)
+        for row in result.data or []:
+            user_id = int(row.get("user_id") or 0)
+            guild_id = int(row.get("guild_id") or 0)
+            if user_id <= 0 or guild_id <= 0:
+                continue
+            if not smart_notifications_enabled(row):
+                self._clear_notification_markers_for_user(user_id, guild_id)
+                continue
+
+            lines = await self._build_smart_notification_lines(row, guild_id, now)
+            if not lines:
+                continue
+
+            channel = await self._get_notification_channel(guild_id)
+            if channel is None:
+                continue
+
+            embed = discord.Embed(
+                title="🔔 Умные уведомления",
+                description="\n".join(f"▸ {line}" for line in lines),
+                color=COLORS["info"],
+                timestamp=now,
+            )
+            embed.set_footer(text="Эти уведомления можно отключить через /settings.")
+            try:
+                await channel.send(
+                    f"<@{user_id}>",
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions(users=True),
+                )
+            except Exception:
+                continue
+
+    @smart_notifications_loop.before_loop
+    async def before_smart_notifications_loop(self):
+        await self.bot.wait_until_ready()
 
     @staticmethod
     def _timer_value(now: datetime, ready_at: datetime | None, ready_label: str = "Готово") -> str:
@@ -1739,6 +2063,17 @@ class UserCog(commands.Cog, name="User"):
             schedule_message_cleanup(await interaction.original_response())
         except Exception:
             pass
+
+    @app_commands.command(name="settings", description="Личные настройки уведомлений и роли")
+    async def settings(self, interaction: discord.Interaction):
+        if not await check_channel(interaction):
+            await send_wrong_channel_message(interaction)
+            return
+
+        view = SettingsView(self, interaction.user.id, interaction.guild_id)
+        embed = await self.build_settings_embed(interaction.user, interaction.guild_id)
+        await interaction.response.send_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
 
 async def setup(bot):

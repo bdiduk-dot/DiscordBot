@@ -33,11 +33,23 @@ class BlackjackGame:
         self.user_id = user_id
         self.guild_id = guild_id
         self.bet = bet
+        self.base_bet = bet
         self.multiplayer = multiplayer
         self.deck = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"] * 4
         random.shuffle(self.deck)
-        self.player_hand = [self.deck.pop(), self.deck.pop()]
+        self.player_hands = [
+            {
+                "cards": [self.deck.pop(), self.deck.pop()],
+                "bet": bet,
+                "done": False,
+                "doubled": False,
+                "split_from_pair": False,
+            }
+        ]
         self.dealer_hand = [self.deck.pop(), self.deck.pop()]
+        self.total_wagered = bet
+        self.insurance_bet = 0
+        self.insurance_taken = False
         self.finished = False
 
     def hand_value(self, hand: list[str]) -> int:
@@ -51,13 +63,109 @@ class BlackjackGame:
     def is_natural_blackjack(self, hand: list[str]) -> bool:
         return len(hand) == 2 and self.hand_value(hand) == 21
 
+    @staticmethod
+    def card_score(card: str) -> int:
+        return 11 if card == "A" else 10 if card in "JQK" else int(card)
+
+    def current_hand_index(self) -> int | None:
+        for index, hand in enumerate(self.player_hands):
+            if not bool(hand.get("done")):
+                return index
+        return None
+
+    def current_hand(self) -> dict[str, object] | None:
+        index = self.current_hand_index()
+        if index is None:
+            return None
+        return self.player_hands[index]
+
+    def all_hands_done(self) -> bool:
+        return all(bool(hand.get("done")) for hand in self.player_hands)
+
+    def can_double(self) -> bool:
+        hand = self.current_hand()
+        if hand is None:
+            return False
+        return len(hand["cards"]) == 2 and not bool(hand.get("doubled"))
+
+    def can_split(self) -> bool:
+        hand = self.current_hand()
+        if hand is None or len(self.player_hands) > 1:
+            return False
+        cards = hand["cards"]
+        if len(cards) != 2:
+            return False
+        return self.card_score(cards[0]) == self.card_score(cards[1])
+
+    def insurance_available(self) -> bool:
+        hand = self.current_hand()
+        if hand is None:
+            return False
+        return self.dealer_hand[0] == "A" and not self.insurance_taken and len(hand["cards"]) == 2
+
+    def insurance_cost(self) -> int:
+        return max(1, int(round(self.base_bet / 2)))
+
+    def take_insurance(self):
+        self.insurance_taken = True
+        self.insurance_bet = self.insurance_cost()
+        self.total_wagered += self.insurance_bet
+
+    def split_current_hand(self):
+        index = self.current_hand_index()
+        if index is None:
+            return
+        hand = self.player_hands[index]
+        card_a, card_b = hand["cards"]
+        bet = int(hand["bet"])
+        self.total_wagered += bet
+        self.player_hands[index] = {
+            "cards": [card_a, self.deck.pop()],
+            "bet": bet,
+            "done": False,
+            "doubled": False,
+            "split_from_pair": True,
+        }
+        self.player_hands.insert(
+            index + 1,
+            {
+                "cards": [card_b, self.deck.pop()],
+                "bet": bet,
+                "done": False,
+                "doubled": False,
+                "split_from_pair": True,
+            },
+        )
+
+    def double_current_hand(self):
+        hand = self.current_hand()
+        if hand is None:
+            return
+        extra = int(hand["bet"])
+        hand["bet"] = extra * 2
+        hand["doubled"] = True
+        hand["cards"].append(self.deck.pop())
+        hand["done"] = True
+        self.total_wagered += extra
+
+    def hit_current_hand(self):
+        hand = self.current_hand()
+        if hand is None:
+            return
+        hand["cards"].append(self.deck.pop())
+        if self.hand_value(hand["cards"]) >= 21:
+            hand["done"] = True
+
+    def stand_current_hand(self):
+        hand = self.current_hand()
+        if hand is None:
+            return
+        hand["done"] = True
+
     def _cards_line(self, hand: list[str]) -> str:
         return " ".join(self.CARD_EMOJI.get(card, "[CARD]") for card in hand)
 
     def get_game_embed(self, show_dealer: bool = False) -> discord.Embed:
-        player_value = self.hand_value(self.player_hand)
-        player_cards = self._cards_line(self.player_hand)
-        player_faces = " ".join(self.player_hand)
         dealer_visible = self.dealer_hand[0]
         dealer_visible_card = self.CARD_EMOJI.get(dealer_visible, "[CARD]")
 
@@ -74,7 +182,11 @@ class BlackjackGame:
 
         embed = discord.Embed(
             title="🃏 БЛЭКДЖЕК",
-            description=f"Ставка: **{format_money(self.bet)}**\n{dealer_hint}",
+            description=(
+                f"Базовая ставка: **{format_money(self.base_bet)}**\n"
+                f"Всего поставлено: **{format_money(self.total_wagered)}**\n"
+                f"{dealer_hint}"
+            ),
             color=COLORS["info"],
         )
         embed.add_field(
@@ -82,11 +194,40 @@ class BlackjackGame:
             value=f"{dealer_cards}\nКарты: **{dealer_faces}**\nСумма: **{dealer_total}**",
             inline=False,
         )
-        embed.add_field(
-            name="Ты",
-            value=f"{player_cards}\nКарты: **{player_faces}**\nСумма: **{player_value}**",
-            inline=False,
-        )
+
+        current_index = self.current_hand_index()
+        for index, hand in enumerate(self.player_hands, start=1):
+            cards = hand["cards"]
+            player_value = self.hand_value(cards)
+            player_cards = self._cards_line(cards)
+            player_faces = " ".join(cards)
+            marker = " • твой ход" if current_index == index - 1 and not show_dealer else ""
+            hand_name = f"Рука {index}{marker}" if len(self.player_hands) > 1 else f"Ты{marker}"
+            flags: list[str] = []
+            if bool(hand.get("doubled")):
+                flags.append("Удвоение")
+            if bool(hand.get("split_from_pair")):
+                flags.append("После сплита")
+            extra_line = f"\nРежим: **{' • '.join(flags)}**" if flags else ""
+            embed.add_field(
+                name=hand_name,
+                value=(
+                    f"{player_cards}\n"
+                    f"Карты: **{player_faces}**\n"
+                    f"Сумма: **{player_value}**\n"
+                    f"Ставка: **{format_money(int(hand['bet']))}**"
+                    f"{extra_line}"
+                ),
+                inline=False,
+            )
+
+        if self.insurance_taken:
+            embed.add_field(
+                name="Страховка",
+                value=f"Куплена на **{format_money(self.insurance_bet)}**",
+                inline=False,
+            )
+
         embed.set_footer(text="Нужно набрать больше дилера, но не перебрать 21.")
         return embed
 
@@ -108,6 +249,7 @@ class BlackjackView(discord.ui.View):
         self.game = game
         self.message: discord.Message | None = None
         self._lock = asyncio.Lock()
+        self._sync_buttons()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.game.user_id:
@@ -119,6 +261,14 @@ class BlackjackView(discord.ui.View):
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
+
+    def _sync_buttons(self):
+        hand_exists = self.game.current_hand() is not None and not self.game.finished
+        self.hit.disabled = not hand_exists
+        self.stand.disabled = not hand_exists
+        self.double_down.disabled = not self.game.can_double()
+        self.split_hand.disabled = not self.game.can_split()
+        self.take_insurance.disabled = not self.game.insurance_available()
 
     async def on_timeout(self):
         if self.game.finished or self.message is None:
@@ -138,82 +288,119 @@ class BlackjackView(discord.ui.View):
         self._disable_buttons()
         await interaction.response.defer()
 
-        while self.game.hand_value(self.game.dealer_hand) < 17:
+        all_bust = all(self.game.hand_value(hand["cards"]) > 21 for hand in self.game.player_hands)
+        while not all_bust and self.game.hand_value(self.game.dealer_hand) < 17:
             self.game.dealer_hand.append(self.game.deck.pop())
 
-        user = await db.get_user(self.game.user_id, self.game.guild_id)
-        if not user:
-            await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
-            return
-
-        user.setdefault("game_stats", {})
-        user["game_stats"].setdefault("blackjack", {"played": 0, "won": 0})
-        user["game_stats"]["blackjack"]["played"] += 1
-        user["games_played"] = user.get("games_played", 0) + 1
-        user["total_wagered"] = user.get("total_wagered", 0) + self.game.bet
-        user["last_game"] = "blackjack"
-        user["last_bet"] = self.game.bet
-
-        player_value = self.game.hand_value(self.game.player_hand)
         dealer_value = self.game.hand_value(self.game.dealer_hand)
-        player_blackjack = self.game.is_natural_blackjack(self.game.player_hand)
         dealer_blackjack = self.game.is_natural_blackjack(self.game.dealer_hand)
         payout_amount = 0
+        total_losses = 0
+        hand_summaries: list[str] = []
 
-        if player_value > 21:
-            result_text = "Поражение"
-            color = COLORS["error"]
-            user["total_lost"] = user.get("total_lost", 0) + self.game.bet
-            user["win_streak"] = 0
-        elif player_blackjack and not dealer_blackjack:
+        for index, hand in enumerate(self.game.player_hands, start=1):
+            hand_cards = hand["cards"]
+            hand_bet = int(hand["bet"])
+            hand_value = self.game.hand_value(hand_cards)
+            player_blackjack = self.game.is_natural_blackjack(hand_cards) and not bool(hand.get("split_from_pair"))
+
+            if hand_value > 21:
+                hand_result = "перебор"
+                payout = 0
+                total_losses += hand_bet
+            elif player_blackjack and not dealer_blackjack:
+                hand_result = "блэкджек"
+                payout = int(hand_bet * 2.5)
+                payout_amount += payout
+            elif dealer_blackjack and player_blackjack:
+                hand_result = "ничья по блэкджеку"
+                payout = hand_bet
+                payout_amount += payout
+            elif dealer_blackjack:
+                hand_result = "дилер с блэкджеком"
+                payout = 0
+                total_losses += hand_bet
+            elif dealer_value > 21 or hand_value > dealer_value:
+                hand_result = "победа"
+                payout = hand_bet * 2
+                payout_amount += payout
+            elif hand_value == dealer_value:
+                hand_result = "ничья"
+                payout = hand_bet
+                payout_amount += payout
+            else:
+                hand_result = "поражение"
+                payout = 0
+                total_losses += hand_bet
+
+            payout_text = format_money(payout) if payout > 0 else format_money(0)
+            hand_summaries.append(
+                f"Рука {index}: **{hand_result.title()}** • ставка **{format_money(hand_bet)}** • выплата **{payout_text}**"
+            )
+
+        insurance_payout = 0
+        if self.game.insurance_taken:
+            if dealer_blackjack:
+                insurance_payout = self.game.insurance_bet * 3
+                payout_amount += insurance_payout
+                hand_summaries.append(
+                    f"Страховка: **сработала** • выплата **{format_money(insurance_payout)}**"
+                )
+            else:
+                total_losses += self.game.insurance_bet
+                hand_summaries.append(
+                    f"Страховка: **не сыграла** • потеря **{format_money(self.game.insurance_bet)}**"
+                )
+
+        net_result = payout_amount - self.game.total_wagered
+        if len(self.game.player_hands) == 1 and hand_summaries and "Блэкджек" in hand_summaries[0]:
             result_text = "Блэкджек"
             color = COLORS["gold"]
-            payout = int(self.game.bet * 2.5)
-            payout_amount = payout
-            user["balance"] += payout
-            user["total_won"] = user.get("total_won", 0) + payout
-            user["game_stats"]["blackjack"]["won"] += 1
-            user["win_streak"] = user.get("win_streak", 0) + 1
-            user["best_streak"] = max(user.get("best_streak", 0), user["win_streak"])
-
-            if user["win_streak"] == 5:
-                user["gems"] += 5
-            elif user["win_streak"] == 10:
-                user["gems"] += 15
-            elif user["win_streak"] == 25:
-                user["gems"] += 50
-            elif user["win_streak"] == 50:
-                user["gems"] += 100
-        elif dealer_value > 21 or player_value > dealer_value:
+        elif net_result > 0:
             result_text = "Победа"
             color = COLORS["success"]
-            payout = self.game.bet * 2
-            payout_amount = payout
-            user["balance"] += payout
-            user["total_won"] = user.get("total_won", 0) + payout
-            user["game_stats"]["blackjack"]["won"] += 1
-            user["win_streak"] = user.get("win_streak", 0) + 1
-            user["best_streak"] = max(user.get("best_streak", 0), user["win_streak"])
-
-            if user["win_streak"] == 5:
-                user["gems"] += 5
-            elif user["win_streak"] == 10:
-                user["gems"] += 15
-            elif user["win_streak"] == 25:
-                user["gems"] += 50
-            elif user["win_streak"] == 50:
-                user["gems"] += 100
-        elif player_value == dealer_value:
+        elif net_result == 0:
             result_text = "Ничья"
             color = COLORS["info"]
-            user["balance"] += self.game.bet
         else:
             result_text = "Поражение"
             color = COLORS["error"]
-            user["total_lost"] = user.get("total_lost", 0) + self.game.bet
-            user["win_streak"] = 0
 
-        await db.update_user(self.game.user_id, self.game.guild_id, user)
+        async with get_user_lock(self.game.user_id):
+            user = await db.get_user(self.game.user_id, self.game.guild_id)
+            if not user:
+                await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
+                return
+
+            user.setdefault("game_stats", {})
+            user["game_stats"].setdefault("blackjack", {"played": 0, "won": 0})
+            user["game_stats"]["blackjack"]["played"] += 1
+            user["games_played"] = user.get("games_played", 0) + 1
+            user["total_wagered"] = user.get("total_wagered", 0) + self.game.total_wagered
+            user["last_game"] = "blackjack"
+            user["last_bet"] = self.game.base_bet
+            user["balance"] += payout_amount
+            user["total_won"] = user.get("total_won", 0) + payout_amount
+            user["total_lost"] = user.get("total_lost", 0) + total_losses
+
+            if net_result > 0:
+                user["game_stats"]["blackjack"]["won"] += 1
+                user["win_streak"] = user.get("win_streak", 0) + 1
+                user["best_streak"] = max(user.get("best_streak", 0), user["win_streak"])
+
+                if user["win_streak"] == 5:
+                    user["gems"] += 5
+                elif user["win_streak"] == 10:
+                    user["gems"] += 15
+                elif user["win_streak"] == 25:
+                    user["gems"] += 50
+                elif user["win_streak"] == 50:
+                    user["gems"] += 100
+            elif net_result < 0:
+                user["win_streak"] = 0
+
+            await db.update_user(self.game.user_id, self.game.guild_id, user)
+
         asyncio.create_task(
             record_player_progress(
                 self.game.user_id,
@@ -222,11 +409,11 @@ class BlackjackView(discord.ui.View):
                 amount=1,
                 money=payout_amount,
                 games=1,
-                wins=1 if result_text in {"Победа", "Блэкджек"} else 0,
+                wins=1 if net_result > 0 else 0,
             )
         )
 
-        if result_text in {"Победа", "Блэкджек"}:
+        if net_result > 0:
             await add_xp(self.game.user_id, self.game.guild_id, 20)
             fresh_user = await db.get_user(self.game.user_id, self.game.guild_id)
             if fresh_user:
@@ -235,10 +422,11 @@ class BlackjackView(discord.ui.View):
         embed = self.game.get_game_embed(show_dealer=True)
         embed.color = color
         embed.description = (
-            f"Ставка: **{format_money(self.game.bet)}**\n"
+            f"Всего поставлено: **{format_money(self.game.total_wagered)}**\n"
             f"Итог: **{result_text}**\n"
             f"Баланс: **{format_money(int(user.get('balance', 0)))}**"
         )
+        embed.add_field(name="Результат по рукам", value="\n".join(hand_summaries), inline=False)
         await interaction.edit_original_response(embed=embed, view=self)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)
@@ -250,10 +438,11 @@ class BlackjackView(discord.ui.View):
                 await interaction.response.send_message("Эта игра уже завершена.", ephemeral=True)
                 return
 
-            self.game.player_hand.append(self.game.deck.pop())
-            if self.game.hand_value(self.game.player_hand) >= 21:
+            self.game.hit_current_hand()
+            if self.game.all_hands_done():
                 await self._finish_game(interaction)
             else:
+                self._sync_buttons()
                 await interaction.response.edit_message(embed=self.game.get_game_embed(), view=self)
 
     @discord.ui.button(label="Стоп", style=discord.ButtonStyle.primary, row=0)
@@ -262,7 +451,86 @@ class BlackjackView(discord.ui.View):
             if self.game.finished:
                 await interaction.response.send_message("Эта игра уже завершена.", ephemeral=True)
                 return
-            await self._finish_game(interaction)
+            self.game.stand_current_hand()
+            if self.game.all_hands_done():
+                await self._finish_game(interaction)
+            else:
+                self._sync_buttons()
+                await interaction.response.edit_message(embed=self.game.get_game_embed(), view=self)
+
+    @discord.ui.button(label="Удвоить", style=discord.ButtonStyle.secondary, row=0)
+    async def double_down(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._lock:
+            if self.game.finished or not self.game.can_double():
+                await interaction.response.send_message("Сейчас удвоение недоступно.", ephemeral=True)
+                return
+
+            current_hand = self.game.current_hand()
+            extra_bet = int(current_hand["bet"]) if current_hand is not None else 0
+            async with get_user_lock(self.game.user_id):
+                user = await db.get_user(self.game.user_id, self.game.guild_id)
+                if not user:
+                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if int(user.get("balance", 0) or 0) < extra_bet:
+                    await interaction.response.send_message("Не хватает денег для удвоения.", ephemeral=True)
+                    return
+                user["balance"] = int(user.get("balance", 0) or 0) - extra_bet
+                await db.update_user(self.game.user_id, self.game.guild_id, {"balance": user["balance"]})
+
+            self.game.double_current_hand()
+            if self.game.all_hands_done():
+                await self._finish_game(interaction)
+            else:
+                self._sync_buttons()
+                await interaction.response.edit_message(embed=self.game.get_game_embed(), view=self)
+
+    @discord.ui.button(label="Сплит", style=discord.ButtonStyle.secondary, row=1)
+    async def split_hand(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._lock:
+            if self.game.finished or not self.game.can_split():
+                await interaction.response.send_message("Сейчас сплит недоступен.", ephemeral=True)
+                return
+
+            current_hand = self.game.current_hand()
+            split_cost = int(current_hand["bet"]) if current_hand is not None else 0
+            async with get_user_lock(self.game.user_id):
+                user = await db.get_user(self.game.user_id, self.game.guild_id)
+                if not user:
+                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if int(user.get("balance", 0) or 0) < split_cost:
+                    await interaction.response.send_message("Не хватает денег для сплита.", ephemeral=True)
+                    return
+                user["balance"] = int(user.get("balance", 0) or 0) - split_cost
+                await db.update_user(self.game.user_id, self.game.guild_id, {"balance": user["balance"]})
+
+            self.game.split_current_hand()
+            self._sync_buttons()
+            await interaction.response.edit_message(embed=self.game.get_game_embed(), view=self)
+
+    @discord.ui.button(label="Страховка", style=discord.ButtonStyle.secondary, row=1)
+    async def take_insurance(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._lock:
+            if self.game.finished or not self.game.insurance_available():
+                await interaction.response.send_message("Страховка сейчас недоступна.", ephemeral=True)
+                return
+
+            insurance_cost = self.game.insurance_cost()
+            async with get_user_lock(self.game.user_id):
+                user = await db.get_user(self.game.user_id, self.game.guild_id)
+                if not user:
+                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if int(user.get("balance", 0) or 0) < insurance_cost:
+                    await interaction.response.send_message("Не хватает денег на страховку.", ephemeral=True)
+                    return
+                user["balance"] = int(user.get("balance", 0) or 0) - insurance_cost
+                await db.update_user(self.game.user_id, self.game.guild_id, {"balance": user["balance"]})
+
+            self.game.take_insurance()
+            self._sync_buttons()
+            await interaction.response.edit_message(embed=self.game.get_game_embed(), view=self)
 
 
 class BlackjackPvpGame:

@@ -32,6 +32,10 @@ DAILY_QUEST_COUNT = 4
 WEEKLY_QUEST_COUNT = 7
 INACTIVE_MESSAGE_DELETE_DELAY = 120
 _MESSAGE_CLEANUP_TASKS: dict[int, asyncio.Task[Any]] = {}
+DEFAULT_USER_PREFERENCES: dict[str, Any] = {
+    "smart_notifications": True,
+    "auto_casino_role": True,
+}
 
 
 def _parse_quest_timestamp(raw_value: str | None) -> Optional[datetime]:
@@ -121,6 +125,35 @@ def format_discord_deadline(value: datetime | str | None) -> str:
         return "—"
     return discord_timestamp(normalized, "R")
 
+
+def get_user_preferences(user: Dict[str, Any]) -> Dict[str, Any]:
+    game_stats = user.get("game_stats")
+    if not isinstance(game_stats, dict):
+        game_stats = {}
+        user["game_stats"] = game_stats
+
+    systems = game_stats.get("_systems")
+    if not isinstance(systems, dict):
+        systems = {}
+        game_stats["_systems"] = systems
+
+    preferences = systems.get("preferences")
+    if not isinstance(preferences, dict):
+        preferences = {}
+        systems["preferences"] = preferences
+
+    for key, default_value in DEFAULT_USER_PREFERENCES.items():
+        preferences.setdefault(key, default_value)
+    return preferences
+
+
+def smart_notifications_enabled(user: Dict[str, Any]) -> bool:
+    return bool(get_user_preferences(user).get("smart_notifications", True))
+
+
+def auto_casino_role_enabled(user: Dict[str, Any]) -> bool:
+    return bool(get_user_preferences(user).get("auto_casino_role", True))
+
 def create_embed(title: str, description: str, color: int = COLORS['info']) -> discord.Embed:
     """Создать красивый embed"""
     embed = discord.Embed(
@@ -137,10 +170,18 @@ async def check_channel(interaction: discord.Interaction) -> bool:
         return False
 
     try:
+        user_data = None
+        if interaction.guild_id is not None:
+            user_data = await db.get_user(interaction.user.id, interaction.guild_id)
         if interaction.guild:
             role = interaction.guild.get_role(CASINO_ROLE_ID)
-            if role and isinstance(interaction.user, discord.Member) and role not in interaction.user.roles:
-                asyncio.create_task(interaction.user.add_roles(role))
+            if (
+                role
+                and isinstance(interaction.user, discord.Member)
+                and role not in interaction.user.roles
+                and auto_casino_role_enabled(user_data or {})
+            ):
+                asyncio.create_task(interaction.user.add_roles(role, reason="Автовыдача роли казино"))
         asyncio.create_task(
             db.sync_global_leaderboard(
                 interaction.user.id,
