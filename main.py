@@ -1,0 +1,109 @@
+import os
+
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
+
+from cogs.views import GamesMenuView, MainMenuView
+
+load_dotenv()
+
+DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+
+
+class CasinoBot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        self._views_registered = False
+        self._slash_commands_synced = False
+
+    def _register_persistent_views(self):
+        if self._views_registered:
+            return
+        self.add_view(MainMenuView())
+        self.add_view(GamesMenuView())
+        self._views_registered = True
+
+    async def setup_hook(self):
+        cogs = [
+            "cogs.core",
+            "cogs.economy",
+            "cogs.systems",
+            "cogs.fishing",
+            "cogs.business",
+            "cogs.bank",
+            "cogs.stats",
+            "cogs.cases",
+            "cogs.games_core",
+            "cogs.social",
+            "cogs.misc",
+            "cogs.clans",
+            "cogs.help",
+            "cogs.updates",
+            "cogs.mining",
+            "cogs.user",
+        ]
+
+        for cog in cogs:
+            try:
+                await self.load_extension(cog)
+                print(f"Loaded {cog}")
+            except Exception as exc:
+                print(f"Failed to load {cog}: {exc}")
+
+        self._register_persistent_views()
+        self.tree.remove_command("quest")
+
+
+bot = CasinoBot()
+
+
+@bot.event
+async def on_ready():
+    print(f"Bot started as {bot.user}")
+    print(f"Guilds: {len(bot.guilds)}")
+
+    bot._register_persistent_views()
+    try:
+        await bot.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.playing,
+                name="/hohelp",
+            )
+        )
+    except Exception as exc:
+        print(f"Presence error: {exc}")
+
+    if not bot._slash_commands_synced:
+        try:
+            global_commands = sorted(command.name for command in bot.tree.get_commands())
+            print(f"Local commands before sync: {', '.join(global_commands)}")
+            synced_guilds = 0
+            for guild in bot.guilds:
+                bot.tree.clear_commands(guild=guild)
+                bot.tree.copy_global_to(guild=guild)
+                bot.tree.remove_command("quest", guild=guild)
+                await bot.tree.sync(guild=guild)
+                guild_commands = sorted(command.name for command in bot.tree.get_commands(guild=guild))
+                print(f"Synced {guild.name} ({guild.id}): {', '.join(guild_commands)}")
+                synced_guilds += 1
+
+            # Keep slash-commands guild-scoped so Discord does not show duplicated
+            # global + guild copies in the same server command picker.
+            bot.tree.clear_commands(guild=None)
+            await bot.tree.sync()
+            bot._slash_commands_synced = True
+            print(f"Synced guild slash commands on {synced_guilds} guild(s) and cleared global duplicates")
+        except Exception as exc:
+            print(f"Guild sync error: {exc}")
+
+
+if __name__ == "__main__":
+    if not DISCORD_TOKEN:
+        print("DISCORD_BOT_TOKEN not found in .env")
+    else:
+        bot.run(DISCORD_TOKEN)

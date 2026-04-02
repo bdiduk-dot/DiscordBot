@@ -1,0 +1,82 @@
+## Economy
+
+/profile - player profile
+/daily - daily reward
+/hourly - hourly reward
+/work - work for money
+/crime - risky money action
+/slut - high risk quick money
+/stats - detailed stats
+/leaderboard - global and weekly leaderboard
+
+## Bank
+
+/bank - view bank account
+/bankdep - deposit cash to bank
+/bankwith - withdraw cash from bank
+/deposit - open timed deposit
+/withdraw_deposit - close timed deposit
+/transfer - send money to another player
+
+## Games
+
+/blackjack - blackjack
+/bj - short blackjack command
+/roulette - roulette
+/slots - slots
+/dice - dice
+/steal - steal from another player
+/duel - duel another player
+/cases - browse cases
+/opencase - open a case directly
+/fortunewheel - spin the daily wheel
+
+## Fishing
+
+/fish - go fishing
+/fishshop - fishing shop
+
+## Business and House
+
+/businesses - business market
+/mybusinesses - owned businesses and income
+/house - your house, rent and basement system
+/houseshop - house market and purchases
+
+## Systems
+
+/contracts - daily contracts
+/blackmarket - black market
+/updates - latest bot updates
+/casinoinfo - main help menu
+/shop - central shop
+/battlepass - seasonal battle pass
+/bp - short battle pass command
+
+## Clans
+
+/create_clan - create a clan
+/clan_info - clan information
+/clan_invite - invite to clan
+
+## Misc
+
+/lottery - current lottery jackpot
+/buy_ticket - buy lottery ticket
+/rank - current rank
+
+## Admin
+
+/give_money
+/give_gems
+/set_vip
+/reset_profile
+/give_business
+/clear_businesses
+/draw_lottery
+
+## Notes
+
+- `/shop` is now the main purchase hub for VIP, exchange, upgrades and seasonal access
+- `/battlepass` and `/bp` open the same seasonal battle pass view
+- `/house` opens your personal home screen, while `/houseshop` opens the house market
