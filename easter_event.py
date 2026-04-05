@@ -96,6 +96,15 @@ EASTER_COLLECTION_REQUIREMENTS = (
     EASTER_CHEST_CODE,
     EASTER_TALISMAN_CODE,
 )
+EASTER_COLLECTION_TURNIN_CODES = {
+    EASTER_COMMON_EGG_CODE,
+    EASTER_PAINTED_EGG_CODE,
+    EASTER_GOLD_EGG_CODE,
+}
+EASTER_COLLECTION_HISTORY_CODES = {
+    EASTER_CHEST_CODE,
+    EASTER_TALISMAN_CODE,
+}
 
 EASTER_FURNITURE_BUFFS = {
     "easter_egg_basket": {
@@ -254,6 +263,10 @@ def ensure_easter_state(user: dict[str, Any]) -> dict[str, Any]:
     state.setdefault("eggs_found_painted", 0)
     state.setdefault("eggs_found_gold", 0)
     state.setdefault("rabbit_pond_catches", 0)
+    collection_found_codes = state.get("collection_found_codes")
+    if not isinstance(collection_found_codes, list):
+        collection_found_codes = []
+        state["collection_found_codes"] = collection_found_codes
     businesses = state.get("businesses")
     if not isinstance(businesses, dict):
         businesses = {}
@@ -308,6 +321,11 @@ def add_easter_item(user: dict[str, Any], code: str, quantity: int = 1, *, paylo
         payload=_event_payload(payload),
         stackable=bool(definition["stackable"]),
     )
+    if quantity > 0 and code in EASTER_COLLECTION_HISTORY_CODES:
+        state = ensure_easter_state(user)
+        found_codes = set(str(entry) for entry in state.get("collection_found_codes", []))
+        if code not in found_codes:
+            state["collection_found_codes"].append(code)
 
 
 def add_easter_trophy(user: dict[str, Any], code: str, name: str, description: str) -> None:
@@ -600,7 +618,21 @@ def register_easter_fishing_content() -> None:
 
 
 def get_collection_progress(user: dict[str, Any]) -> dict[str, bool]:
-    return {code: _count_code(user, code) > 0 for code in EASTER_COLLECTION_REQUIREMENTS}
+    state = ensure_easter_state(user)
+    if bool(state.get("collection_reward_claimed")):
+        return {code: True for code in EASTER_COLLECTION_REQUIREMENTS}
+    found_codes = set(str(entry) for entry in state.get("collection_found_codes", []))
+    talisman_seen = _count_code(user, EASTER_TALISMAN_CODE) > 0 or EASTER_TALISMAN_CODE in found_codes
+    progress: dict[str, bool] = {}
+    for code in EASTER_COLLECTION_REQUIREMENTS:
+        in_inventory = _count_code(user, code) > 0
+        if code == EASTER_CHEST_CODE:
+            progress[code] = in_inventory or code in found_codes or talisman_seen
+        elif code in EASTER_COLLECTION_HISTORY_CODES:
+            progress[code] = in_inventory or code in found_codes
+        else:
+            progress[code] = in_inventory
+    return progress
 
 
 def collection_can_claim(user: dict[str, Any], now: datetime | None = None) -> bool:
@@ -636,7 +668,7 @@ def _consume_code(user: dict[str, Any], code: str, quantity: int = 1) -> bool:
 def claim_collection(user: dict[str, Any]) -> bool:
     if not collection_can_claim(user):
         return False
-    for code in EASTER_COLLECTION_REQUIREMENTS:
+    for code in EASTER_COLLECTION_TURNIN_CODES:
         if not _consume_code(user, code, 1):
             return False
     state = ensure_easter_state(user)

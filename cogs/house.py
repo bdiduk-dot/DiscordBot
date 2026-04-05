@@ -756,11 +756,14 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if not user:
             return None, None
         house_state, changed = _migrate_house_state(user)
+        from easter_event import migrate_legacy_easter_decor_inventory
+
+        migrated_easter_decor = bool(migrate_legacy_easter_decor_inventory(user))
         migrated_reserved_furniture = migrate_legacy_reserved_furniture(user, house_state=house_state)
         _refresh_garden_state(house_state)
-        if (changed or migrated_reserved_furniture) and persist:
+        if (changed or migrated_reserved_furniture or migrated_easter_decor) and persist:
             payload = {"game_stats": user.get("game_stats", {})}
-            if migrated_reserved_furniture:
+            if migrated_reserved_furniture or migrated_easter_decor:
                 payload["inventory"] = user.get("inventory")
             await db.update_user(user_id, guild_id, payload)
         return user, house_state
@@ -782,6 +785,13 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         vip_bonus = _house_vip_bonus(user)
         rental_ready = house_cog._rental_status(user) if house_cog is not None else {"ready_total": 0, "ongoing_rentals": []}
         _, can = _active_watering_can(house_state)
+        from easter_event import get_owned_easter_furniture
+
+        owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
+        pending = _pending_furniture_keys(user)
+        easter_owned = get_owned_easter_furniture(user)
+        installed_lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}**" for key in owned]
+        installed_lines.extend(f"{item['emoji']} **{item['name']}**" for item in easter_owned)
         embed.description = f"**{house_data['name']}**\n{house_data['description']}"
         embed.add_field(
             name="Обзор",
@@ -807,12 +817,17 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             name="Домовые бонусы",
             value=(
                 f"Лейка: **{can['name']}** ({int(can['water_interval_hours'])} ч)\n"
-                f"Мебель: **{len(house_state.get('furniture', []))} шт.**\n"
+                f"Мебель: **{len(installed_lines)} шт.**\n"
                 f"VIP-слоты GPU: **+{int(vip_bonus['extra_gpu_slots'])}**\n"
                 f"VIP-аренда: **+{int(vip_bonus['extra_rental_slots'])} слот**"
             ),
             inline=False,
         )
+        if installed_lines or pending:
+            furniture_lines = installed_lines[:]
+            if pending:
+                furniture_lines.extend(f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** (in inventory)" for key in pending)
+            embed.add_field(name="Furniture", value="\n".join(furniture_lines[:10]), inline=False)
         embed.set_footer(text="Новые дома и GPU покупаются в `/shop` → `Недвижимость`, а вся настройка остаётся в `/house`.")
         return embed
 
@@ -986,8 +1001,11 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             return discord.Embed(title="Decor", description="Failed to load profile.", color=COLORS["warning"])
         house_data = _house_current_data(house_state)
         embed = discord.Embed(title="Decor", color=COLORS["gold"])
+        from easter_event import get_owned_easter_furniture
+
         owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
         pending = _pending_furniture_keys(user)
+        easter_owned = get_owned_easter_furniture(user)
         if house_data is None:
             if not pending:
                 embed.description = "Decor opens after buying a house, but one furniture item can now be bought in advance from `/shop` -> `IKEA`."
@@ -996,13 +1014,16 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - waiting in inventory" for key in pending]
             embed.add_field(name="Reserved Decor", value="\n".join(lines), inline=False)
             return embed
-        if not owned and not pending:
+        if not owned and not pending and not easter_owned:
             embed.description = "No furniture yet. Open `/shop` -> `IKEA`."
             return embed
         embed.description = f"House: **{house_data['name']}**\nFurniture gives permanent buffs to the house and related systems."
         if owned:
             lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - {FURNITURE_BUFFS.get(key, 'Buff active.')}" for key in owned]
             embed.add_field(name="Installed Furniture", value="\n".join(lines), inline=False)
+        if easter_owned:
+            easter_lines = [f"{item['emoji']} **{item['name']}** - {item['description']}" for item in easter_owned]
+            embed.add_field(name="Easter Decor", value="\n".join(easter_lines), inline=False)
         if pending:
             pending_lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - use it from inventory to install" for key in pending]
             embed.add_field(name="In Inventory", value="\n".join(pending_lines), inline=False)

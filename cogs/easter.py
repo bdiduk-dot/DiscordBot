@@ -522,6 +522,11 @@ class EasterCog(commands.Cog, name="EasterEvent"):
                 inline=False,
             )
             embed.add_field(
+                name="Подсказка",
+                value="🐇 Кроличий талисман падает из пасхальных сундуков с шансом 8%. Сам сундук для коллекции теперь засчитывается в момент получения, даже если ты его потом открыл.",
+                inline=False,
+            )
+            embed.add_field(
                 name="Статус",
                 value="Награда уже забрана." if bool(easter_state.get("collection_reward_claimed")) else ("Можно забирать." if collection_can_claim(user) else "Пока не хватает предметов."),
                 inline=False,
