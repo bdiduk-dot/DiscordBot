@@ -739,7 +739,7 @@ class BusinessCog(commands.Cog, name="Business"):
                 guild_id = row.get("guild_id")
                 if not state["owned"] or not state["enabled"] or user_id is None or guild_id is None:
                     continue
-                await process_business_autocollect(int(user_id), int(guild_id))
+                await process_business_autocollect(int(user_id), int(guild_id), bot=self.bot)
         except Exception as exc:
             error_msg = str(exc)
             if "business_autocollect" in error_msg and ("does not exist" in error_msg or "schema cache" in error_msg):

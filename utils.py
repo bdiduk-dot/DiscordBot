@@ -198,7 +198,7 @@ async def check_channel(interaction: discord.Interaction) -> bool:
             )
         )
         if interaction.guild_id is not None:
-            asyncio.create_task(process_business_autocollect(interaction.user.id, interaction.guild_id))
+            asyncio.create_task(process_business_autocollect(interaction.user.id, interaction.guild_id, bot=interaction.client))
     except Exception:
         pass
 
@@ -657,7 +657,12 @@ def get_business_autocollect_state(user: Optional[Dict[str, Any]]) -> Dict[str, 
     }
 
 
-async def process_business_autocollect(user_id: int, guild_id: int, user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def process_business_autocollect(
+    user_id: int,
+    guild_id: int,
+    user: Optional[Dict[str, Any]] = None,
+    bot: Any | None = None,
+) -> Dict[str, Any]:
     user = user or await db.get_user(user_id, guild_id)
     if not user:
         return {"collected": 0, "cycles": 0, "state": get_business_autocollect_state({})}
@@ -734,6 +739,7 @@ async def process_business_autocollect(user_id: int, guild_id: int, user: Option
         )
         await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
         asyncio.create_task(check_quest_progress(user_id, guild_id, "collect_business", total_cycles))
+        asyncio.create_task(check_quest_progress(user_id, guild_id, "earn", total_collected))
         asyncio.create_task(
             record_player_progress(
                 user_id,
@@ -744,6 +750,9 @@ async def process_business_autocollect(user_id: int, guild_id: int, user: Option
                 business_cycles=total_cycles,
             )
         )
+        systems_cog = bot.get_cog("Systems") if bot is not None and hasattr(bot, "get_cog") else None
+        if systems_cog is not None:
+            asyncio.create_task(systems_cog.progress_contracts(user_id, guild_id, "collect_business", total_cycles))
     else:
         user["business_autocollect"] = state
         await db.update_user(user_id, guild_id, {"business_autocollect": state})
