@@ -444,6 +444,15 @@ _GENERATED_EVENT_FLAVORS = {
     "deep_alarm": ("Бездонный", ["зов", "разлом", "титан", "предвестник", "левиафан", "сумрак", "глашатай", "безмолвник", "страж"]),
 }
 
+_GENERATED_EVENT_VARIANTS = {
+    "mist_bloom": ["рассвета", "топей", "ивы", "серебряной дымки"],
+    "sun_flash": ["прилива", "полдня", "солнечной кромки", "жаркого бриза"],
+    "ember_tide": ["углей", "багровой волны", "искры", "пепельной ночи"],
+    "moon_hunt": ["полуночи", "тихой охоты", "лунной тени", "сумеречной тропы"],
+    "crystal_echo": ["эха", "грани", "светового излома", "преломления"],
+    "deep_alarm": ["разлома", "безмолвной бездны", "тревоги", "чёрной волны"],
+}
+
 
 def _generated_name(prefix: str, noun: str, suffix: str) -> str:
     return f"{prefix} {noun}" if not suffix else f"{prefix} {noun} {suffix}"
@@ -491,7 +500,7 @@ def _build_generated_event_species() -> list[dict[str, Any]]:
     zones_by_tag: dict[str, list[str]] = {}
     for zone_key, zone in FISHING_ZONES.items():
         zones_by_tag.setdefault(str(zone.get("tag")), []).append(zone_key)
-    rarity_cycle = ("uncommon", "rare", "epic", "legendary", "common", "uncommon", "rare", "epic", "legendary")
+    rarity_cycle = ("common", "uncommon", "rare", "epic", "legendary") * 4
     weight_ranges = {
         "common": (0.32, 1.55, 1.04),
         "uncommon": (0.9, 3.4, 1.12),
@@ -502,6 +511,7 @@ def _build_generated_event_species() -> list[dict[str, Any]]:
     rarity_emoji = {"common": "🐟", "uncommon": "🐠", "rare": "🐡", "epic": "🦑", "legendary": "🐋"}
     for template in EVENT_TEMPLATES:
         prefix, nouns = _GENERATED_EVENT_FLAVORS[template["key"]]
+        variants = _GENERATED_EVENT_VARIANTS.get(template["key"], [""])
         template_zones: list[str] = []
         for tag in template.get("bonus_zone_tags", set()):
             template_zones.extend(zones_by_tag.get(str(tag), []))
@@ -516,7 +526,7 @@ def _build_generated_event_species() -> list[dict[str, Any]]:
             generated.append(
                 {
                     "id": species_id,
-                    "name": f"{prefix} {nouns[index % len(nouns)]}",
+                    "name": _generated_name(prefix, nouns[index % len(nouns)], variants[(index // len(nouns)) % len(variants)]),
                     "emoji": rarity_emoji[rarity],
                     "rarity": rarity,
                     "zones": [zone_key],
