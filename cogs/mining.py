@@ -367,7 +367,7 @@ def _gpu_entry_resale_price(entry: Any) -> int:
     buy_price = _gpu_entry_buy_price(entry)
     if buy_price <= 0:
         return 0
-    return max(1, int(round(buy_price * 0.30)))
+    return max(1, int(round(buy_price * 0.50)))
 
 
 def _gpu_breakdown(installed_gpus: list[Any]) -> dict[str, int]:
@@ -1463,7 +1463,7 @@ class HouseCog(commands.Cog, name="House"):
         embed.add_field(name="Установленные карты", value="\n".join(installed_lines), inline=False)
         embed.add_field(
             name="Управление",
-            value="Верхний ряд кнопок покупает GPU по номеру. Нижний ряд продаёт одну установленную карту того же номера за **30%** от цены покупки.",
+            value="Верхний ряд кнопок покупает GPU по номеру. Нижний ряд продаёт одну установленную карту того же номера за **50%** от цены покупки.",
             inline=False,
         )
 
@@ -1620,7 +1620,7 @@ class HouseCog(commands.Cog, name="House"):
             gpu_entry = installed.pop(sell_index)
             resale_value = _gpu_entry_resale_price(gpu_entry)
             if resale_value <= 0:
-                resale_value = max(1, int(round(int(GPU_MODELS[gpu_id]["price"]) * 0.30)))
+                resale_value = max(1, int(round(int(GPU_MODELS[gpu_id]["price"]) * 0.50)))
 
             house_state["installed_gpus"] = installed
             user["balance"] = int(user.get("balance", 0) or 0) + resale_value
