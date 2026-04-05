@@ -80,6 +80,7 @@ class MainCategoryView(LegacyMainShopView):
         active_page: str = "overview",
     ):
         self.shop_cog = shop_cog
+        self._preferred_main_page = active_page
         super().__init__(user_id, guild_id, user_data, custom_items)
         self.active_page = active_page
         self.navigation_select = discord.ui.Select(
@@ -113,7 +114,11 @@ class MainCategoryView(LegacyMainShopView):
 
     def _sync_buttons(self):
         super()._sync_buttons()
-        self.navigation_select.options = _shop_navigation_options("main", self.active_page)
+        navigation_select = getattr(self, "navigation_select", None)
+        if navigation_select is None:
+            self.active_page = getattr(self, "_preferred_main_page", self.active_page)
+            return
+        navigation_select.options = _shop_navigation_options("main", self.active_page)
         for item in (
             self.overview_btn,
             self.vip_btn,
@@ -123,7 +128,7 @@ class MainCategoryView(LegacyMainShopView):
             self.customize_btn,
         ):
             self._toggle_visibility(item, False)
-        self._toggle_visibility(self.navigation_select, True)
+        self._toggle_visibility(navigation_select, True)
 
         show_prev_next = self.active_page in {"vip", "server", "customize"}
         self._toggle_visibility(self.prev_btn, show_prev_next)
