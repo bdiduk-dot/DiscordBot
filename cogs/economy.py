@@ -39,6 +39,7 @@ from utils import (
     has_active_shield,
     record_player_progress,
     safe_defer,
+    safe_edit_original_response,
     schedule_message_cleanup,
     send_wrong_channel_message,
 )
@@ -315,15 +316,26 @@ class CrimeChoiceView(discord.ui.View):
                 pass
             schedule_message_cleanup(self.message, delay_seconds=0)
 
+    async def _remember_message(self, interaction: discord.Interaction) -> None:
+        self.message = interaction.message or self.message
+        if self.message is not None:
+            return
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = None
+
     async def _resolve(self, interaction: discord.Interaction, index: int):
+        if not await safe_defer(interaction):
+            return
         if index >= len(self.choices):
-            await interaction.response.send_message("Этот вариант сейчас недоступен.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Этот вариант сейчас недоступен.", embed=None, view=None)
             return
         choice = self.choices[index]
         async with get_user_lock(self.user_id):
             user = await db.get_user(self.user_id, self.guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                await safe_edit_original_response(interaction, content="Не удалось загрузить профиль.", embed=None, view=None)
                 return
             now = datetime.now(timezone.utc)
             vip = get_vip_level(int(user.get("vip_level", 0) or 0))
@@ -332,7 +344,12 @@ class CrimeChoiceView(discord.ui.View):
                 last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
                 if now - last_crime < timedelta(minutes=cooldown_minutes):
                     next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
-                    await interaction.response.send_message(f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.", ephemeral=True)
+                    await safe_edit_original_response(
+                        interaction,
+                        content=f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.",
+                        embed=None,
+                        view=None,
+                    )
                     return
             reputation = get_reputation(user)
             success_rate = max(0.15, min(0.92, float(choice["success_rate"]) + reputation_crime_bonus(reputation)))
@@ -395,8 +412,8 @@ class CrimeChoiceView(discord.ui.View):
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
         if easter_lines:
             embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
-        self.message = interaction.message or self.message
+        await safe_edit_original_response(interaction, content=None, embed=embed, view=None)
+        await self._remember_message(interaction)
         schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Риск 1", style=discord.ButtonStyle.danger, row=0)
@@ -1328,7 +1345,8 @@ class EconomyCog(commands.Cog, name="Economy"):
         view.message = await interaction.original_response()
 
     @app_commands.command(name="crime", description="Пойти на преступление ради денег")
-    async def crime(self, interaction: discord.Interaction):
+    @app_commands.describe(risk="Сразу выбрать риск 1, 2 или 3 без кнопок")
+    async def crime(self, interaction: discord.Interaction, risk: app_commands.Range[int, 1, 3] | None = None):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
@@ -1363,7 +1381,12 @@ class EconomyCog(commands.Cog, name="Economy"):
                 ),
                 inline=False,
             )
-        embed.set_footer(text="Выбор фиксирует попытку и запускает кулдаун.")
+        if risk is not None:
+            view = CrimeChoiceView(self, interaction.user.id, interaction.guild_id, choices)
+            await view._resolve(interaction, int(risk) - 1)
+            return
+
+        embed.set_footer(text="Выбор фиксирует попытку и запускает кулдаун. Можно сразу указать `/crime risk:1-3`.")
         view = CrimeChoiceView(self, interaction.user.id, interaction.guild_id, choices)
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
