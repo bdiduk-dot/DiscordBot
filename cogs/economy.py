@@ -453,7 +453,7 @@ class ProfileCustomizeView(discord.ui.View):
             discord.SelectOption(
                 label=PROFILE_TITLES[key]["name"][:100],
                 value=key,
-                description=PROFILE_TITLES[key]["display"][:100],
+                description=(str(PROFILE_TITLES[key].get("display") or "") or "Базовый титул")[:100],
                 default=key == str(self.profile.get("active_title", "rookie")),
             )
             for key in self.profile.get("owned_titles", [])
@@ -474,7 +474,7 @@ class ProfileCustomizeView(discord.ui.View):
             discord.SelectOption(
                 label=PROFILE_THEMES[key]["name"][:100],
                 value=key,
-                description=f"Ключ: {key}"[:100],
+                description=f"{PROFILE_THEMES[key]['name']} • ключ: {key}"[:100],
                 default=key == str(self.profile.get("active_theme", "classic")),
             )
             for key in self.profile.get("owned_themes", [])
@@ -1060,8 +1060,9 @@ class EconomyCog(commands.Cog, name="Economy"):
         vip_name = VIP_NAMES.get(vip["name"], vip["name"])
         vip_display = f"{vip['emoji']} {vip_name}".strip() if vip.get("emoji") else vip_name
 
+        header = f"{admin_badge}{target.display_name}" if not title_text else f"{admin_badge}{title_text} {target.display_name}"
         embed = discord.Embed(
-            title=f"{admin_badge}{title_text} {target.display_name}",
+            title=header.strip(),
             description=(
                 f"**Ранг:** {rank_name}\n"
                 f"**VIP:** {vip_display}\n"
@@ -1129,10 +1130,24 @@ class EconomyCog(commands.Cog, name="Economy"):
             if key in PROFILE_TITLES
         ] or ["Нет доступных титулов."]
         theme_lines = [
-            f"{'•' if key != active_theme else '▶'} {PROFILE_THEMES[key]['name']}"
+            f"{'•' if key != active_theme else '▶'} {PROFILE_THEMES[key]['name']} • `{key}`"
             for key in profile.get("owned_themes", [])
             if key in PROFILE_THEMES
         ] or ["Нет доступных фонов."]
+        rarity_rank = {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4}
+        best_inventory_catch = (
+            max(
+                fish_items,
+                key=lambda item: (
+                    rarity_rank.get(str(item.get("rarity") or "common"), 0),
+                    int(item.get("price", 0) or 0),
+                    float(item.get("weight_kg", 0.0) or 0.0),
+                    int(item.get("id", 0) or 0),
+                ),
+            )
+            if fish_items
+            else None
+        )
 
         embed = discord.Embed(
             title="Профиль: кастомизация",
@@ -1154,16 +1169,15 @@ class EconomyCog(commands.Cog, name="Economy"):
             catch_text = "Любимый улов не выбран. Выбери рыбу в меню ниже или укажи её ID вручную."
         embed.add_field(name="Выбранный улов", value=catch_text, inline=False)
 
-        if fish_items:
-            catch_lines = [
-                f"`#{int(item.get('id', 0) or 0)}` {item.get('emoji', '')} **{item.get('name', 'Улов')}** • {item.get('rarity_name', 'Обычная')}"
-                for item in fish_items[:10]
-            ]
-            if len(fish_items) > 10:
-                catch_lines.append(f"И ещё **{len(fish_items) - 10}** рыб в инвентаре — можно выбрать через меню или по ID.")
-            embed.add_field(name="Улов в инвентаре", value="\n".join(catch_lines), inline=False)
+        if best_inventory_catch:
+            best_catch_text = (
+                f"`#{int(best_inventory_catch.get('id', 0) or 0)}` {best_inventory_catch.get('emoji', '')} **{best_inventory_catch.get('name', 'Улов')}**\n"
+                f"Редкость: **{best_inventory_catch.get('rarity_name', 'Обычная')}**\n"
+                f"Цена: **{format_money(best_inventory_catch.get('price', 0))}**"
+            )
+            embed.add_field(name="Один из лучших уловов", value=best_catch_text, inline=False)
         else:
-            embed.add_field(name="Улов в инвентаре", value="Пока нет рыб для трофея. Сначала поймай их через `/fish`.", inline=False)
+            embed.add_field(name="Один из лучших уловов", value="Пока нет рыб для трофея. Сначала поймай их через `/fish`.", inline=False)
 
         embed.set_footer(text="Ниже доступны отдельные меню для титула, фона и любимого улова. Для рыбы можно использовать список или ручной ID.")
         return embed

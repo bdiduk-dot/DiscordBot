@@ -24,7 +24,7 @@ DEFAULT_TITLE = "rookie"
 DEFAULT_THEME = "classic"
 
 PROFILE_TITLES: dict[str, dict[str, Any]] = {
-    "rookie": {"name": "Новичок", "display": "[ROOKIE]"},
+    "rookie": {"name": "Новичок", "display": ""},
     "neon_runner": {"name": "Неоновый бегун", "display": "< NEON RUNNER >"},
     "shadow_broker": {"name": "Теневой брокер", "display": "{ SHADOW BROKER }"},
     "tideborn": {"name": "Дитя прилива", "display": "~ TIDEBORN ~"},
@@ -519,7 +519,9 @@ def set_favorite_catch(user: dict[str, Any], fish_item: dict[str, Any] | None):
 def get_profile_title_text(user: dict[str, Any]) -> str:
     profile = get_profile_state(user)
     title_key = str(profile.get("active_title", DEFAULT_TITLE) or DEFAULT_TITLE)
-    return PROFILE_TITLES.get(title_key, PROFILE_TITLES[DEFAULT_TITLE])["display"]
+    if title_key == DEFAULT_TITLE:
+        return ""
+    return str(PROFILE_TITLES.get(title_key, PROFILE_TITLES[DEFAULT_TITLE]).get("display") or "").strip()
 
 
 def get_profile_theme_color(user: dict[str, Any], fallback: int) -> int:

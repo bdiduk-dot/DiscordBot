@@ -186,9 +186,24 @@ EASTER_SHOP_ITEMS: list[dict[str, Any]] = [
 ]
 
 EASTER_FISH_SPECIES = [
+    {"id": "easter_confetti_bleak", "name": "Конфетти-уклейка", "emoji": "🐟", "rarity": "common", "zones": [EASTER_POND_ZONE_KEY], "phases": ["morning", "day"], "min_weight_kg": 0.12, "max_weight_kg": 0.58, "price_mult": 0.94},
+    {"id": "easter_pastel_roach", "name": "Пастельная плотва", "emoji": "🐟", "rarity": "common", "zones": [EASTER_POND_ZONE_KEY], "phases": ["day", "evening"], "min_weight_kg": 0.24, "max_weight_kg": 1.18, "price_mult": 0.97},
+    {"id": "easter_marshmallow_minnow", "name": "Зефирная верховка", "emoji": "🐟", "rarity": "common", "zones": [EASTER_POND_ZONE_KEY], "phases": ["morning", "day", "evening"], "min_weight_kg": 0.10, "max_weight_kg": 0.82, "price_mult": 0.99},
+    {"id": "easter_ribbon_carp", "name": "Ленточный карп", "emoji": "🐠", "rarity": "uncommon", "zones": [EASTER_POND_ZONE_KEY], "phases": ["day", "evening"], "min_weight_kg": 0.75, "max_weight_kg": 3.30, "price_mult": 1.06},
+    {"id": "easter_mint_crucian", "name": "Мятный карасик", "emoji": "🐠", "rarity": "uncommon", "zones": [EASTER_POND_ZONE_KEY], "phases": ["morning", "day"], "min_weight_kg": 0.62, "max_weight_kg": 2.75, "price_mult": 1.08},
+    {"id": "easter_jelly_perch", "name": "Желейный окунь", "emoji": "🐠", "rarity": "uncommon", "zones": [EASTER_POND_ZONE_KEY], "phases": ["evening", "night"], "min_weight_kg": 0.85, "max_weight_kg": 3.10, "price_mult": 1.10},
     {"id": "easter_carrot_koi", "name": "Морковный кои", "emoji": "🐟", "rarity": "rare", "zones": [EASTER_POND_ZONE_KEY], "phases": ["morning", "day", "evening"], "min_weight_kg": 1.0, "max_weight_kg": 4.2, "price_mult": 1.22},
+    {"id": "easter_lilac_zander", "name": "Сиреневый судак", "emoji": "🐡", "rarity": "rare", "zones": [EASTER_POND_ZONE_KEY], "phases": ["day", "evening", "night"], "min_weight_kg": 1.70, "max_weight_kg": 5.60, "price_mult": 1.27},
+    {"id": "easter_cream_pike", "name": "Сливочная щука", "emoji": "🐡", "rarity": "rare", "zones": [EASTER_POND_ZONE_KEY], "phases": ["evening", "night"], "min_weight_kg": 1.95, "max_weight_kg": 6.40, "price_mult": 1.30},
     {"id": "easter_choco_trout", "name": "Шоколадная форель", "emoji": "🐠", "rarity": "epic", "zones": [EASTER_POND_ZONE_KEY], "phases": ["day", "evening"], "min_weight_kg": 2.8, "max_weight_kg": 8.5, "price_mult": 1.34},
+    {"id": "easter_caramel_sturgeon", "name": "Карамельный осётр", "emoji": "🦈", "rarity": "epic", "zones": [EASTER_POND_ZONE_KEY], "phases": ["day", "evening", "night"], "min_weight_kg": 4.40, "max_weight_kg": 13.80, "price_mult": 1.39},
+    {"id": "easter_marzipan_ray", "name": "Марципановый скат", "emoji": "🦈", "rarity": "epic", "zones": [EASTER_POND_ZONE_KEY], "phases": ["evening", "night"], "min_weight_kg": 4.90, "max_weight_kg": 12.60, "price_mult": 1.41},
+    {"id": "easter_glazed_eel", "name": "Глазурный угорь", "emoji": "🦑", "rarity": "epic", "zones": [EASTER_POND_ZONE_KEY], "phases": ["evening", "night"], "min_weight_kg": 3.60, "max_weight_kg": 11.20, "price_mult": 1.43},
     {"id": "easter_golden_harefin", "name": "Золотой кролик-плавник", "emoji": "🐣", "rarity": "legendary", "zones": [EASTER_POND_ZONE_KEY], "phases": ["evening", "night"], "min_weight_kg": 5.5, "max_weight_kg": 15.0, "price_mult": 1.50},
+    {"id": "easter_crown_carp", "name": "Королевский пасхальный карп", "emoji": "👑", "rarity": "legendary", "zones": [EASTER_POND_ZONE_KEY], "phases": ["day", "evening", "night"], "min_weight_kg": 7.80, "max_weight_kg": 22.50, "price_mult": 1.56},
+    {"id": "easter_prism_angler", "name": "Призматический фонарник", "emoji": "💠", "rarity": "legendary", "zones": [EASTER_POND_ZONE_KEY], "phases": ["night"], "min_weight_kg": 8.40, "max_weight_kg": 24.60, "price_mult": 1.59},
+    {"id": "easter_sunrise_leviathan", "name": "Рассветный левиафан", "emoji": "🌅", "rarity": "legendary", "zones": [EASTER_POND_ZONE_KEY], "phases": ["morning", "night"], "min_weight_kg": 10.50, "max_weight_kg": 30.00, "price_mult": 1.62},
+    {"id": "easter_aurora_manta", "name": "Аврора-манта", "emoji": "🪽", "rarity": "legendary", "zones": [EASTER_POND_ZONE_KEY], "phases": ["evening", "night"], "min_weight_kg": 9.60, "max_weight_kg": 27.40, "price_mult": 1.64},
 ]
 
 
@@ -599,7 +614,7 @@ def register_easter_fishing_content() -> None:
             "chance_bonus": {"rare": 1.08, "epic": 1.12, "legendary": 1.16},
             "legendary_pool": [],
             "fish_pool": {},
-            "rarity_weights": {"common": 0.0, "uncommon": 0.0, "rare": 62.0, "epic": 28.0, "legendary": 10.0},
+            "rarity_weights": {"common": 22.0, "uncommon": 24.0, "rare": 26.0, "epic": 18.0, "legendary": 10.0},
             "description": "Временный пасхальный пруд с яйцами, сундуками и редкой ивентовой рыбой.",
         }
 

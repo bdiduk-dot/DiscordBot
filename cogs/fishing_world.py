@@ -436,12 +436,12 @@ _GENERATED_ZONE_PRICE_FACTOR = {
 }
 
 _GENERATED_EVENT_FLAVORS = {
-    "mist_bloom": ("Туманный", ["плеск", "карп", "лист", "ловец"]),
-    "sun_flash": ("Солнечный", ["резак", "луциан", "луч", "бриз"]),
-    "ember_tide": ("Угольный", ["клык", "жарник", "скат", "хищник"]),
-    "moon_hunt": ("Лунный", ["охотник", "призрак", "страж", "венец"]),
-    "crystal_echo": ("Кристальный", ["эхолист", "оракул", "блик", "шёпот"]),
-    "deep_alarm": ("Бездонный", ["зов", "разлом", "титан", "предвестник"]),
+    "mist_bloom": ("Туманный", ["плеск", "карп", "лист", "ловец", "венчик", "дымник", "ирис", "шёпот", "тростник"]),
+    "sun_flash": ("Солнечный", ["резак", "луциан", "луч", "бриз", "парусник", "зарник", "прибой", "солнечник", "сверк"]),
+    "ember_tide": ("Угольный", ["клык", "жарник", "скат", "хищник", "угорь", "пепел", "лавник", "копьё", "накат"]),
+    "moon_hunt": ("Лунный", ["охотник", "призрак", "страж", "венец", "сомнамбул", "коготь", "химероид", "след", "волкорыб"]),
+    "crystal_echo": ("Кристальный", ["эхолист", "оракул", "блик", "шёпот", "призма", "осколок", "стеклохвост", "хранитель", "отзвук"]),
+    "deep_alarm": ("Бездонный", ["зов", "разлом", "титан", "предвестник", "левиафан", "сумрак", "глашатай", "безмолвник", "страж"]),
 }
 
 
@@ -491,21 +491,22 @@ def _build_generated_event_species() -> list[dict[str, Any]]:
     zones_by_tag: dict[str, list[str]] = {}
     for zone_key, zone in FISHING_ZONES.items():
         zones_by_tag.setdefault(str(zone.get("tag")), []).append(zone_key)
-    rarity_cycle = ("uncommon", "rare", "epic", "legendary")
+    rarity_cycle = ("uncommon", "rare", "epic", "legendary", "common", "uncommon", "rare", "epic", "legendary")
     weight_ranges = {
+        "common": (0.32, 1.55, 1.04),
         "uncommon": (0.9, 3.4, 1.12),
         "rare": (1.6, 6.8, 1.18),
         "epic": (5.5, 18.5, 1.24),
         "legendary": (18.0, 70.0, 1.30),
     }
-    rarity_emoji = {"uncommon": "✨", "rare": "✨", "epic": "✨", "legendary": "✨"}
+    rarity_emoji = {"common": "🐟", "uncommon": "🐠", "rare": "🐡", "epic": "🦑", "legendary": "🐋"}
     for template in EVENT_TEMPLATES:
         prefix, nouns = _GENERATED_EVENT_FLAVORS[template["key"]]
         template_zones: list[str] = []
         for tag in template.get("bonus_zone_tags", set()):
             template_zones.extend(zones_by_tag.get(str(tag), []))
         template_zones = list(dict.fromkeys(template_zones)) or ["river_bank"]
-        for index in range(4):
+        for index in range(len(rarity_cycle)):
             rarity = rarity_cycle[index]
             min_weight, max_weight, price_mult = weight_ranges[rarity]
             species_id = f"event_{template['key']}_{index + 1}"
