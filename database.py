@@ -632,6 +632,66 @@ class Database:
             return False
 
     @staticmethod
+    async def get_market_guild_state(guild_id: int) -> Dict[str, Any]:
+        if not Database.sync_feature_enabled("market_guild_states_access"):
+            return {"guild_id": guild_id}
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("market_guild_states").select("*").eq("guild_id", guild_id).limit(1).execute()
+            )
+            if result.data:
+                return result.data[0]
+            return {"guild_id": guild_id}
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because public.market_guild_states is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because Supabase RLS blocks access to public.market_guild_states.",
+                )
+            else:
+                print(f"Market guild state fetch error: {exc}")
+            return {"guild_id": guild_id}
+
+    @staticmethod
+    async def upsert_market_guild_state(guild_id: int, payload: Dict[str, Any]) -> bool:
+        if not Database.sync_feature_enabled("market_guild_states_access"):
+            return False
+
+        data = {
+            "guild_id": guild_id,
+            "active_event": payload.get("active_event"),
+            "next_event_after": payload.get("next_event_after"),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("market_guild_states").upsert(data, on_conflict="guild_id").execute()
+            )
+            return True
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because public.market_guild_states is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because Supabase RLS blocks access to public.market_guild_states.",
+                )
+            else:
+                print(f"Market guild state upsert error: {exc}")
+            return False
+
+    @staticmethod
     async def sync_battle_pass_state(user_id: int, guild_id: int, game_stats: Dict[str, Any]) -> bool:
         if not Database.sync_feature_enabled("battle_pass_states_write"):
             return False

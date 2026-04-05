@@ -796,7 +796,7 @@ def buy_easter_shop_item(user: dict[str, Any], item_code: str) -> tuple[bool, st
             emoji="🪱",
             description="Пасхальный набор яркой наживки. Используй предмет в `/inventory`.",
             quantity=3,
-            payload=_event_payload({"bait": "glow", "amount": 2}),
+            payload=_event_payload({"bait": "festive", "amount": 2}),
             stackable=True,
         )
         return True, "Куплена **Праздничная наживка**."

@@ -61,7 +61,7 @@ PROFILE_THEMES: dict[str, dict[str, Any]] = {
     },
     "abyss": {
         "name": "Abyss",
-        "color": 0x5B6CFF,
+        "color": 0x26305F,
         "image_url": "https://i.pinimg.com/736x/df/75/6f/df756fd3fe216c16dcf4a183e55dc840.jpg",
     },
     "void": {

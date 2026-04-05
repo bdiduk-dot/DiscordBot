@@ -91,8 +91,13 @@ class UpdatesCog(commands.Cog, name="Updates"):
             print("Updates startup: channel not found or unavailable")
             return False
 
-        desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
         desired_embeds = build_update_embeds()
+        if not desired_embeds:
+            await self._remove_old_update_messages(channel)
+            print("Updates startup: skipped because update notes are empty")
+            return True
+
+        desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
 
         try:
             message = await channel.send(
@@ -151,7 +156,15 @@ class UpdatesCog(commands.Cog, name="Updates"):
             await send_wrong_channel_message(interaction)
             return
 
-        await interaction.response.send_message(embeds=build_update_embeds())
+        embeds = build_update_embeds()
+        if not embeds:
+            await interaction.response.send_message(
+                "Сейчас нет опубликованного текста обновления.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(embeds=embeds)
 
 
 async def setup(bot):

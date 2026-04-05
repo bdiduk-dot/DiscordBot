@@ -92,6 +92,7 @@ BAIT_DISPLAY_NAMES = {
     "worms": "Черви",
     "shrimp": "Креветка",
     "glow": "Светящаяся приманка",
+    "festive": "Праздничная приманка",
 }
 
 ZONE_DISPLAY_NAMES = {
@@ -246,7 +247,11 @@ def _next_bait_shop_refresh(now: datetime | None = None) -> datetime:
 def _bait_shop_offers(now: datetime | None = None) -> list[tuple[str, dict[str, Any]]]:
     rotation_start = _bait_shop_rotation_start(now)
     seed = int(rotation_start.strftime("%Y%m%d%H"))
-    remaining_keys = [key for key in FISHING_BAITS if key not in BAIT_SHOP_ALWAYS_AVAILABLE]
+    remaining_keys = [
+        key
+        for key in FISHING_BAITS
+        if key not in BAIT_SHOP_ALWAYS_AVAILABLE and not bool(FISHING_BAITS[key].get("event_only"))
+    ]
     rng = random.Random(seed * 97 + 13)
     scored: list[tuple[float, int, str]] = []
     for index, key in enumerate(remaining_keys):
@@ -2037,6 +2042,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                 fishing = _fishing_state(user)
                 bait_stock = fishing.setdefault("bait_stock", {})
                 bait_key = str(payload.get("bait") or "worms")
+                if str(item.get("code") or "") == "easter_bait_festive" and bait_key == "glow":
+                    bait_key = "festive"
                 amount = int(payload.get("amount", 0) or 0)
                 bait_stock[bait_key] = int(bait_stock.get(bait_key, 0) or 0) + amount
                 result_lines.append(f"Добавлено **{amount}x {_display_bait_name(bait_key)}** в запас наживки.")

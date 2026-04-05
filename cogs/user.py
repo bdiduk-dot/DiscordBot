@@ -1637,31 +1637,75 @@ class SettingsView(discord.ui.View):
 class UserCog(commands.Cog, name="User"):
     def __init__(self, bot):
         self.bot = bot
-        self._smart_notification_markers: dict[tuple[int, int, str], str] = {}
         if not self.smart_notifications_loop.is_running():
             self.smart_notifications_loop.start()
 
     def cog_unload(self):
         self.smart_notifications_loop.cancel()
 
-    def _notification_marker_changed(self, user_id: int, guild_id: int, key: str, marker: str | None) -> bool:
-        marker_key = (int(user_id), int(guild_id), key)
+    @staticmethod
+    def _notification_state(user: dict[str, Any]) -> dict[str, Any]:
+        game_stats = user.get("game_stats")
+        if not isinstance(game_stats, dict):
+            game_stats = {}
+            user["game_stats"] = game_stats
+
+        systems = game_stats.get("_systems")
+        if not isinstance(systems, dict):
+            systems = {}
+            game_stats["_systems"] = systems
+
+        state = systems.get("smart_notification_state")
+        if not isinstance(state, dict):
+            state = {}
+            systems["smart_notification_state"] = state
+
+        markers = state.get("markers")
+        if not isinstance(markers, dict):
+            markers = {}
+            state["markers"] = markers
+        return state
+
+    @classmethod
+    def _get_notification_markers(cls, user: dict[str, Any]) -> dict[str, str]:
+        state = cls._notification_state(user)
+        raw_markers = state.get("markers")
+        if not isinstance(raw_markers, dict):
+            raw_markers = {}
+            state["markers"] = raw_markers
+        return {str(key): str(value) for key, value in raw_markers.items() if value}
+
+    @classmethod
+    def _set_notification_markers(cls, user: dict[str, Any], markers: dict[str, str]) -> None:
+        state = cls._notification_state(user)
+        state["markers"] = {str(key): str(value) for key, value in markers.items() if value}
+
+    @staticmethod
+    def _update_notification_marker(markers: dict[str, str], key: str, marker: str | None) -> bool:
+        previous = markers.get(key)
         if not marker:
-            self._smart_notification_markers.pop(marker_key, None)
+            if key in markers:
+                markers.pop(key, None)
+                return True
             return False
 
-        previous = self._smart_notification_markers.get(marker_key)
-        self._smart_notification_markers[marker_key] = marker
+        markers[key] = marker
         return previous != marker
 
-    def _clear_notification_markers_for_user(self, user_id: int, guild_id: int) -> None:
-        prefix = (int(user_id), int(guild_id))
-        stale_keys = [key for key in self._smart_notification_markers if key[:2] == prefix]
-        for key in stale_keys:
-            self._smart_notification_markers.pop(key, None)
+    def _clear_notification_markers_for_user(self, user: dict[str, Any]) -> bool:
+        markers = self._get_notification_markers(user)
+        if not markers:
+            return False
+        self._set_notification_markers(user, {})
+        return True
 
-    def _clear_notification_marker(self, user_id: int, guild_id: int, key: str) -> None:
-        self._smart_notification_markers.pop((int(user_id), int(guild_id), key), None)
+    def _clear_notification_marker(self, user: dict[str, Any], key: str) -> bool:
+        markers = self._get_notification_markers(user)
+        if key not in markers:
+            return False
+        markers.pop(key, None)
+        self._set_notification_markers(user, markers)
+        return True
 
     async def build_settings_embed(self, member: discord.Member | discord.User, guild_id: int) -> discord.Embed:
         user = await db.get_user(member.id, guild_id)
@@ -1721,10 +1765,9 @@ class UserCog(commands.Cog, name="User"):
             preferences = get_user_preferences(user)
             new_value = not bool(preferences.get("smart_notifications", True))
             preferences["smart_notifications"] = new_value
+            if not new_value:
+                self._clear_notification_markers_for_user(user)
             await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
-
-        if not new_value:
-            self._clear_notification_markers_for_user(user_id, guild_id)
         return new_value
 
     async def toggle_notification_type(self, user_id: int, guild_id: int, preference_key: str) -> bool:
@@ -1738,11 +1781,10 @@ class UserCog(commands.Cog, name="User"):
             preferences = get_user_preferences(user)
             new_value = not bool(preferences.get(preference_key, True))
             preferences[preference_key] = new_value
+            if not new_value:
+                marker_key = SMART_NOTIFICATION_SETTINGS[preference_key]["marker"]
+                self._clear_notification_marker(user, marker_key)
             await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
-
-        if not new_value:
-            marker_key = SMART_NOTIFICATION_SETTINGS[preference_key]["marker"]
-            self._clear_notification_marker(user_id, guild_id, marker_key)
         return new_value
 
     async def toggle_auto_casino_role(self, member: discord.Member | discord.User, guild_id: int) -> tuple[bool, bool]:
@@ -1754,6 +1796,8 @@ class UserCog(commands.Cog, name="User"):
             preferences = get_user_preferences(user)
             new_value = not bool(preferences.get("auto_casino_role", True))
             preferences["auto_casino_role"] = new_value
+            if not new_value:
+                self._clear_notification_markers_for_user(user)
             await db.update_user(member.id, guild_id, {"game_stats": user.get("game_stats", {})})
 
         if isinstance(member, discord.Member):
@@ -1768,9 +1812,6 @@ class UserCog(commands.Cog, name="User"):
                         role_changed = True
                 except Exception:
                     pass
-
-        if not new_value:
-            self._clear_notification_markers_for_user(member.id, guild_id)
         return new_value, role_changed
 
     def _get_business_ready_marker(self, user: dict[str, Any], now: datetime) -> tuple[int, str | None]:
@@ -1814,12 +1855,19 @@ class UserCog(commands.Cog, name="User"):
         fallback = guild.get_channel(ALLOWED_CHANNEL_ID)
         return fallback if isinstance(fallback, discord.TextChannel) else None
 
-    async def _build_smart_notification_lines(self, user: dict[str, Any], guild_id: int, now: datetime) -> list[str]:
+    async def _build_smart_notification_lines(
+        self,
+        user: dict[str, Any],
+        guild_id: int,
+        now: datetime,
+    ) -> tuple[list[str], bool, dict[str, str]]:
         user_id = int(user.get("user_id", 0) or 0)
         if user_id <= 0:
-            return []
+            return [], False, {}
 
         lines: list[str] = []
+        markers = self._get_notification_markers(user)
+        next_markers = dict(markers)
         deposit_enabled = notification_type_enabled(user, "notify_deposit")
         rent_enabled = notification_type_enabled(user, "notify_rent")
         business_enabled = notification_type_enabled(user, "notify_business")
@@ -1828,28 +1876,27 @@ class UserCog(commands.Cog, name="User"):
 
         deposit = deposit_snapshot(user)
         deposit_marker = deposit["matures_at"].isoformat() if deposit["active"] and deposit["matured"] and deposit["matures_at"] else None
-        if deposit_enabled and self._notification_marker_changed(user_id, guild_id, "deposit_ready", deposit_marker):
+        deposit_changed = self._update_notification_marker(next_markers, "deposit_ready", deposit_marker if deposit_enabled else None)
+        if deposit_enabled and deposit_marker and deposit_changed:
             lines.append("🏦 Депозит созрел и готов к выдаче через `/bank`.")
-        elif not deposit_enabled:
-            self._notification_marker_changed(user_id, guild_id, "deposit_ready", None)
 
         auto_collect_state = get_business_autocollect_state(user)
         if business_enabled and not auto_collect_state.get("enabled"):
             business_count, business_marker = self._get_business_ready_marker(user, now)
-            if self._notification_marker_changed(user_id, guild_id, "business_ready", business_marker):
+            business_changed = self._update_notification_marker(next_markers, "business_ready", business_marker)
+            if business_marker and business_changed:
                 lines.append(f"🏢 Бизнесы готовы к сбору: **{business_count}** шт.")
         else:
-            self._notification_marker_changed(user_id, guild_id, "business_ready", None)
+            self._update_notification_marker(next_markers, "business_ready", None)
 
         house_cog = self.bot.get_cog("House")
         if house_cog is not None:
             rental_state = house_cog._rental_status(user)
             ready_rentals = rental_state.get("ready_rentals", [])
             rent_marker = "|".join(sorted(str(rental.get("id")) for rental in ready_rentals if rental.get("id"))) or None
-            if rent_enabled and self._notification_marker_changed(user_id, guild_id, "rent_ready", rent_marker):
+            rent_changed = self._update_notification_marker(next_markers, "rent_ready", rent_marker if rent_enabled else None)
+            if rent_enabled and rent_marker and rent_changed:
                 lines.append(f"🏠 Аренда готова к сбору: **{len(ready_rentals)}** заявок.")
-            elif not rent_enabled:
-                self._notification_marker_changed(user_id, guild_id, "rent_ready", None)
 
             game_stats = user.get("game_stats") if isinstance(user.get("game_stats"), dict) else {}
             systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
@@ -1862,21 +1909,19 @@ class UserCog(commands.Cog, name="User"):
                     if isinstance(plot, dict) and str(plot.get("state") or "") == "ready"
                 ]
                 harvest_marker = "|".join(ready_plot_tokens) or None
-                if harvest_enabled and self._notification_marker_changed(user_id, guild_id, "harvest_ready", harvest_marker):
+                harvest_changed = self._update_notification_marker(next_markers, "harvest_ready", harvest_marker if harvest_enabled else None)
+                if harvest_enabled and harvest_marker and harvest_changed:
                     lines.append(f"🌱 Урожай готов: **{len(ready_plot_tokens)}** грядок можно собрать.")
-                elif not harvest_enabled:
-                    self._notification_marker_changed(user_id, guild_id, "harvest_ready", None)
         else:
-            self._notification_marker_changed(user_id, guild_id, "rent_ready", None)
-            self._notification_marker_changed(user_id, guild_id, "harvest_ready", None)
+            self._update_notification_marker(next_markers, "rent_ready", None)
+            self._update_notification_marker(next_markers, "harvest_ready", None)
 
         daily_warning_marker = self._get_daily_warning_marker(user, now)
-        if daily_enabled and self._notification_marker_changed(user_id, guild_id, "daily_warning", daily_warning_marker):
+        daily_changed = self._update_notification_marker(next_markers, "daily_warning", daily_warning_marker if daily_enabled else None)
+        if daily_enabled and daily_warning_marker and daily_changed:
             lines.append("⏰ Daily streak почти сгорает. Забери `/daily`, чтобы не потерять серию.")
-        elif not daily_enabled:
-            self._notification_marker_changed(user_id, guild_id, "daily_warning", None)
 
-        return lines
+        return lines, next_markers != markers, next_markers
 
     @tasks.loop(minutes=2)
     async def smart_notifications_loop(self):
@@ -1897,11 +1942,15 @@ class UserCog(commands.Cog, name="User"):
             if user_id <= 0 or guild_id <= 0:
                 continue
             if not smart_notifications_enabled(row):
-                self._clear_notification_markers_for_user(user_id, guild_id)
+                if self._clear_notification_markers_for_user(row):
+                    await db.update_user(user_id, guild_id, {"game_stats": row.get("game_stats", {})})
                 continue
 
-            lines = await self._build_smart_notification_lines(row, guild_id, now)
+            lines, markers_changed, next_markers = await self._build_smart_notification_lines(row, guild_id, now)
             if not lines:
+                if markers_changed:
+                    self._set_notification_markers(row, next_markers)
+                    await db.update_user(user_id, guild_id, {"game_stats": row.get("game_stats", {})})
                 continue
 
             channel = await self._get_notification_channel(guild_id)
@@ -1923,6 +1972,9 @@ class UserCog(commands.Cog, name="User"):
                 )
             except Exception:
                 continue
+            if markers_changed:
+                self._set_notification_markers(row, next_markers)
+                await db.update_user(user_id, guild_id, {"game_stats": row.get("game_stats", {})})
 
     @smart_notifications_loop.before_loop
     async def before_smart_notifications_loop(self):

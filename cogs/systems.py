@@ -845,6 +845,95 @@ class SystemsCog(commands.Cog, name="Systems"):
             "expires_at": now + timedelta(hours=int(template["duration_hours"])),
         }
 
+    @staticmethod
+    def _normalize_market_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if not value:
+            return None
+        try:
+            text = str(value).strip()
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(text)
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+
+    @classmethod
+    def _serialize_market_event(cls, event: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(event, dict):
+            return None
+        expires_at = cls._normalize_market_datetime(event.get("expires_at"))
+        if expires_at is None:
+            return None
+        return {
+            "key": str(event.get("key") or ""),
+            "name": str(event.get("name") or ""),
+            "description": str(event.get("description") or ""),
+            "color": int(event.get("color") or COLORS["info"]),
+            "multipliers": dict(event.get("multipliers") or {}),
+            "expires_at": expires_at.isoformat(),
+        }
+
+    @classmethod
+    def _deserialize_market_event(cls, payload: Any) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+        expires_at = cls._normalize_market_datetime(payload.get("expires_at"))
+        if expires_at is None:
+            return None
+        return {
+            "key": str(payload.get("key") or ""),
+            "name": str(payload.get("name") or ""),
+            "description": str(payload.get("description") or ""),
+            "color": int(payload.get("color") or COLORS["info"]),
+            "multipliers": dict(payload.get("multipliers") or {}),
+            "expires_at": expires_at,
+        }
+
+    async def _persist_market_state(self, guild_id: int) -> None:
+        guild_key = int(guild_id)
+        active_event = self.active_events.get(guild_key)
+        next_event_after = self.next_event_after.get(guild_key)
+        await db.upsert_market_guild_state(
+            guild_key,
+            {
+                "active_event": self._serialize_market_event(active_event),
+                "next_event_after": next_event_after.isoformat() if isinstance(next_event_after, datetime) else None,
+            },
+        )
+
+    async def _restore_market_states(self) -> None:
+        now = datetime.now(timezone.utc)
+        for guild in self.bot.guilds:
+            state = await db.get_market_guild_state(guild.id)
+            restored_event = self._deserialize_market_event(state.get("active_event"))
+            next_event_after = self._normalize_market_datetime(state.get("next_event_after"))
+            changed = False
+
+            if restored_event is not None and now >= restored_event["expires_at"]:
+                cooldown_until = restored_event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
+                if next_event_after is None or cooldown_until > next_event_after:
+                    next_event_after = cooldown_until
+                restored_event = None
+                changed = True
+
+            if restored_event is not None:
+                self.active_events[guild.id] = restored_event
+            else:
+                self.active_events.pop(guild.id, None)
+
+            if next_event_after is not None and next_event_after > now:
+                self.next_event_after[guild.id] = next_event_after
+            else:
+                if next_event_after is not None:
+                    changed = True
+                self.next_event_after.pop(guild.id, None)
+
+            if changed:
+                await self._persist_market_state(guild.id)
+
     def _pick_scheduled_event(self, guild_id: int, now: datetime) -> dict[str, Any] | None:
         kyiv_now = now.astimezone(KYIV_TZ)
         for template in SCHEDULED_RARE_EVENTS:
@@ -945,6 +1034,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             existing = self.next_event_after.get(int(guild_id))
             if existing is None or cooldown_until > existing:
                 self.next_event_after[int(guild_id)] = cooldown_until
+            asyncio.create_task(self._persist_market_state(int(guild_id)))
             return None
         return event
 
@@ -1820,6 +1910,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             existing = self.next_event_after.get(guild_id)
             if existing is None or cooldown_until > existing:
                 self.next_event_after[guild_id] = cooldown_until
+            await self._persist_market_state(guild_id)
 
         for guild in self.bot.guilds:
             if guild.id in self.active_events:
@@ -1832,6 +1923,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             if scheduled_event is not None:
                 self.active_events[guild.id] = scheduled_event
                 self.next_event_after[guild.id] = scheduled_event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
+                await self._persist_market_state(guild.id)
                 await self._announce_event(guild, scheduled_event)
                 continue
 
@@ -1843,11 +1935,13 @@ class SystemsCog(commands.Cog, name="Systems"):
             event = self._build_event_payload(event_key, template, now)
             self.active_events[guild.id] = event
             self.next_event_after[guild.id] = event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
+            await self._persist_market_state(guild.id)
             await self._announce_event(guild, event)
 
     @market_events_loop.before_loop
     async def before_market_events_loop(self):
         await self.bot.wait_until_ready()
+        await self._restore_market_states()
 
     @app_commands.command(name="contracts", description="Посмотреть ежедневные контракты")
     async def contracts(self, interaction: discord.Interaction):

@@ -39,6 +39,7 @@ FISHING_BAITS: dict[str, dict[str, Any]] = {
     "worms": {"name": "Черви", "price": 1200, "gems": 0, "bundle": 5, "rarity_bonus": {"uncommon": 1.06, "rare": 1.04}, "chance_bonus": {"uncommon": 1.06, "rare": 1.04}, "value_bonus": 1.01, "weight_bonus": 1.01, "description": "Дешёвая наживка без долгого кд."},
     "shrimp": {"name": "Креветка", "price": 5200, "gems": 0, "bundle": 4, "rarity_bonus": {"rare": 1.10, "epic": 1.08}, "chance_bonus": {"rare": 1.10, "epic": 1.08}, "value_bonus": 1.05, "weight_bonus": 1.03, "description": "Средний вариант для дорогой рыбы."},
     "glow": {"name": "Светящаяся приманка", "price": 17500, "gems": 8, "bundle": 3, "rarity_bonus": {"epic": 1.16, "legendary": 1.18}, "chance_bonus": {"epic": 1.16, "legendary": 1.18}, "value_bonus": 1.10, "weight_bonus": 1.06, "description": "Топовая наживка для ночи и событий."},
+    "festive": {"name": "Праздничная приманка", "price": 0, "gems": 0, "bundle": 2, "rarity_bonus": {"epic": 1.16, "legendary": 1.20}, "chance_bonus": {"epic": 1.18, "legendary": 1.22}, "value_bonus": 1.10, "weight_bonus": 1.06, "description": "Ивентовая пасхальная наживка для пруда и редкого улова.", "event_only": True, "rotation_weight": 0.0},
 }
 
 FISHING_ZONES: dict[str, dict[str, Any]] = {
@@ -76,6 +77,7 @@ FISHING_BAITS = {
     "worms": {"name": "Черви", "price": 1200, "gems": 0, "bundle": 5, "rarity_bonus": {"uncommon": 1.10, "rare": 1.08}, "chance_bonus": {"uncommon": 1.12, "rare": 1.10}, "value_bonus": 1.03, "weight_bonus": 1.02, "boss_bonus": 1.0, "description": "Дешёвая наживка, но теперь заметно помогает по редкости улова."},
     "shrimp": {"name": "Креветка", "price": 5200, "gems": 0, "bundle": 4, "rarity_bonus": {"rare": 1.16, "epic": 1.12}, "chance_bonus": {"rare": 1.18, "epic": 1.14, "legendary": 1.04}, "value_bonus": 1.08, "weight_bonus": 1.05, "boss_bonus": 1.06, "description": "Сильнее тянет редкую и эпическую рыбу."},
     "glow": {"name": "Светящаяся приманка", "price": 17500, "gems": 8, "bundle": 3, "rarity_bonus": {"rare": 1.10, "epic": 1.24, "legendary": 1.28}, "chance_bonus": {"rare": 1.12, "epic": 1.26, "legendary": 1.34}, "value_bonus": 1.14, "weight_bonus": 1.08, "boss_bonus": 1.14, "description": "Топовая наживка для ночи, ивентов и легендарного улова."},
+    "festive": {"name": "Праздничная приманка", "price": 0, "gems": 0, "bundle": 2, "rarity_bonus": {"rare": 1.10, "epic": 1.24, "legendary": 1.28}, "chance_bonus": {"rare": 1.12, "epic": 1.26, "legendary": 1.34}, "value_bonus": 1.14, "weight_bonus": 1.08, "boss_bonus": 1.14, "description": "Ивентовая пасхальная наживка для пруда и редкого улова.", "event_only": True, "rotation_weight": 0.0},
 }
 
 FISHING_ZONES = {
