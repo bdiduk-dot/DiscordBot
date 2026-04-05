@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from inventory_system import add_general_item, count_general_items, decrement_general_item, get_general_items
+from inventory_system import add_general_item, count_general_items, decrement_general_item, ensure_inventory_state, get_general_items
 
 EASTER_EVENT_KEY = "easter_2026"
 EASTER_PHASES = {"off", "active", "exchange"}
@@ -35,6 +35,7 @@ EASTER_INACTIVE_CODES = {
     EASTER_POND_PASS_CODE,
     "easter_bait_festive",
 }
+EASTER_DECOR_TROPHY_PREFIX = "easter_decor_"
 
 EASTER_REWARD_ITEMS = {
     EASTER_COMMON_EGG_CODE: {
@@ -323,13 +324,65 @@ def add_easter_trophy(user: dict[str, Any], code: str, name: str, description: s
     )
 
 
+def migrate_legacy_easter_decor_inventory(user: dict[str, Any]) -> list[str]:
+    inventory = ensure_inventory_state(user)
+    easter_state = ensure_easter_state(user)
+    owned_furniture = set(str(item) for item in easter_state.get("owned_furniture", []))
+    kept_items: list[dict[str, Any]] = []
+    migrated: list[str] = []
+    changed = False
+
+    for item in inventory.get("general_items", []):
+        if not isinstance(item, dict):
+            continue
+
+        item_type = str(item.get("item_type") or "")
+        code = str(item.get("code") or "")
+        if item_type != "event_trophy" or not code.startswith(EASTER_DECOR_TROPHY_PREFIX):
+            kept_items.append(item)
+            continue
+
+        furniture_code = code.removeprefix(EASTER_DECOR_TROPHY_PREFIX)
+        furniture = EASTER_FURNITURE_BUFFS.get(furniture_code)
+        if furniture is None:
+            kept_items.append(item)
+            continue
+
+        if furniture_code not in owned_furniture:
+            easter_state["owned_furniture"].append(furniture_code)
+            owned_furniture.add(furniture_code)
+            migrated.append(str(furniture["name"]))
+        changed = True
+
+    if changed:
+        inventory["general_items"] = kept_items
+    return migrated
+
+
+def get_owned_easter_furniture(user: dict[str, Any]) -> list[dict[str, Any]]:
+    easter_state = ensure_easter_state(user)
+    owned_codes: set[str] = set()
+    owned_items: list[dict[str, Any]] = []
+    for raw_code in easter_state.get("owned_furniture", []):
+        code = str(raw_code)
+        furniture = EASTER_FURNITURE_BUFFS.get(code)
+        if furniture is None or code in owned_codes:
+            continue
+        owned_codes.add(code)
+        owned_items.append({"code": code, **deepcopy(furniture)})
+    return owned_items
+
+
 def has_easter_furniture(user: dict[str, Any], code: str) -> bool:
     easter_state = ensure_easter_state(user)
     return code in set(str(item) for item in easter_state.get("owned_furniture", []))
 
 
-def _egg_drop_bonus_multiplier(user: dict[str, Any]) -> float:
-    return 1.05 if has_easter_furniture(user, "easter_egg_basket") else 1.0
+def _egg_drop_bonus_chance(user: dict[str, Any]) -> float:
+    if not has_easter_furniture(user, "easter_egg_basket"):
+        return 0.0
+    furniture = EASTER_FURNITURE_BUFFS.get("easter_egg_basket", {})
+    return max(0.0, float(furniture.get("egg_drop_bonus", 0.0) or 0.0))
 
 
 def _work_money_bonus_multiplier(user: dict[str, Any]) -> float:
@@ -382,40 +435,52 @@ def grant_easter_drops(
         return []
 
     rabbit_active = rabbit_is_active(guild_state, now)
-    egg_multiplier = _egg_drop_bonus_multiplier(user)
+    egg_drop_bonus = _egg_drop_bonus_chance(user)
     lines: list[str] = []
     common_count = 0
     painted_count = 0
     gold_count = 0
     chest_count = 0
 
-    if source == "work":
-        common_count += _roll_range_with_bonus(1, 3, egg_multiplier)
-    elif source == "crime":
-        common_count += _roll_range_with_bonus(2, 5, egg_multiplier)
-        if random.random() <= 0.05:
-            painted_count += 1
-    elif source == "slut":
-        common_count += _roll_range_with_bonus(1, 4, egg_multiplier)
-        if random.random() <= 0.03:
-            painted_count += 1
-    elif source == "fish":
-        common_count += _roll_range_with_bonus(1, 4, egg_multiplier)
-        if random.random() <= 0.06:
-            painted_count += 1
-    elif source == "daily":
-        common_count += _roll_range_with_bonus(5, 5, egg_multiplier)
-    elif source == "blackjack_win":
-        common_count += _roll_range_with_bonus(2, 4, egg_multiplier)
-        if natural_blackjack and random.random() <= 0.12:
-            painted_count += 1
-    elif source == "business_collect":
-        common_count += _roll_range_with_bonus(1, 3, egg_multiplier)
-    elif source == "rent_collect":
-        common_count += _roll_range_with_bonus(2, 4, egg_multiplier)
+    common_drop_chances = {
+        "work": 0.55,
+        "crime": 0.70,
+        "slut": 0.50,
+        "fish": 0.60,
+        "daily": 1.00,
+        "blackjack_win": 0.65,
+        "business_collect": 0.55,
+        "rent_collect": 0.60,
+    }
+    common_drop_ranges = {
+        "work": (1, 3),
+        "crime": (2, 5),
+        "slut": (1, 4),
+        "fish": (1, 4),
+        "daily": (5, 5),
+        "blackjack_win": (2, 4),
+        "business_collect": (1, 3),
+        "rent_collect": (2, 4),
+    }
+
+    drop_chance = min(1.0, common_drop_chances.get(source, 0.0) + egg_drop_bonus)
+    if source in common_drop_ranges and random.random() <= drop_chance:
+        low, high = common_drop_ranges[source]
+        common_count += random.randint(low, high)
+
+    if source == "crime" and random.random() <= 0.05:
+        painted_count += 1
+    elif source == "slut" and random.random() <= 0.03:
+        painted_count += 1
+    elif source == "fish" and random.random() <= 0.06:
+        painted_count += 1
+    elif source == "blackjack_win" and natural_blackjack and random.random() <= 0.12:
+        painted_count += 1
 
     if rabbit_active:
-        common_count += random.randint(1, 3)
+        rabbit_common_chance = min(1.0, 0.65 + egg_drop_bonus)
+        if random.random() <= rabbit_common_chance:
+            common_count += random.randint(1, 3)
         if random.random() <= 0.18:
             painted_count += 1
         if random.random() <= 0.03:
@@ -425,18 +490,17 @@ def grant_easter_drops(
 
     if common_count > 0:
         _grant_code(user, EASTER_COMMON_EGG_CODE, common_count)
-        lines.append(f"🥚 Пасха: **+{common_count}** обычн. яйц.")
+        lines.append(f"Egg Hunt: **+{common_count}** common egg(s).")
     if painted_count > 0:
         _grant_code(user, EASTER_PAINTED_EGG_CODE, painted_count)
-        lines.append(f"🎨 Пасха: **+{painted_count}** расписн. яйц.")
+        lines.append(f"Egg Hunt: **+{painted_count}** painted egg(s).")
     if gold_count > 0:
         _grant_code(user, EASTER_GOLD_EGG_CODE, gold_count)
-        lines.append(f"✨ Пасха: **+{gold_count}** золот. яйц.")
+        lines.append(f"Egg Hunt: **+{gold_count}** gold egg(s).")
     if chest_count > 0:
         add_easter_item(user, EASTER_CHEST_CODE, chest_count)
-        lines.append(f"📦 Пасха: **+{chest_count}** сундук(а).")
+        lines.append(f"Egg Hunt: **+{chest_count}** chest(s) added to inventory.")
     return lines
-
 
 def grant_pond_bonus_loot(user: dict[str, Any], *, guild_state: dict[str, Any] | None = None) -> list[str]:
     if get_easter_phase() != "active":
@@ -457,6 +521,7 @@ def grant_pond_bonus_loot(user: dict[str, Any], *, guild_state: dict[str, Any] |
         lines.append("✨ Пасха: **+1** золотое яйцо.")
     if chests:
         add_easter_item(user, EASTER_CHEST_CODE, chests)
+        lines.append("Egg Hunt: Easter chest added to inventory.")
         lines.append("📦 Пасха: найден Пасхальный сундук.")
     return lines
 
@@ -760,88 +825,83 @@ def convert_inactive_easter_businesses_to_trophies(user: dict[str, Any]) -> list
 
 def buy_easter_shop_item(user: dict[str, Any], item_code: str) -> tuple[bool, str]:
     if get_easter_phase() != "active":
-        return False, "Пасхальный магазин открыт только во время активного ивента."
+        return False, "The Easter shop is only open during the active event."
     item = next((entry for entry in EASTER_SHOP_ITEMS if entry["code"] == item_code), None)
     if item is None:
-        return False, "Такого товара нет."
+        return False, "No such item."
     counts = get_easter_counts(user)
     if counts["common"] < int(item.get("price_common", 0) or 0):
-        return False, "Не хватает обычных яиц."
+        return False, "Not enough common eggs."
     if counts["painted"] < int(item.get("price_painted", 0) or 0):
-        return False, "Не хватает расписных яиц."
+        return False, "Not enough painted eggs."
     if counts["gold"] < int(item.get("price_gold", 0) or 0):
-        return False, "Не хватает золотых яиц."
+        return False, "Not enough gold eggs."
     money_price = int(item.get("money_price", 0) or 0)
     if money_price > 0 and int(user.get("balance", 0) or 0) < money_price:
-        return False, "Не хватает денег."
+        return False, "Not enough money."
     if int(item.get("price_common", 0) or 0) > 0 and not _consume_code(user, EASTER_COMMON_EGG_CODE, int(item["price_common"])):
-        return False, "Не удалось списать обычные яйца."
+        return False, "Failed to remove common eggs."
     if int(item.get("price_painted", 0) or 0) > 0 and not _consume_code(user, EASTER_PAINTED_EGG_CODE, int(item["price_painted"])):
-        return False, "Не удалось списать расписные яйца."
+        return False, "Failed to remove painted eggs."
     if int(item.get("price_gold", 0) or 0) > 0 and not _consume_code(user, EASTER_GOLD_EGG_CODE, int(item["price_gold"])):
-        return False, "Не удалось списать золотые яйца."
+        return False, "Failed to remove gold eggs."
     if money_price > 0:
         user["balance"] = int(user.get("balance", 0) or 0) - money_price
 
     kind = str(item["kind"])
     if kind == "case":
         add_easter_item(user, EASTER_CHEST_CODE, 1)
-        return True, "Куплен **Пасхальный кейс**."
+        return True, "Bought **Easter Case** and added it to inventory."
     if kind == "bait":
         add_general_item(
             user,
             item_type="bait_bundle",
             code="easter_bait_festive",
-            name="Праздничная наживка",
-            emoji="🪱",
-            description="Пасхальный набор яркой наживки. Используй предмет в `/inventory`.",
+            name="Festive Bait",
+            emoji="",
+            description="Festive bait bundle. Use it in `/inventory`.",
             quantity=3,
             payload=_event_payload({"bait": "festive", "amount": 2}),
             stackable=True,
         )
-        return True, "Куплена **Праздничная наживка**."
+        return True, "Bought **Festive Bait**."
     if kind == "pass":
         add_easter_item(user, EASTER_POND_PASS_CODE, 1)
-        return True, "Куплен пропуск на **Пруд золотого кролика**."
+        return True, "Bought a pass to the **Golden Rabbit Pond**."
     if kind == "theme":
         add_general_item(
             user,
             item_type="cosmetic_pack",
             code="easter_profile_theme",
             name="Mint Bunny",
-            emoji="🌿",
-            description="Открывает мятную пасхальную тему профиля при использовании.",
+            emoji="",
+            description="Unlocks the Mint Bunny profile theme when used.",
             quantity=1,
             payload=_event_payload({"theme": "mint_bunny"}),
             stackable=False,
         )
-        return True, "Куплена тема **Mint Bunny**."
+        return True, "Bought theme **Mint Bunny**."
     if kind == "title":
         add_general_item(
             user,
             item_type="cosmetic_pack",
             code="easter_profile_title",
-            name="Пасхальный титул",
-            emoji="👑",
-            description="Открывает временный пасхальный титул при использовании.",
+            name="Easter Title",
+            emoji="",
+            description="Unlocks the Easter title when used.",
             quantity=1,
             payload=_event_payload({"title": "easter_hunter"}),
             stackable=False,
         )
-        return True, "Куплен **Пасхальный титул**."
+        return True, "Bought **Easter Title**."
     if kind == "furniture":
         easter_state = ensure_easter_state(user)
         owned = set(str(entry) for entry in easter_state.get("owned_furniture", []))
         if item_code in owned:
-            return False, "Этот пасхальный декор уже куплен."
+            return False, "This Easter decor is already owned."
         easter_state["owned_furniture"].append(item_code)
-        add_easter_trophy(
-            user,
-            f"easter_decor_{item_code}",
-            EASTER_FURNITURE_BUFFS[item_code]["name"],
-            EASTER_FURNITURE_BUFFS[item_code]["description"],
-        )
-        return True, f"Куплен декор **{EASTER_FURNITURE_BUFFS[item_code]['name']}**."
+        furniture_name = EASTER_FURNITURE_BUFFS[item_code]["name"]
+        return True, f"Bought decor **{furniture_name}**. Its bonus activates immediately without an inventory item."
     if kind == "business":
         return buy_easter_business(user, item_code)
-    return False, "Этот товар пока не поддерживается."
+    return False, "This item type is not supported yet."

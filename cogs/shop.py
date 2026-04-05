@@ -7,11 +7,12 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.fishing import EnhancedFishShopView
-from cogs.house import buy_furniture_item, buy_seed_packet, buy_watering_can_upgrade
+from cogs.house import buy_furniture_item, buy_seed_packet, buy_watering_can_upgrade, migrate_legacy_reserved_furniture
 from cogs.mining import FURNITURE_ITEMS, GARDEN_CROPS, GPU_MODELS, GPU_ORDER, HOUSE_ORDER, HOUSE_TYPES, WATERING_CANS, _house_index, _house_state, format_money
 from cogs.user import ShopView as LegacyMainShopView
 from config import COLORS
 from database import db
+from inventory_system import count_general_items
 from utils import check_channel, safe_defer, schedule_message_cleanup, send_wrong_channel_message
 
 SHOP_PAGE_SIZE = 3
@@ -479,12 +480,29 @@ class IkeaCategoryView(_BaseCategoryView):
 
     async def render_embed(self) -> discord.Embed:
         user = await db.get_user(self.user_id, self.guild_id) or {"balance": 0, "game_stats": {}}
+        migrated_reserved_furniture = migrate_legacy_reserved_furniture(user)
+        if migrated_reserved_furniture:
+            await db.update_user(
+                self.user_id,
+                self.guild_id,
+                {
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
         house_state = _house_state(user)
         owned = set(house_state.get("furniture", []))
+        pending = {item_key for item_key in FURNITURE_ITEMS if count_general_items(user, item_type="home_furniture", code=item_key) > 0}
         embed = discord.Embed(title="ИКЕА", description=f"Баланс: **{format_money(int(user.get('balance', 0) or 0))}**", color=COLORS["gold"])
         lines = []
         for index, (item_key, item) in enumerate(FURNITURE_ITEMS.items(), start=1):
             status = "Уже куплено" if item_key in owned else "Можно купить"
+            if item_key in owned:
+                status = "Installed"
+            elif item_key in pending:
+                status = "In inventory"
+            else:
+                status = "Available"
             lines.append(
                 f"**{index}. {item['emoji']} {item['name']}**\n"
                 f"Цена: **{format_money(int(item['price']))}**\n"

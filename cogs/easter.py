@@ -28,6 +28,7 @@ from easter_event import (
     get_easter_businesses,
     get_easter_counts,
     get_easter_phase,
+    migrate_legacy_easter_decor_inventory,
     open_easter_chest,
     rabbit_is_active,
     register_easter_fishing_content,
@@ -439,8 +440,9 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             user = await db.get_user(user_id, guild_id)
             if not user:
                 return discord.Embed(title="Пасха 2026", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            migrated_decor = migrate_legacy_easter_decor_inventory(user)
             converted = convert_inactive_easter_businesses_to_trophies(user)
-            if converted:
+            if migrated_decor or converted:
                 await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {}), "balance": user.get("balance", 0), "gems": user.get("gems", 0)})
             easter_state = ensure_easter_state(user)
             counts = get_easter_counts(user)

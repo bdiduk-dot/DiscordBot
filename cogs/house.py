@@ -58,6 +58,50 @@ FURNITURE_BUFFS = {
 }
 
 
+HOME_FURNITURE_ITEM_TYPE = "home_furniture"
+
+
+def _pending_furniture_keys(user: dict[str, Any]) -> list[str]:
+    return [key for key in FURNITURE_ITEMS if count_general_items(user, item_type=HOME_FURNITURE_ITEM_TYPE, code=key) > 0]
+
+
+def _add_home_furniture_item(user: dict[str, Any], furniture_key: str) -> None:
+    furniture = FURNITURE_ITEMS[furniture_key]
+    add_general_item(
+        user,
+        item_type=HOME_FURNITURE_ITEM_TYPE,
+        code=furniture_key,
+        name=str(furniture.get("name") or furniture_key),
+        description="Use this after buying a house to install it.",
+        quantity=1,
+        emoji=str(furniture.get("emoji") or ""),
+        payload={"furniture_key": furniture_key},
+        stackable=False,
+    )
+
+
+def migrate_legacy_reserved_furniture(user: dict[str, Any], *, house_state: dict[str, Any] | None = None) -> bool:
+    current_house_state = house_state if isinstance(house_state, dict) else _house_state(user)
+    if _house_current_data(current_house_state):
+        return False
+
+    raw_furniture = current_house_state.get("furniture", [])
+    if not isinstance(raw_furniture, list):
+        return False
+
+    legacy_reserved = [str(key) for key in raw_furniture if str(key) in FURNITURE_ITEMS]
+    if not legacy_reserved:
+        return False
+
+    pending = set(_pending_furniture_keys(user))
+    for furniture_key in legacy_reserved:
+        if furniture_key not in pending:
+            _add_home_furniture_item(user, furniture_key)
+
+    current_house_state["furniture"] = [key for key in raw_furniture if str(key) not in FURNITURE_ITEMS]
+    return True
+
+
 def _empty_plot() -> dict[str, Any]:
     return {
         "crop_code": None,
@@ -272,34 +316,48 @@ async def buy_watering_can_upgrade(user_id: int, guild_id: int, can_key: str) ->
 
 async def buy_furniture_item(user_id: int, guild_id: int, furniture_key: str) -> tuple[bool, discord.Embed | str]:
     if furniture_key not in FURNITURE_ITEMS:
-        return False, "Такой мебели нет."
+        return False, "No such furniture item."
     furniture = FURNITURE_ITEMS[furniture_key]
     async with get_user_lock(user_id):
         user = await db.get_user(user_id, guild_id)
         if not user:
-            return False, "Не удалось загрузить профиль."
+            return False, "Failed to load profile."
         house_state, _ = _migrate_house_state(user)
-        if not _house_current_data(house_state):
-            return False, "Сначала купи дом."
-        owned = house_state.get("furniture", [])
-        if furniture_key in owned:
-            return False, "Эта мебель уже куплена."
+        migrate_legacy_reserved_furniture(user, house_state=house_state)
+        house_data = _house_current_data(house_state)
+        owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
+        pending = _pending_furniture_keys(user)
+        if house_data is None and len(pending) >= 1:
+            return False, "Without a house you can pre-buy only one furniture item. Buy a house first for more."
+        if furniture_key in owned or furniture_key in pending:
+            return False, "This furniture item is already owned."
         if int(user.get("balance", 0) or 0) < int(furniture["price"]):
-            return False, f"Не хватает {format_money(int(furniture['price']) - int(user.get('balance', 0) or 0))}."
+            return False, f"Not enough money: need {format_money(int(furniture['price']) - int(user.get('balance', 0) or 0))} more."
         user["balance"] = int(user.get("balance", 0) or 0) - int(furniture["price"])
-        owned.append(furniture_key)
-        house_state["furniture"] = owned
-        await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+        if house_data is None:
+            _add_home_furniture_item(user, furniture_key)
+        else:
+            owned.append(furniture_key)
+            house_state["furniture"] = owned
+        await db.update_user(
+            user_id,
+            guild_id,
+            {
+                "balance": user["balance"],
+                "inventory": user.get("inventory"),
+                "game_stats": user.get("game_stats", {}),
+            },
+        )
+    status_line = FURNITURE_BUFFS.get(furniture_key, "Buff activated.") if house_data else "Added to inventory. Use it after buying a house."
     return True, discord.Embed(
-        title="Покупка для дома",
+        title="Home Purchase",
         description=(
-            f"Куплен предмет **{furniture['name']}**.\n"
-            f"{FURNITURE_BUFFS.get(furniture_key, 'Бафф активирован.')}\n"
-            f"Баланс: **{format_money(user['balance'])}**"
+            f"Bought **{furniture['name']}**.\n"
+            f"{status_line}\n"
+            f"Balance: **{format_money(user['balance'])}**"
         ),
         color=COLORS["success"],
     )
-
 
 class HouseV2View(discord.ui.View):
     def __init__(
@@ -698,9 +756,13 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if not user:
             return None, None
         house_state, changed = _migrate_house_state(user)
+        migrated_reserved_furniture = migrate_legacy_reserved_furniture(user, house_state=house_state)
         _refresh_garden_state(house_state)
-        if changed and persist:
-            await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+        if (changed or migrated_reserved_furniture) and persist:
+            payload = {"game_stats": user.get("game_stats", {})}
+            if migrated_reserved_furniture:
+                payload["inventory"] = user.get("inventory")
+            await db.update_user(user_id, guild_id, payload)
         return user, house_state
 
     async def build_home_embed(self, user_id: int, guild_id: int) -> discord.Embed:
@@ -921,19 +983,29 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
     async def build_decor_embed(self, user_id: int, guild_id: int) -> discord.Embed:
         user, house_state = await self._load_user(user_id, guild_id)
         if not user or not house_state:
-            return discord.Embed(title="Обустройство", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            return discord.Embed(title="Decor", description="Failed to load profile.", color=COLORS["warning"])
         house_data = _house_current_data(house_state)
-        embed = discord.Embed(title="Обустройство", color=COLORS["gold"])
-        if house_data is None:
-            embed.description = "Обустройство открывается только после покупки дома."
-            return embed
+        embed = discord.Embed(title="Decor", color=COLORS["gold"])
         owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
-        if not owned:
-            embed.description = "В доме пока нет мебели. Загляни в `/shop` → `ИКЕА`."
+        pending = _pending_furniture_keys(user)
+        if house_data is None:
+            if not pending:
+                embed.description = "Decor opens after buying a house, but one furniture item can now be bought in advance from `/shop` -> `IKEA`."
+                return embed
+            embed.description = "No house yet, but one furniture item is already reserved. Its buff will activate after you buy a house."
+            lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - waiting in inventory" for key in pending]
+            embed.add_field(name="Reserved Decor", value="\n".join(lines), inline=False)
             return embed
-        embed.description = f"Дом: **{house_data['name']}**\nМебель даёт постоянные баффы к дому и связанным системам."
-        lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** — {FURNITURE_BUFFS.get(key, 'Бафф активен.')}" for key in owned]
-        embed.add_field(name="Купленные предметы", value="\n".join(lines), inline=False)
+        if not owned and not pending:
+            embed.description = "No furniture yet. Open `/shop` -> `IKEA`."
+            return embed
+        embed.description = f"House: **{house_data['name']}**\nFurniture gives permanent buffs to the house and related systems."
+        if owned:
+            lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - {FURNITURE_BUFFS.get(key, 'Buff active.')}" for key in owned]
+            embed.add_field(name="Installed Furniture", value="\n".join(lines), inline=False)
+        if pending:
+            pending_lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - use it from inventory to install" for key in pending]
+            embed.add_field(name="In Inventory", value="\n".join(pending_lines), inline=False)
         return embed
 
     async def plant_seed(self, user_id: int, guild_id: int, plot_index: int, crop_code: str) -> tuple[bool, discord.Embed | str]:

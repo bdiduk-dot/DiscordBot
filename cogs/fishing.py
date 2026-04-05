@@ -7,7 +7,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from cogs.mining import GARDEN_CROPS, _house_state
+from cogs.house import migrate_legacy_reserved_furniture
+from cogs.mining import FURNITURE_ITEMS, GARDEN_CROPS, _house_state
 from cogs.fishing_world import (
     CHISINAU_TZ,
     FISHING_BAITS as WORLD_FISHING_BAITS,
@@ -32,6 +33,7 @@ from easter_event import (
     easter_pond_available,
     grant_easter_drops,
     grant_pond_bonus_loot,
+    migrate_legacy_easter_decor_inventory,
     open_easter_chest,
     split_active_and_archived_items,
     unlock_easter_pond,
@@ -1673,6 +1675,17 @@ class FishingCog(commands.Cog, name="Fishing"):
         user = await db.get_user(user_id, guild_id)
         if not user:
             return None, {}, {}, [], []
+        migrated_decor = migrate_legacy_easter_decor_inventory(user)
+        migrated_reserved_furniture = migrate_legacy_reserved_furniture(user)
+        if migrated_decor or migrated_reserved_furniture:
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
         fishing = _fishing_state(user)
         inventory = _inventory_state(user)
         fish_items = sorted(get_fish_items(user), key=lambda item: int(item.get("id", 0) or 0), reverse=True)
@@ -2009,6 +2022,22 @@ class FishingCog(commands.Cog, name="Fishing"):
         if item_type == "event_chest" and get_easter_phase() == "off":
             return False, "Пасхальные сундуки больше не открываются и ушли в архив 2026."
 
+        if item_type == "event_trophy":
+            item_code = str(preview_item.get("code") or "")
+            if item_code.startswith("easter_decor_"):
+                return False, "This is passive Easter decor. Its bonus is already active, so you do not need to use it."
+            return False, "This is a trophy item. It stays in inventory as a collectible reward and cannot be used."
+
+        if item_type == "home_furniture":
+            furniture_key = str(preview_item.get("code") or "")
+            if furniture_key not in FURNITURE_ITEMS:
+                return False, "This furniture item is no longer supported."
+            preview_house_state = _house_state(preview_user)
+            if not preview_house_state.get("owned_house_id"):
+                return False, "Buy a house first, then use this furniture item to install it."
+            if furniture_key in set(preview_house_state.get("furniture", [])):
+                return False, "This furniture item is already installed in your house."
+
         if item_type not in {
             "bait_bundle",
             "shield_card",
@@ -2016,6 +2045,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             "house_wallet_cache",
             "crypto_cache",
             "cosmetic_pack",
+            "home_furniture",
             "event_pass",
             "event_chest",
         }:
@@ -2029,6 +2059,16 @@ class FishingCog(commands.Cog, name="Fishing"):
             item = find_general_item(user, item_id)
             if item is None:
                 return False, "Предмет с таким ID больше недоступен."
+
+            if item_type == "home_furniture":
+                furniture_key = str(item.get("code") or "")
+                if furniture_key not in FURNITURE_ITEMS:
+                    return False, "This furniture item is no longer supported."
+                house_state = _house_state(user)
+                if not house_state.get("owned_house_id"):
+                    return False, "Buy a house first, then use this furniture item to install it."
+                if furniture_key in set(house_state.get("furniture", [])):
+                    return False, "This furniture item is already installed in your house."
 
             consumed = decrement_general_item(user, item_id, 1)
             if consumed is None:
@@ -2102,6 +2142,15 @@ class FishingCog(commands.Cog, name="Fishing"):
                 rewards = open_easter_chest(user)
                 result_lines.append("Пасхальный сундук открыт:")
                 result_lines.extend(rewards["lines"])
+            elif item_type == "home_furniture":
+                furniture_key = str(consumed.get("code") or "")
+                house_state = _house_state(user)
+                installed = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
+                if furniture_key not in installed:
+                    installed.append(furniture_key)
+                house_state["furniture"] = installed
+                furniture = FURNITURE_ITEMS[furniture_key]
+                result_lines.append(f"Installed **{furniture['name']}** in your house.")
 
             await db.update_user(
                 user_id,

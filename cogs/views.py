@@ -12,6 +12,25 @@ def format_money(value: int) -> str:
     return f"${int(value):,}"
 
 
+def _game_user_update_payload(user: dict, *, include_inventory: bool = False) -> dict:
+    payload = {
+        "balance": user.get("balance", 0),
+        "gems": user.get("gems", 0),
+        "game_stats": user.get("game_stats", {}),
+        "games_played": user.get("games_played", 0),
+        "total_wagered": user.get("total_wagered", 0),
+        "last_game": user.get("last_game"),
+        "last_bet": user.get("last_bet", 0),
+        "total_won": user.get("total_won", 0),
+        "total_lost": user.get("total_lost", 0),
+        "win_streak": user.get("win_streak", 0),
+        "best_streak": user.get("best_streak", 0),
+    }
+    if include_inventory:
+        payload["inventory"] = user.get("inventory")
+    return payload
+
+
 class BlackjackGame:
     CARD_EMOJI = {
         "A": "<:Ace_Card:1486059838403383429>",
@@ -413,7 +432,14 @@ class BlackjackView(discord.ui.View):
                     natural_blackjack=any_natural_blackjack,
                 )
 
-            await db.update_user(self.game.user_id, self.game.guild_id, user)
+            await db.update_user(
+                self.game.user_id,
+                self.game.guild_id,
+                _game_user_update_payload(user, include_inventory=True),
+            )
+            fresh_user = await db.get_user(self.game.user_id, self.game.guild_id)
+            if fresh_user:
+                user = fresh_user
 
         asyncio.create_task(
             record_player_progress(
@@ -740,8 +766,8 @@ class BlackjackPvpInviteView(discord.ui.View):
 
                 challenger_user["balance"] -= self.bet
                 opponent_user["balance"] -= self.bet
-                await db.update_user(self.challenger.id, self.guild_id, challenger_user)
-                await db.update_user(self.opponent.id, self.guild_id, opponent_user)
+                await db.update_user(self.challenger.id, self.guild_id, {"balance": challenger_user["balance"]})
+                await db.update_user(self.opponent.id, self.guild_id, {"balance": opponent_user["balance"]})
 
         game = BlackjackPvpGame(self.challenger, self.opponent, self.guild_id, self.bet)
         view = BlackjackPvpView(game)
@@ -828,7 +854,11 @@ class BlackjackPvpView(discord.ui.View):
                     if not user:
                         continue
                     user["balance"] += self.game.bet
-                    await db.update_user(player["id"], self.game.guild_id, user)
+                    await db.update_user(
+                        player["id"],
+                        self.game.guild_id,
+                        {"balance": user["balance"]},
+                    )
 
         self.game.finished = True
         self._disable_buttons()
@@ -868,7 +898,7 @@ class BlackjackPvpView(discord.ui.View):
                     for player_id, user in users.items():
                         user["balance"] += self.game.bet
                         self._update_player_stats(user, "blackjack_pvp", self.game.bet, draw=True)
-                        await db.update_user(player_id, self.game.guild_id, user)
+                        await db.update_user(player_id, self.game.guild_id, _game_user_update_payload(user))
                         asyncio.create_task(
                             record_player_progress(
                                 player_id,
@@ -897,8 +927,8 @@ class BlackjackPvpView(discord.ui.View):
                     self._update_player_stats(winner_user, "blackjack_pvp", self.game.bet, won=True)
                     self._update_player_stats(loser_user, "blackjack_pvp", self.game.bet, won=False)
 
-                    await db.update_user(winner["id"], self.game.guild_id, winner_user)
-                    await db.update_user(loser["id"], self.game.guild_id, loser_user)
+                    await db.update_user(winner["id"], self.game.guild_id, _game_user_update_payload(winner_user))
+                    await db.update_user(loser["id"], self.game.guild_id, _game_user_update_payload(loser_user))
                     asyncio.create_task(
                         record_player_progress(
                             winner["id"],

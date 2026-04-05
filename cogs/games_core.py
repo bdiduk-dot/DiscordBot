@@ -51,7 +51,7 @@ class GamesCoreCog(commands.Cog, name="GamesCore"):
             return await interaction.response.send_message(error, ephemeral=True)
 
         user["balance"] = int(user.get("balance", 0) or 0) - bet
-        await db.update_user(interaction.user.id, interaction.guild_id, user)
+        await db.update_user(interaction.user.id, interaction.guild_id, {"balance": user["balance"]})
 
         game = BlackjackGame(interaction.user.id, interaction.guild_id, bet)
         view = BlackjackView(game)
