@@ -23,18 +23,86 @@ SHOP_CATEGORIES = [
     ("ikea", "ИКЕА"),
 ]
 
+MAIN_SHOP_SECTIONS = [
+    ("overview", "Главное"),
+    ("vip", "VIP"),
+    ("exchange", "Обмен"),
+    ("upgrades", "Улучшения"),
+    ("server", "Сервер"),
+    ("customize", "Кастомизация"),
+]
+
 
 def _category_options(current: str) -> list[discord.SelectOption]:
     return [discord.SelectOption(label=label, value=value, default=value == current) for value, label in SHOP_CATEGORIES]
 
 
+def _shop_navigation_options(current_category: str, current_main_page: str = "overview") -> list[discord.SelectOption]:
+    options: list[discord.SelectOption] = []
+    for value, label in MAIN_SHOP_SECTIONS:
+        options.append(
+            discord.SelectOption(
+                label=label,
+                value=f"main:{value}",
+                description="Раздел главного магазина",
+                default=current_category == "main" and current_main_page == value,
+            )
+        )
+    category_descriptions = {
+        "property": "Дома, подвал и GPU",
+        "fishing": "Удочки, снасти и наживка",
+        "garden": "Семена и лейки",
+        "ikea": "Мебель и декор дома",
+    }
+    for value, label in SHOP_CATEGORIES:
+        if value == "main":
+            continue
+        options.append(
+            discord.SelectOption(
+                label=label,
+                value=f"category:{value}",
+                description=category_descriptions.get(value, "Раздел магазина"),
+                default=current_category == value,
+            )
+        )
+    return options
+
+
 class MainCategoryView(LegacyMainShopView):
-    def __init__(self, shop_cog: "ShopCommandsCog", user_id: int, guild_id: int, user_data: dict[str, Any], custom_items: list[dict[str, Any]]):
+    def __init__(
+        self,
+        shop_cog: "ShopCommandsCog",
+        user_id: int,
+        guild_id: int,
+        user_data: dict[str, Any],
+        custom_items: list[dict[str, Any]],
+        *,
+        active_page: str = "overview",
+    ):
         self.shop_cog = shop_cog
         super().__init__(user_id, guild_id, user_data, custom_items)
-        self.category_select = discord.ui.Select(placeholder="Категория магазина", row=4, options=_category_options("main"))
-        self.category_select.callback = self._on_category
-        self.add_item(self.category_select)
+        self.active_page = active_page
+        self.navigation_select = discord.ui.Select(
+            placeholder="Раздел магазина",
+            row=0,
+            options=_shop_navigation_options("main", self.active_page),
+        )
+        self.navigation_select.callback = self._on_navigation
+        for item in (
+            self.overview_btn,
+            self.vip_btn,
+            self.exchange_btn,
+            self.upgrades_btn,
+            self.server_btn,
+            self.customize_btn,
+        ):
+            self._toggle_visibility(item, False)
+        self.add_item(self.navigation_select)
+        self.action_btn_1.row = 1
+        self.action_btn_2.row = 1
+        self.action_btn_3.row = 1
+        self.prev_btn.row = 2
+        self.next_btn.row = 2
         self._sync_buttons()
 
     def _toggle_visibility(self, item: discord.ui.Item[Any], visible: bool):
@@ -45,24 +113,45 @@ class MainCategoryView(LegacyMainShopView):
 
     def _sync_buttons(self):
         super()._sync_buttons()
-        is_overview = self.active_page == "overview"
-        self.customize_btn.row = 1 if is_overview else 2
+        self.navigation_select.options = _shop_navigation_options("main", self.active_page)
+        for item in (
+            self.overview_btn,
+            self.vip_btn,
+            self.exchange_btn,
+            self.upgrades_btn,
+            self.server_btn,
+            self.customize_btn,
+        ):
+            self._toggle_visibility(item, False)
+        self._toggle_visibility(self.navigation_select, True)
 
-        category_select = getattr(self, "category_select", None)
-        if category_select is not None:
-            category_select.row = 2 if is_overview else 4
-            self._toggle_visibility(category_select, True)
+        show_prev_next = self.active_page in {"vip", "server", "customize"}
+        self._toggle_visibility(self.prev_btn, show_prev_next)
+        self._toggle_visibility(self.next_btn, show_prev_next)
 
-        for item in (self.prev_btn, self.next_btn, self.action_btn_2, self.action_btn_3):
-            self._toggle_visibility(item, not is_overview)
-        self._toggle_visibility(self.action_btn_1, True)
-        self._toggle_visibility(self.customize_btn, True)
+        for item in (self.action_btn_1, self.action_btn_2, self.action_btn_3):
+            should_show = not item.disabled and item.label not in {"Недоступно", "Выбери вкладку"}
+            self._toggle_visibility(item, should_show)
 
-    async def _on_category(self, interaction: discord.Interaction):
-        target = str(self.category_select.values[0]) if self.category_select.values else "main"
-        if target == "main":
-            await interaction.response.defer()
+        if self.active_page == "overview":
+            self._toggle_visibility(self.action_btn_2, False)
+            self._toggle_visibility(self.action_btn_3, False)
+        elif self.active_page == "exchange":
+            self._toggle_visibility(self.action_btn_3, False)
+
+    async def _on_navigation(self, interaction: discord.Interaction):
+        raw = str(self.navigation_select.values[0]) if self.navigation_select.values else "main:overview"
+        if raw.startswith("main:"):
+            target = raw.split(":", 1)[1] or "overview"
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                if self.active_page != target:
+                    self.page_index = 0
+                self.active_page = target
+                await self._refresh_message(interaction)
             return
+        target = raw.split(":", 1)[1] if ":" in raw else "main"
         await self.shop_cog.open_category(interaction, self.user_id, self.guild_id, target)
 
 
@@ -70,12 +159,21 @@ class FishingCategoryView(EnhancedFishShopView):
     def __init__(self, shop_cog: "ShopCommandsCog", fishing_cog: Any, user_id: int, guild_id: int):
         self.shop_cog = shop_cog
         super().__init__(fishing_cog, user_id, guild_id)
-        self.category_select = discord.ui.Select(placeholder="Категория магазина", row=4, options=_category_options("fishing"))
-        self.category_select.callback = self._on_category
-        self.add_item(self.category_select)
+        self.navigation_select = discord.ui.Select(
+            placeholder="Раздел магазина",
+            row=4,
+            options=_shop_navigation_options("fishing"),
+        )
+        self.navigation_select.callback = self._on_navigation
+        self.add_item(self.navigation_select)
 
-    async def _on_category(self, interaction: discord.Interaction):
-        target = str(self.category_select.values[0]) if self.category_select.values else "fishing"
+    async def _on_navigation(self, interaction: discord.Interaction):
+        raw = str(self.navigation_select.values[0]) if self.navigation_select.values else "category:fishing"
+        if raw.startswith("main:"):
+            target = raw.split(":", 1)[1] or "overview"
+            await self.shop_cog.open_main_page(interaction, self.user_id, self.guild_id, target)
+            return
+        target = raw.split(":", 1)[1] if ":" in raw else "fishing"
         await self.shop_cog.open_category(interaction, self.user_id, self.guild_id, target)
 
 
@@ -89,9 +187,13 @@ class _BaseCategoryView(discord.ui.View):
         self.guild_id = guild_id
         self.page = page
         self.message: discord.Message | None = None
-        self.category_select = discord.ui.Select(placeholder="Категория магазина", row=0, options=_category_options(self.category_key))
-        self.category_select.callback = self._on_category
-        self.add_item(self.category_select)
+        self.navigation_select = discord.ui.Select(
+            placeholder="Раздел магазина",
+            row=0,
+            options=_shop_navigation_options(self.category_key),
+        )
+        self.navigation_select.callback = self._on_navigation
+        self.add_item(self.navigation_select)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -99,8 +201,13 @@ class _BaseCategoryView(discord.ui.View):
             return False
         return True
 
-    async def _on_category(self, interaction: discord.Interaction):
-        target = str(self.category_select.values[0]) if self.category_select.values else self.category_key
+    async def _on_navigation(self, interaction: discord.Interaction):
+        raw = str(self.navigation_select.values[0]) if self.navigation_select.values else f"category:{self.category_key}"
+        if raw.startswith("main:"):
+            target = raw.split(":", 1)[1] or "overview"
+            await self.shop_cog.open_main_page(interaction, self.user_id, self.guild_id, target)
+            return
+        target = raw.split(":", 1)[1] if ":" in raw else self.category_key
         await self.shop_cog.open_category(interaction, self.user_id, self.guild_id, target)
 
     async def _show_result(self, interaction: discord.Interaction, payload: discord.Embed | str):
@@ -413,12 +520,21 @@ class ShopCommandsCog(commands.Cog, name="ShopUI"):
     def _fishing_cog(self):
         return self.bot.get_cog("Fishing")
 
+    async def open_main_page(self, interaction: discord.Interaction, user_id: int, guild_id: int, active_page: str = "overview"):
+        user = await db.get_user(user_id, guild_id)
+        custom_items = await db.get_shop_items(guild_id)
+        view = MainCategoryView(self, user_id, guild_id, user or {}, custom_items, active_page=active_page)
+        embed = view.build_embed()
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     async def open_category(self, interaction: discord.Interaction, user_id: int, guild_id: int, category: str):
         if category == "main":
-            user = await db.get_user(user_id, guild_id)
-            custom_items = await db.get_shop_items(guild_id)
-            view = MainCategoryView(self, user_id, guild_id, user or {}, custom_items)
-            embed = view.build_embed()
+            await self.open_main_page(interaction, user_id, guild_id, "overview")
+            return
         elif category == "fishing":
             fishing_cog = self._fishing_cog()
             if fishing_cog is None:
@@ -456,7 +572,7 @@ class ShopCommandsCog(commands.Cog, name="ShopUI"):
 
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         custom_items = await db.get_shop_items(interaction.guild_id)
-        view = MainCategoryView(self, interaction.user.id, interaction.guild_id, user or {}, custom_items)
+        view = MainCategoryView(self, interaction.user.id, interaction.guild_id, user or {}, custom_items, active_page="overview")
         await interaction.edit_original_response(embed=view.build_embed(), view=view)
         view.message = await interaction.original_response()
 

@@ -15,6 +15,7 @@ from config import ALLOWED_CHANNEL_ID, BUSINESSES, CASINO_ROLE_ID, COLORS, FISHI
 from database import db, get_user_lock, supabase
 from inventory_system import get_general_items
 from progression import (
+    PROFILE_THEMES,
     PROFILE_TITLES,
     SEASON_FREE_REWARDS,
     SEASON_MAX_TIERS,
@@ -29,7 +30,9 @@ from progression import (
     contract_slots_for_vip,
     ensure_battle_pass_state,
     get_profile_state,
+    get_profile_theme_image,
     reward_text,
+    unlock_theme,
     unlock_title,
 )
 from utils import (
@@ -121,6 +124,18 @@ TITLE_SHOP_ITEMS: list[dict[str, Any]] = [
         "price": 135_000,
         "currency": "money",
         "description": "Строит империю, не вставая с дивана.",
+    },
+]
+
+THEME_SHOP_ITEMS: list[dict[str, Any]] = [
+    {
+        "kind": "theme",
+        "key": "sakura",
+        "name": "Пасхальная сакура",
+        "price": 125_000,
+        "currency": "money",
+        "description": "Нежный пасхальный фон профиля с большим баннером и мягкой розовой темой.",
+        "preview_url": str(PROFILE_THEMES.get("sakura", {}).get("image_url") or ""),
     },
 ]
 
@@ -325,13 +340,16 @@ class _BaseShopView(discord.ui.View):
         return max(0, (len(self.custom_items) - 1) // SERVER_ITEMS_PER_PAGE)
 
     def _current_title_items(self) -> list[dict[str, Any]]:
+        items = [dict(item) for item in THEME_SHOP_ITEMS]
+        items.extend({"kind": "title", **item} for item in TITLE_SHOP_ITEMS)
         start = self.page_index * TITLE_ITEMS_PER_PAGE
-        return TITLE_SHOP_ITEMS[start:start + TITLE_ITEMS_PER_PAGE]
+        return items[start:start + TITLE_ITEMS_PER_PAGE]
 
     def _max_title_page(self) -> int:
-        if not TITLE_SHOP_ITEMS:
+        total_items = len(THEME_SHOP_ITEMS) + len(TITLE_SHOP_ITEMS)
+        if total_items <= 0:
             return 0
-        return max(0, (len(TITLE_SHOP_ITEMS) - 1) // TITLE_ITEMS_PER_PAGE)
+        return max(0, (total_items - 1) // TITLE_ITEMS_PER_PAGE)
 
     def _sync_buttons(self):
         self.overview_btn.style = discord.ButtonStyle.primary if self.active_page == "overview" else discord.ButtonStyle.secondary
@@ -617,12 +635,32 @@ class _BaseShopView(discord.ui.View):
         profile = get_profile_state(self.user_data)
         owned_titles = set(profile.get("owned_titles", []))
         active_title = str(profile.get("active_title", "rookie"))
+        owned_themes = set(profile.get("owned_themes", []))
+        active_theme = str(profile.get("active_theme", "classic"))
+        visible_items = self._current_title_items()
         embed = discord.Embed(
             title="Кастомизация профиля",
-            description="Покупай забавные титулы для профиля. Активировать купленный титул можно через `/profile`.",
+            description="Покупай титулы и фоны для профиля. Включать их можно через `/profile` → `Кастомизация`.",
             color=COLORS["gold"],
         )
-        for item in self._current_title_items():
+        preview_url = ""
+        for item in visible_items:
+            if str(item.get("kind") or "title") == "theme":
+                theme_data = PROFILE_THEMES.get(str(item["key"]), {"name": item["name"]})
+                status = "Уже куплен" if item["key"] in owned_themes else "Можно купить"
+                if item["key"] == active_theme:
+                    status = "Сейчас активен"
+                embed.add_field(
+                    name=f"{item['name']} | {format_price(item['price'], item['currency'])}",
+                    value=(
+                        f"{item['description']}\n"
+                        f"Тема профиля: **{theme_data['name']}**\n"
+                        f"Статус: **{status}**"
+                    ),
+                    inline=False,
+                )
+                preview_url = str(item.get("preview_url") or preview_url)
+                continue
             title_data = PROFILE_TITLES.get(item["key"], {"display": item["name"]})
             status = "Уже куплен" if item["key"] in owned_titles else "Можно купить"
             if item["key"] == active_title:
@@ -636,6 +674,10 @@ class _BaseShopView(discord.ui.View):
                 ),
                 inline=False,
             )
+        if not preview_url:
+            preview_url = get_profile_theme_image(self.user_data) or ""
+        if preview_url:
+            embed.set_image(url=preview_url)
         embed.set_footer(text=f"Страница {self.page_index + 1}/{self._max_title_page() + 1}.")
         return embed
 
@@ -816,10 +858,11 @@ class _BaseShopView(discord.ui.View):
     async def _purchase_title_item(self, slot_index: int) -> tuple[bool, discord.Embed | str]:
         visible_items = self._current_title_items()
         if slot_index >= len(visible_items):
-            return False, "На этой кнопке сейчас нет титула."
+            return False, "На этой кнопке сейчас нет косметики."
 
         item = visible_items[slot_index]
-        title_key = str(item["key"])
+        item_kind = str(item.get("kind") or "title")
+        item_key = str(item["key"])
         price = int(item["price"])
         currency = str(item["currency"]).lower()
 
@@ -829,8 +872,12 @@ class _BaseShopView(discord.ui.View):
                 return False, "Не удалось загрузить профиль."
 
             profile = get_profile_state(user)
-            if title_key in set(profile.get("owned_titles", [])):
-                return False, "Этот титул у тебя уже есть."
+            if item_kind == "theme":
+                if item_key in set(profile.get("owned_themes", [])):
+                    return False, "Этот фон у тебя уже есть."
+            else:
+                if item_key in set(profile.get("owned_titles", [])):
+                    return False, "Этот титул у тебя уже есть."
 
             if currency == "gems":
                 current_value = int(user.get("gems", 0) or 0)
@@ -845,12 +892,31 @@ class _BaseShopView(discord.ui.View):
                 user["balance"] = current_value - price
                 update_payload = {"balance": user["balance"]}
 
-            unlock_title(user, title_key)
+            if item_kind == "theme":
+                unlock_theme(user, item_key)
+            else:
+                unlock_title(user, item_key)
             update_payload["game_stats"] = user.get("game_stats", {})
             await db.update_user(self.user_id, self.guild_id, update_payload)
             self.user_data = user
 
-        title_data = PROFILE_TITLES.get(title_key, {"name": item["name"], "display": item["name"]})
+        if item_kind == "theme":
+            theme_data = PROFILE_THEMES.get(item_key, {"name": item["name"]})
+            embed = discord.Embed(
+                title="Фон куплен",
+                description=(
+                    f"Куплен фон: **{theme_data['name']}**\n"
+                    f"Цена: **{format_price(price, currency)}**\n"
+                    f"Новый фон можно включить через `/profile` -> `Кастомизация`."
+                ),
+                color=COLORS["success"],
+            )
+            preview_url = str(item.get("preview_url") or "")
+            if preview_url:
+                embed.set_image(url=preview_url)
+            return True, embed
+
+        title_data = PROFILE_TITLES.get(item_key, {"name": item["name"], "display": item["name"]})
         embed = discord.Embed(
             title="Титул куплен",
             description=(
@@ -1331,7 +1397,7 @@ class ShopView(_BaseShopView):
                 f"Платная ветка пропуска: **{'Открыта' if pass_state.get('premium_unlocked') else 'Закрыта'}**\n"
                 f"Автосбор: **{'Куплен' if auto_state['owned'] else 'Не куплен'}**\n"
                 f"Серверные товары: **{len(self.custom_items)}**\n"
-                f"Магазин титулов: **{len(TITLE_SHOP_ITEMS)}**"
+                f"Косметика: **{len(THEME_SHOP_ITEMS) + len(TITLE_SHOP_ITEMS)}**"
             ),
             inline=False,
         )
@@ -1341,11 +1407,11 @@ class ShopView(_BaseShopView):
                 "Боевой пропуск: купить платную ветку, а задания и награды смотреть через `/bp`\n"
                 "VIP: удобство, бонусы, дополнительные слоты контрактов и обновления\n"
                 "Обмен: покупка и продажа гемов в одном месте\n"
-                "Кастомизация: покупка смешных титулов для профиля"
+                "Кастомизация: покупка титулов и фоновых тем для профиля"
             ),
             inline=False,
         )
-        embed.set_footer(text="Переключай разделы кнопками ниже.")
+        embed.set_footer(text="Выбирай раздел магазина в селекте сверху, а действия выполняй кнопками ниже.")
         return embed
 
     def _build_vip_embed(self) -> discord.Embed:
