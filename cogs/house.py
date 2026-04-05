@@ -1130,7 +1130,15 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
                 return False, "Продавать пока нечего."
             user["balance"] = int(user.get("balance", 0) or 0) + total_money
             house_state["crypto_wallet"] = wallet
-            await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user["balance"],
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
         return True, discord.Embed(title="Крипта продана", description="\n".join(sold_lines) + f"\n\nБаланс: **{format_money(user['balance'])}**", color=COLORS["success"])
 
     async def withdraw_legacy_wallet(self, user_id: int, guild_id: int) -> tuple[bool, discord.Embed | str]:
@@ -1175,6 +1183,14 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             ready_ids = {rental.get("id") for rental in ready_rentals}
             house_state["active_rentals"] = [rental for rental in house_state.get("active_rentals", []) if rental.get("id") not in ready_ids]
             user["balance"] = int(user.get("balance", 0) or 0) + total_value
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_lines = grant_easter_drops(
+                user,
+                "rent_collect",
+                guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
+            )
             await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
 
         await check_quest_progress(user_id, guild_id, "rent", len(ready_rentals))
@@ -1190,6 +1206,8 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         )
         if event_lines:
             embed.add_field(name="События жильцов", value="\n".join(event_lines[:6]), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         return True, embed
 
     @app_commands.command(name="house", description="Открыть дом, сад, крипту, аренду и обустройство")

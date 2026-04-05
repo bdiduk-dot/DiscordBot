@@ -1,0 +1,579 @@
+from __future__ import annotations
+
+import asyncio
+import random
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
+
+from config import ALLOWED_CHANNEL_ID, COLORS
+from database import db, get_user_lock, supabase
+from easter_event import (
+    EASTER_ARCHIVE_CATEGORY,
+    EASTER_CHEST_CODE,
+    EASTER_COLLECTION_REQUIREMENTS,
+    EASTER_EVENT_END_AT,
+    EASTER_EXCHANGE_END_AT,
+    EASTER_POND_PASS_CODE,
+    EASTER_SHOP_ITEMS,
+    claim_collection,
+    collection_can_claim,
+    convert_inactive_easter_businesses_to_trophies,
+    ensure_easter_state,
+    get_collection_progress,
+    get_easter_businesses,
+    get_easter_counts,
+    get_easter_phase,
+    open_easter_chest,
+    rabbit_is_active,
+    register_easter_fishing_content,
+    sellback_eggs,
+    upgrade_egg_currency,
+    buy_easter_shop_item,
+    collect_easter_businesses,
+    easter_is_active,
+)
+from progression import unlock_theme, unlock_title
+from utils import (
+    check_channel,
+    discord_timestamp,
+    format_discord_deadline,
+    safe_defer,
+    safe_edit_original_response,
+    schedule_message_cleanup,
+    send_wrong_channel_message,
+)
+
+RABBIT_DURATION = timedelta(minutes=15)
+RABBIT_MIN_RESPAWN = timedelta(hours=3)
+RABBIT_SPAWN_CHANCE = 0.16
+
+
+def format_money(value: int | float) -> str:
+    return f"${int(value):,}"
+
+
+class EasterView(discord.ui.View):
+    def __init__(
+        self,
+        cog: "EasterCog",
+        user_id: int,
+        guild_id: int,
+        *,
+        section: str = "hub",
+        selected_shop_code: str | None = None,
+    ):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.section = section
+        self.selected_shop_code = selected_shop_code or (EASTER_SHOP_ITEMS[0]["code"] if EASTER_SHOP_ITEMS else None)
+        self.message: discord.Message | None = None
+        self._build_dynamic_items()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это пасхальное меню открыто не для тебя.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+    def _build_dynamic_items(self):
+        if self.section == "shop":
+            options = [
+                discord.SelectOption(
+                    label=str(item["name"])[:100],
+                    value=str(item["code"]),
+                    description=self.cog.describe_shop_price(item)[:100],
+                    default=str(item["code"]) == str(self.selected_shop_code),
+                    emoji=str(item.get("emoji") or None),
+                )
+                for item in EASTER_SHOP_ITEMS[:25]
+            ]
+            self.shop_select = discord.ui.Select(placeholder="Выбери товар", row=1, options=options)
+            self.shop_select.callback = self._on_shop_select
+            self.add_item(self.shop_select)
+            self.buy_btn = discord.ui.Button(label="Купить", style=discord.ButtonStyle.success, row=2)
+            self.buy_btn.callback = self._on_buy
+            self.add_item(self.buy_btn)
+
+        if self.section == "exchange":
+            self.to_painted_btn = discord.ui.Button(label="25 🥚 → 1 🎨", style=discord.ButtonStyle.primary, row=1)
+            self.to_gold_btn = discord.ui.Button(label="10 🎨 → 1 ✨", style=discord.ButtonStyle.primary, row=1)
+            self.sellback_btn = discord.ui.Button(label="Сдать яйца в деньги", style=discord.ButtonStyle.secondary, row=2)
+            self.to_painted_btn.callback = self._upgrade_to_painted
+            self.to_gold_btn.callback = self._upgrade_to_gold
+            self.sellback_btn.callback = self._sellback
+            self.add_item(self.to_painted_btn)
+            self.add_item(self.to_gold_btn)
+            self.add_item(self.sellback_btn)
+
+        if self.section == "collection":
+            self.claim_btn = discord.ui.Button(label="Получить награду", style=discord.ButtonStyle.success, row=1)
+            self.claim_btn.callback = self._claim_collection
+            self.add_item(self.claim_btn)
+
+        self.shop_nav = discord.ui.Button(label="🛒 Магазин", style=discord.ButtonStyle.secondary, row=0)
+        self.exchange_nav = discord.ui.Button(label="🔄 Обменник", style=discord.ButtonStyle.secondary, row=0)
+        self.collection_nav = discord.ui.Button(label="🏆 Коллекция", style=discord.ButtonStyle.secondary, row=0)
+        self.leaderboard_nav = discord.ui.Button(label="📊 Топ", style=discord.ButtonStyle.secondary, row=0)
+        self.business_collect_btn = discord.ui.Button(label="💼 Сбор бизнесов", style=discord.ButtonStyle.secondary, row=2)
+        self.shop_nav.callback = self._open_shop
+        self.exchange_nav.callback = self._open_exchange
+        self.collection_nav.callback = self._open_collection
+        self.leaderboard_nav.callback = self._open_leaderboard
+        self.business_collect_btn.callback = self._collect_businesses
+        self.add_item(self.shop_nav)
+        self.add_item(self.exchange_nav)
+        self.add_item(self.collection_nav)
+        self.add_item(self.leaderboard_nav)
+        self.add_item(self.business_collect_btn)
+        self._sync_nav_styles()
+
+    def _sync_nav_styles(self):
+        self.shop_nav.style = discord.ButtonStyle.primary if self.section == "shop" else discord.ButtonStyle.secondary
+        self.exchange_nav.style = discord.ButtonStyle.primary if self.section == "exchange" else discord.ButtonStyle.secondary
+        self.collection_nav.style = discord.ButtonStyle.primary if self.section == "collection" else discord.ButtonStyle.secondary
+        self.leaderboard_nav.style = discord.ButtonStyle.primary if self.section == "leaderboard" else discord.ButtonStyle.secondary
+
+    async def _rerender(self, interaction: discord.Interaction, *, section: str | None = None, selected_shop_code: str | None = None):
+        target_section = section or self.section
+        selected_code = selected_shop_code if selected_shop_code is not None else self.selected_shop_code
+        view = EasterView(self.cog, self.user_id, self.guild_id, section=target_section, selected_shop_code=selected_code)
+        embed = await self.cog.build_embed(self.user_id, self.guild_id, section=target_section, selected_shop_code=selected_code)
+        if not await safe_edit_original_response(interaction, embed=embed, view=view):
+            return
+        view.message = await interaction.original_response()
+
+    async def _open_shop(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="shop")
+
+    async def _open_exchange(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="exchange")
+
+    async def _open_collection(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="collection")
+
+    async def _open_leaderboard(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="leaderboard")
+
+    async def _on_shop_select(self, interaction: discord.Interaction):
+        selected = self.shop_select.values[0] if self.shop_select.values else self.selected_shop_code
+        await interaction.response.defer()
+        await self._rerender(interaction, section="shop", selected_shop_code=selected)
+
+    async def _on_buy(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.buy_shop_item(self.user_id, self.guild_id, str(self.selected_shop_code or ""))
+        await self._rerender(interaction, section="shop", selected_shop_code=self.selected_shop_code)
+        await interaction.followup.send(result, ephemeral=True)
+
+    async def _upgrade_to_painted(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.exchange_currency(self.user_id, self.guild_id, "painted")
+        await self._rerender(interaction, section="exchange")
+        await interaction.followup.send(result, ephemeral=True)
+
+    async def _upgrade_to_gold(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.exchange_currency(self.user_id, self.guild_id, "gold")
+        await self._rerender(interaction, section="exchange")
+        await interaction.followup.send(result, ephemeral=True)
+
+    async def _sellback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.sellback_currency(self.user_id, self.guild_id)
+        await self._rerender(interaction, section="exchange")
+        await interaction.followup.send(result, ephemeral=True)
+
+    async def _claim_collection(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.claim_collection_reward(self.user_id, self.guild_id)
+        await self._rerender(interaction, section="collection")
+        await interaction.followup.send(result, ephemeral=True)
+
+    async def _collect_businesses(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.collect_business_rewards(self.user_id, self.guild_id)
+        await self._rerender(interaction, section=self.section)
+        await interaction.followup.send(result, ephemeral=True)
+
+
+class EasterCog(commands.Cog, name="EasterEvent"):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self._guild_state_cache: dict[int, dict[str, Any]] = {}
+        register_easter_fishing_content()
+        self.rabbit_loop.start()
+
+    def cog_unload(self):
+        self.rabbit_loop.cancel()
+
+    def get_cached_guild_state(self, guild_id: int) -> dict[str, Any]:
+        return self._guild_state_cache.get(guild_id, {"guild_id": guild_id, "phase": get_easter_phase()})
+
+    async def _refresh_guild_state(self, guild_id: int) -> dict[str, Any]:
+        state = await db.get_easter_guild_state(guild_id)
+        state["phase"] = get_easter_phase()
+        self._guild_state_cache[guild_id] = state
+        return state
+
+    async def _save_guild_state(self, guild_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        state = {**self.get_cached_guild_state(guild_id), **payload, "phase": get_easter_phase()}
+        self._guild_state_cache[guild_id] = state
+        await db.upsert_easter_guild_state(guild_id, state)
+        return state
+
+    def describe_shop_price(self, item: dict[str, Any]) -> str:
+        parts: list[str] = []
+        if int(item.get("price_common", 0) or 0) > 0:
+            parts.append(f"{int(item['price_common'])} 🥚")
+        if int(item.get("price_painted", 0) or 0) > 0:
+            parts.append(f"{int(item['price_painted'])} 🎨")
+        if int(item.get("price_gold", 0) or 0) > 0:
+            parts.append(f"{int(item['price_gold'])} ✨")
+        if int(item.get("money_price", 0) or 0) > 0:
+            parts.append(format_money(int(item["money_price"])))
+        return " + ".join(parts) or "Бесплатно"
+
+    async def build_leaderboard_payload(self, guild_id: int) -> dict[str, list[str]]:
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("users").select("user_id,game_stats").eq("guild_id", guild_id).execute()
+            )
+            rows = result.data or []
+        except Exception:
+            fallback = ["Не удалось загрузить топ."]
+            return {"common": fallback, "gold": fallback, "pond": fallback}
+
+        entries: list[dict[str, int]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            game_stats = row.get("game_stats")
+            systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
+            easter_state = systems.get("easter_2026") if isinstance(systems, dict) else {}
+            if not isinstance(easter_state, dict):
+                continue
+            user_id = int(row.get("user_id") or 0)
+            if user_id <= 0:
+                continue
+            entries.append(
+                {
+                    "user_id": user_id,
+                    "common": int(easter_state.get("eggs_found_common", 0) or 0),
+                    "gold": int(easter_state.get("eggs_found_gold", 0) or 0),
+                    "pond": int(easter_state.get("rabbit_pond_catches", 0) or 0),
+                }
+            )
+
+        def _top_lines(key: str, icon: str) -> list[str]:
+            ranked = [entry for entry in entries if int(entry.get(key, 0) or 0) > 0]
+            ranked.sort(key=lambda entry: int(entry.get(key, 0) or 0), reverse=True)
+            if not ranked:
+                return ["Пока никто не вышел в топ."]
+            return [
+                f"**{index}.** <@{entry['user_id']}> • {icon} **{int(entry.get(key, 0) or 0)}**"
+                for index, entry in enumerate(ranked[:5], start=1)
+            ]
+
+        return {
+            "common": _top_lines("common", "🥚"),
+            "gold": _top_lines("gold", "✨"),
+            "pond": _top_lines("pond", "🎣"),
+        }
+
+    async def build_embed(self, user_id: int, guild_id: int, *, section: str = "hub", selected_shop_code: str | None = None) -> discord.Embed:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return discord.Embed(title="Пасха 2026", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            converted = convert_inactive_easter_businesses_to_trophies(user)
+            if converted:
+                await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {}), "balance": user.get("balance", 0), "gems": user.get("gems", 0)})
+            easter_state = ensure_easter_state(user)
+            counts = get_easter_counts(user)
+            guild_state = await self._refresh_guild_state(guild_id)
+
+        phase = get_easter_phase()
+        rabbit_active = rabbit_is_active(guild_state)
+        end_target = EASTER_EVENT_END_AT if phase == "active" else EASTER_EXCHANGE_END_AT
+        base_description = (
+            f"Фаза: **{phase}**\n"
+            f"До конца: {format_discord_deadline(end_target)}\n"
+            f"Золотой кролик: **{'активен' if rabbit_active else 'не активен'}**"
+        )
+
+        if section == "shop":
+            embed = discord.Embed(title="🐰 Пасхальный магазин", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            selected = next((item for item in EASTER_SHOP_ITEMS if item["code"] == selected_shop_code), EASTER_SHOP_ITEMS[0])
+            embed.add_field(name="Кошелёк яиц", value=f"🥚 **{counts['common']}**\n🎨 **{counts['painted']}**\n✨ **{counts['gold']}**", inline=True)
+            embed.add_field(name="Баланс", value=f"💰 **{format_money(int(user.get('balance', 0) or 0))}**", inline=True)
+            embed.add_field(name="Выбранный товар", value=f"{selected['emoji']} **{selected['name']}**\nЦена: **{self.describe_shop_price(selected)}**", inline=False)
+            embed.set_footer(text="Магазин работает только в фазе active.")
+            return embed
+
+        if section == "exchange":
+            embed = discord.Embed(title="🔄 Пасхальный обменник", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            embed.add_field(name="У тебя сейчас", value=f"🥚 **{counts['common']}**\n🎨 **{counts['painted']}**\n✨ **{counts['gold']}**", inline=True)
+            embed.add_field(name="Апгрейд", value="`25` 🥚 → `1` 🎨\n`10` 🎨 → `1` ✨", inline=True)
+            embed.add_field(name="Выкуп", value="Во время `exchange` яйца можно сдать боту:\n🥚 `$300`\n🎨 `$4,000`\n✨ `$35,000`", inline=False)
+            return embed
+
+        if section == "collection":
+            progress = get_collection_progress(user)
+            item_meta = {
+                EASTER_COLLECTION_REQUIREMENTS[0]: "🥚 Обычное яйцо",
+                EASTER_COLLECTION_REQUIREMENTS[1]: "🎨 Расписное яйцо",
+                EASTER_COLLECTION_REQUIREMENTS[2]: "✨ Золотое яйцо",
+                EASTER_COLLECTION_REQUIREMENTS[3]: "📦 Пасхальный сундук",
+                EASTER_COLLECTION_REQUIREMENTS[4]: "🐇 Кроличий талисман",
+            }
+            lines = []
+            for code in EASTER_COLLECTION_REQUIREMENTS:
+                icon = "✅" if progress.get(code) else "❌"
+                lines.append(f"{icon} {item_meta.get(code, code)}")
+            embed = discord.Embed(title="🏆 Пасхальная коллекция", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            embed.add_field(name="Нужно собрать", value="\n".join(lines), inline=False)
+            embed.add_field(
+                name="Награда",
+                value="Легендарный титул, редкий фон, гемы и вечный пасхальный трофей.",
+                inline=False,
+            )
+            embed.add_field(
+                name="Статус",
+                value="Награда уже забрана." if bool(easter_state.get("collection_reward_claimed")) else ("Можно забирать." if collection_can_claim(user) else "Пока не хватает предметов."),
+                inline=False,
+            )
+            return embed
+
+        if section == "leaderboard":
+            tops = await self.build_leaderboard_payload(guild_id)
+            embed = discord.Embed(title="📊 Пасхальный топ", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            embed.add_field(name="🥚 Больше всего яиц", value="\n".join(tops["common"]), inline=False)
+            embed.add_field(name="✨ Шейхи золотых яиц", value="\n".join(tops["gold"]), inline=False)
+            embed.add_field(name="🎣 Лучшие рыбаки пруда", value="\n".join(tops["pond"]), inline=False)
+            return embed
+
+        businesses = get_easter_businesses(user)
+        business_lines = []
+        for business_key, payload in businesses.items():
+            business = next((item for item in EASTER_SHOP_ITEMS if item["code"] == business_key), None)
+            if business is None:
+                continue
+            business_lines.append(f"{business['emoji']} **{business['name']}**")
+        if not business_lines:
+            business_lines.append("Пасхальных бизнесов пока нет.")
+
+        progress = get_collection_progress(user)
+        collection_ready = sum(1 for value in progress.values() if value)
+        embed = discord.Embed(title="🐰 Пасха 2026", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+        embed.add_field(name="Яйца в инвентаре", value=f"🥚 **{counts['common']}**\n🎨 **{counts['painted']}**\n✨ **{counts['gold']}**", inline=True)
+        embed.add_field(
+            name="Коллекция",
+            value=f"Собрано: **{collection_ready}/{len(EASTER_COLLECTION_REQUIREMENTS)}**\nНаграда: **{'забрана' if easter_state.get('collection_reward_claimed') else 'не забрана'}**",
+            inline=True,
+        )
+        embed.add_field(name="Пасхальные бизнесы", value="\n".join(business_lines[:4]), inline=False)
+        if rabbit_active:
+            active_until = guild_state.get("rabbit_active_until")
+            if active_until:
+                embed.add_field(name="Золотой кролик", value=f"Сейчас активен до {discord_timestamp(active_until, 'R')}.", inline=False)
+        if converted:
+            embed.add_field(name="Трофеи после ивента", value="Преобразованы в трофеи: " + ", ".join(converted), inline=False)
+        if phase == "off":
+            embed.set_footer(text=f"Ивент закрыт. Мёртвые предметы ушли в {EASTER_ARCHIVE_CATEGORY}.")
+        return embed
+
+    async def buy_shop_item(self, user_id: int, guild_id: int, item_code: str) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            ok, message = buy_easter_shop_item(user, item_code)
+            if not ok:
+                return message
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "gems": user.get("gems", 0),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
+            return message
+
+    async def exchange_currency(self, user_id: int, guild_id: int, tier: str) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            ok, message = upgrade_egg_currency(user, tier)
+            if not ok:
+                return message
+            await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            return message
+
+    async def sellback_currency(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            ok, payload = sellback_eggs(user)
+            if not ok:
+                return str(payload["message"])
+            await db.update_user(user_id, guild_id, {"balance": user.get("balance", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            return (
+                f"Выкуп завершён.\n"
+                f"🥚 Сдано: **{payload['common']}**\n"
+                f"🎨 Сдано: **{payload['painted']}**\n"
+                f"✨ Сдано: **{payload['gold']}**\n"
+                f"💰 Получено: **{format_money(payload['money'])}**"
+            )
+
+    async def claim_collection_reward(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            if not claim_collection(user):
+                return "Коллекция пока не готова или награда уже забрана."
+            user["gems"] = int(user.get("gems", 0) or 0) + 125
+            unlock_title(user, "tideborn")
+            unlock_theme(user, "royal")
+            add_general_item = __import__("inventory_system").add_general_item
+            add_general_item(
+                user,
+                item_type="event_trophy",
+                code="easter_collection_grand_trophy",
+                name="Вечный пасхальный декор",
+                emoji="🌸",
+                description="Уникальный декор за полную Пасхальную коллекцию 2026.",
+                quantity=1,
+                payload={"event_key": "easter_2026", "archive": False},
+                stackable=False,
+            )
+            await db.update_user(user_id, guild_id, {"gems": user.get("gems", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            return "Коллекция закрыта. Получены: **125 гемов**, титул, фон и уникальный пасхальный декор."
+
+    async def collect_business_rewards(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            ok, payload = collect_easter_businesses(user)
+            if not ok:
+                return str(payload["message"])
+            await db.update_user(user_id, guild_id, {"balance": user.get("balance", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            extra = f"\n🎨 Расписных яиц: **+{payload['painted']}**" if int(payload["painted"]) > 0 else ""
+            return (
+                "\n".join(payload["lines"])
+                + f"\n\n💰 Деньги: **+{format_money(payload['money'])}**\n🥚 Обычных яиц: **+{payload['common']}**{extra}"
+            )
+
+    @tasks.loop(minutes=5)
+    async def rabbit_loop(self):
+        if not self.bot.is_ready():
+            return
+        for guild in list(self.bot.guilds):
+            await self._tick_guild_rabbit(guild)
+
+    @rabbit_loop.before_loop
+    async def before_rabbit_loop(self):
+        await self.bot.wait_until_ready()
+
+    async def _tick_guild_rabbit(self, guild: discord.Guild):
+        now = datetime.now(timezone.utc)
+        state = await self._refresh_guild_state(guild.id)
+        phase = get_easter_phase(now)
+
+        if phase != "active":
+            if state.get("active_rabbit_event_id") or state.get("rabbit_active_until"):
+                await self._save_guild_state(
+                    guild.id,
+                    {
+                        "active_rabbit_event_id": None,
+                        "rabbit_active_until": None,
+                        "rabbit_last_announce_message_id": state.get("rabbit_last_announce_message_id"),
+                    },
+                )
+            return
+
+        if rabbit_is_active(state, now):
+            return
+
+        raw_last_spawn = state.get("rabbit_last_spawn_at")
+        last_spawn = None
+        if raw_last_spawn:
+            try:
+                parsed = datetime.fromisoformat(str(raw_last_spawn))
+                last_spawn = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                last_spawn = last_spawn.astimezone(timezone.utc)
+            except ValueError:
+                last_spawn = None
+        if last_spawn and now - last_spawn < RABBIT_MIN_RESPAWN:
+            return
+        if random.random() > RABBIT_SPAWN_CHANCE:
+            return
+
+        channel = guild.get_channel(ALLOWED_CHANNEL_ID)
+        announce_message_id = None
+        if isinstance(channel, discord.TextChannel):
+            try:
+                embed = discord.Embed(
+                    title="🐇 На сервере заметили Золотого кролика!",
+                    description="Следующие **15 минут** из активностей чаще падают яйца, сундуки и редкий пасхальный лут.",
+                    color=COLORS["easter"],
+                    timestamp=now,
+                )
+                message = await channel.send(embed=embed)
+                announce_message_id = message.id
+            except Exception:
+                announce_message_id = None
+
+        await self._save_guild_state(
+            guild.id,
+            {
+                "active_rabbit_event_id": f"{guild.id}-{int(now.timestamp())}",
+                "rabbit_active_until": (now + RABBIT_DURATION).isoformat(),
+                "rabbit_last_spawn_at": now.isoformat(),
+                "rabbit_last_announce_message_id": announce_message_id,
+            },
+        )
+
+    @app_commands.command(name="easter", description="Открыть пасхальный ивент 2026")
+    async def easter(self, interaction: discord.Interaction):
+        if not await check_channel(interaction):
+            await send_wrong_channel_message(interaction)
+            return
+        if not await safe_defer(interaction):
+            return
+        view = EasterView(self, interaction.user.id, interaction.guild_id, section="hub")
+        embed = await self.build_embed(interaction.user.id, interaction.guild_id, section="hub")
+        if not await safe_edit_original_response(interaction, embed=embed, view=view):
+            return
+        view.message = await interaction.original_response()
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(EasterCog(bot))

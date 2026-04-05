@@ -67,6 +67,7 @@ COLORS = {
     'info': 0x3498db,
     'warning': 0xffa500,
     'gold': 0xffd700,
+    'easter': 0xffb6c1,
     'purple': 0x9b59b6,
     'bronze': 0xcd7f32,
     'silver': 0xc0c0c0,

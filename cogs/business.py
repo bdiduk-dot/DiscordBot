@@ -1240,6 +1240,14 @@ class BusinessCog(commands.Cog, name="Business"):
 
             user["businesses"] = normalized_businesses
             user["balance"] += total_collected
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_lines = grant_easter_drops(
+                user,
+                "business_collect",
+                guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
+            )
             user.setdefault("quest_progress", {})
             user["quest_progress"]["collect_business"] = user["quest_progress"].get("collect_business", 0) + collected_instances
             await db.update_user(user_id, guild_id, user)
@@ -1286,6 +1294,8 @@ class BusinessCog(commands.Cog, name="Business"):
             )
         embed.add_field(name="Разбивка", value="\n".join(summary_lines), inline=False)
         embed.add_field(name="Новый баланс", value=f"**{format_money(user['balance'])}**", inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         return True, embed
 
     @app_commands.command(name="businesses", description="Посмотреть бизнесы для покупки")

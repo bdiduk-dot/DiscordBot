@@ -297,12 +297,14 @@ class BlackjackView(discord.ui.View):
         payout_amount = 0
         total_losses = 0
         hand_summaries: list[str] = []
+        any_natural_blackjack = False
 
         for index, hand in enumerate(self.game.player_hands, start=1):
             hand_cards = hand["cards"]
             hand_bet = int(hand["bet"])
             hand_value = self.game.hand_value(hand_cards)
             player_blackjack = self.game.is_natural_blackjack(hand_cards) and not bool(hand.get("split_from_pair"))
+            any_natural_blackjack = any_natural_blackjack or player_blackjack
 
             if hand_value > 21:
                 hand_result = "перебор"
@@ -366,6 +368,7 @@ class BlackjackView(discord.ui.View):
             result_text = "Поражение"
             color = COLORS["error"]
 
+        easter_lines: list[str] = []
         async with get_user_lock(self.game.user_id):
             user = await db.get_user(self.game.user_id, self.game.guild_id)
             if not user:
@@ -399,6 +402,17 @@ class BlackjackView(discord.ui.View):
             elif net_result < 0:
                 user["win_streak"] = 0
 
+            if net_result > 0:
+                from easter_event import grant_easter_drops
+
+                easter_cog = interaction.client.get_cog("EasterEvent")
+                easter_lines = grant_easter_drops(
+                    user,
+                    "blackjack_win",
+                    guild_state=easter_cog.get_cached_guild_state(self.game.guild_id) if easter_cog else None,
+                    natural_blackjack=any_natural_blackjack,
+                )
+
             await db.update_user(self.game.user_id, self.game.guild_id, user)
 
         asyncio.create_task(
@@ -427,6 +441,8 @@ class BlackjackView(discord.ui.View):
             f"Баланс: **{format_money(int(user.get('balance', 0)))}**"
         )
         embed.add_field(name="Результат по рукам", value="\n".join(hand_summaries), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(embed=embed, view=self)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)

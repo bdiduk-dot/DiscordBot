@@ -237,7 +237,16 @@ class WorkChoiceView(discord.ui.View):
             event_multiplier, active_event = self.cog._market_multiplier(self.guild_id, "economy")
             if event_multiplier > 1:
                 salary = int(salary * event_multiplier)
+            from easter_event import grant_easter_drops, maybe_apply_easter_work_bonus
+
+            easter_cog = self.cog.bot.get_cog("EasterEvent")
+            salary = maybe_apply_easter_work_bonus(user, salary)
             user["balance"] = int(user.get("balance", 0) or 0) + salary
+            easter_lines = grant_easter_drops(
+                user,
+                "work",
+                guild_state=easter_cog.get_cached_guild_state(self.guild_id) if easter_cog else None,
+            )
             user["last_work"] = now.isoformat()
             await db.update_user(self.user_id, self.guild_id, user)
 
@@ -253,6 +262,8 @@ class WorkChoiceView(discord.ui.View):
             COLORS["success"],
         )
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)
@@ -357,6 +368,14 @@ class CrimeChoiceView(discord.ui.View):
                     )
                     color = COLORS["error"]
                     asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-6, crime_runs=1))
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.cog.bot.get_cog("EasterEvent")
+            easter_lines = grant_easter_drops(
+                user,
+                "crime",
+                guild_state=easter_cog.get_cached_guild_state(self.guild_id) if easter_cog else None,
+            )
             user["last_crime"] = now.isoformat()
             await db.update_user(self.user_id, self.guild_id, user)
 
@@ -366,6 +385,8 @@ class CrimeChoiceView(discord.ui.View):
         event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
         embed = create_embed("🕵️ ПРЕСТУПЛЕНИЕ", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)
@@ -1059,8 +1080,16 @@ class EconomyCog(commands.Cog, name="Economy"):
                 streak_multiplier = 2
 
             final_bonus = int(bonus * streak_multiplier)
+            from easter_event import grant_easter_drops
+
             user["balance"] += final_bonus
             user["gems"] += gems
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_lines = grant_easter_drops(
+                user,
+                "daily",
+                guild_state=easter_cog.get_cached_guild_state(interaction.guild_id) if easter_cog else None,
+            )
             user["last_daily"] = now.isoformat()
             await db.update_user(interaction.user.id, interaction.guild_id, user)
 
@@ -1089,6 +1118,8 @@ class EconomyCog(commands.Cog, name="Economy"):
         if active_event:
             embed.add_field(name="Событие", value=f"`{active_event['name']}`", inline=False)
         embed.add_field(name="Новый баланс", value=f"**{format_money(user['balance'])}**", inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(content=None, embed=embed)
 
     @app_commands.command(name="work", description="Поработать и заработать деньги")
@@ -1229,6 +1260,14 @@ class EconomyCog(commands.Cog, name="Economy"):
                     )
                     color = COLORS["error"]
 
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_lines = grant_easter_drops(
+                user,
+                "slut",
+                guild_state=easter_cog.get_cached_guild_state(interaction.guild_id) if easter_cog else None,
+            )
             user["last_slut"] = now.isoformat()
             await db.update_user(interaction.user.id, interaction.guild_id, user)
             asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "slut", 1))
@@ -1249,6 +1288,8 @@ class EconomyCog(commands.Cog, name="Economy"):
         event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
         embed = create_embed("🔥 РИСКОВАННАЯ РАБОТА", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(content=None, embed=embed)
         try:
             schedule_message_cleanup(await interaction.original_response())

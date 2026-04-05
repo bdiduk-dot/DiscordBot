@@ -22,6 +22,21 @@ from cogs.fishing_world import (
 from cogs.cases import open_case_from_inventory
 from config import ALLOWED_CHANNEL_ID, COLORS, FISH_RARITIES, FISHING_RODS, get_vip_level
 from database import db, get_user_lock
+from easter_event import (
+    EASTER_ARCHIVE_CATEGORY,
+    EASTER_CHEST_CODE,
+    EASTER_POND_PASS_CODE,
+    EASTER_POND_ZONE_KEY,
+    archive_summary_lines,
+    get_easter_phase,
+    easter_pond_available,
+    grant_easter_drops,
+    grant_pond_bonus_loot,
+    open_easter_chest,
+    split_active_and_archived_items,
+    unlock_easter_pond,
+    ensure_easter_state,
+)
 from inventory_system import (
     add_fish_item,
     decrement_general_item,
@@ -367,6 +382,14 @@ def _display_zone_name(zone_key: str) -> str:
     return ZONE_DISPLAY_NAMES.get(zone_key, FISHING_ZONES.get(zone_key, {}).get("name", "Спот"))
 
 
+def _shop_visible_zone_items() -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (key, value)
+        for key, value in FISHING_ZONES.items()
+        if key not in {"river_bank", EASTER_POND_ZONE_KEY}
+    ]
+
+
 def _display_time_phase_name(phase_key: str | None) -> str:
     return TIME_PHASE_DISPLAY_NAMES.get(str(phase_key), "Неизвестно")
 
@@ -482,7 +505,7 @@ class FishShopView(discord.ui.View):
             return [(key, value) for key, value in FISHING_TACKLES.items() if key != "starter"]
         if self.active_tab == "bait":
             return _bait_shop_offers()
-        return [(key, value) for key, value in FISHING_ZONES.items() if key != "river_bank"]
+        return _shop_visible_zone_items()
 
     def _visible_items(self) -> list[tuple[str, dict[str, Any]]]:
         items = self._items_for_tab()
@@ -1121,6 +1144,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             unlocked_zones = set(fishing.get("unlocked_zones", ["river_bank"]))
             if zone_key not in FISHING_ZONES:
                 return False, "Такого спота нет."
+            if zone_key == EASTER_POND_ZONE_KEY and not easter_pond_available():
+                return False, "Пруд золотого кролика сейчас недоступен."
             if zone_key not in unlocked_zones and zone_key != "river_bank":
                 return False, "Этот спот ещё не открыт."
 
@@ -1276,7 +1301,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 inline=False,
             )
         else:
-            items = [(key, value) for key, value in FISHING_ZONES.items() if key != "river_bank"]
+            items = _shop_visible_zone_items()
             embed.add_field(name="Раздел", value="Споты", inline=False)
 
         start = page * SHOP_PAGE_SIZE
@@ -1564,7 +1589,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             items = list(FISHING_BAITS.items())
             embed.add_field(name="Раздел", value="Наживки", inline=False)
         else:
-            items = [(key, value) for key, value in FISHING_ZONES.items() if key != "river_bank"]
+            items = _shop_visible_zone_items()
             embed.add_field(name="Раздел", value="Легендарные зоны", inline=False)
         start = page * SHOP_PAGE_SIZE
         visible_items = items[start:start + SHOP_PAGE_SIZE]
@@ -1635,6 +1660,7 @@ class FishingCog(commands.Cog, name="Fishing"):
 
     async def build_inventory_embed(self, user_id: int, guild_id: int, tab: str = "general", page: int = 0) -> discord.Embed:
         user, fishing, _, fish_items, general_items = await self._inventory_snapshot(user_id, guild_id)
+        active_general_items, archived_general_items = split_active_and_archived_items(general_items)
         if not user:
             return discord.Embed(title="Инвентарь", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
@@ -1677,13 +1703,13 @@ class FishingCog(commands.Cog, name="Fishing"):
                 color=COLORS["warning"],
                 timestamp=datetime.now(timezone.utc),
             )
-            if not general_items:
+            if not active_general_items and not archived_general_items:
                 embed.add_field(name="Хранилище", value="Пока пусто. Покупай кейсы, чёрный рынок и специальные предметы.", inline=False)
                 embed.set_footer(text="Использование предметов по ID доступно на этой вкладке.")
                 return embed
 
             start = page * INVENTORY_GENERAL_PAGE_SIZE
-            visible_general = general_items[start:start + INVENTORY_GENERAL_PAGE_SIZE]
+            visible_general = active_general_items[start:start + INVENTORY_GENERAL_PAGE_SIZE]
             lines = []
             for item in visible_general:
                 emoji = f"{item.get('emoji', '')} " if item.get("emoji") else ""
@@ -1694,9 +1720,14 @@ class FishingCog(commands.Cog, name="Fishing"):
                 lines.append(
                     f"`#{item['id']}` {emoji}**{item.get('name', 'Предмет')}** x{quantity}\n{description}"
                 )
-            embed.add_field(name="Содержимое", value="\n\n".join(lines), inline=False)
-            general_max_page = max(0, (len(general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE)
-            embed.set_footer(text=f"Страница {page + 1}/{general_max_page + 1}. Использование предметов по ID доступно только на этой вкладке.")
+            if lines:
+                embed.add_field(name="Содержимое", value="\n\n".join(lines), inline=False)
+            else:
+                embed.add_field(name="Содержимое", value="Сейчас здесь нет активных предметов.", inline=False)
+            if archived_general_items:
+                embed.add_field(name=EASTER_ARCHIVE_CATEGORY, value="\n".join(archive_summary_lines(archived_general_items)), inline=False)
+            general_max_page = max(0, (len(active_general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if active_general_items else 0
+            embed.set_footer(text=f"Страница {page + 1}/{general_max_page + 1}. Использование предметов по ID доступно только для активных предметов.")
             return embed
 
         unlocked_value = sum(int(item.get("price", 0) or 0) for item in fish_items if not bool(item.get("locked")))
@@ -1707,9 +1738,15 @@ class FishingCog(commands.Cog, name="Fishing"):
         bait_key = fishing.get("equipped_bait")
         bait_stock = fishing.get("bait_stock", {})
         selected_zone = str(fishing.get("selected_zone", "river_bank") or "river_bank")
+        if selected_zone == EASTER_POND_ZONE_KEY and not easter_pond_available():
+            selected_zone = "river_bank"
         owned_rods = ", ".join(self.display_rod_name(key) for key in fishing.get("owned_rods", [])) or "Нет"
         owned_tackles = ", ".join(self.display_tackle_name(key) for key in fishing.get("owned_tackles", [])) or "Нет"
-        unlocked_zones = ", ".join(_display_zone_name(key) for key in fishing.get("unlocked_zones", [])) or "Нет"
+        visible_unlocked_zones = [
+            key for key in fishing.get("unlocked_zones", [])
+            if key != EASTER_POND_ZONE_KEY or easter_pond_available()
+        ]
+        unlocked_zones = ", ".join(_display_zone_name(key) for key in visible_unlocked_zones) or "Нет"
         bait_lines = []
         for bait_code, amount in fishing.get("bait_stock", {}).items():
             amount_int = int(amount or 0)
@@ -1872,6 +1909,11 @@ class FishingCog(commands.Cog, name="Fishing"):
             )
             return success, message
 
+        if item_type == "event_pass" and str(preview_item.get("code") or "") == EASTER_POND_PASS_CODE and not easter_pond_available():
+            return False, "Пруд золотого кролика уже недоступен. Пропуск отправится в архив после конца ивента."
+        if item_type == "event_chest" and get_easter_phase() == "off":
+            return False, "Пасхальные сундуки больше не открываются и ушли в архив 2026."
+
         if item_type not in {
             "bait_bundle",
             "shield_card",
@@ -1879,6 +1921,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             "house_wallet_cache",
             "crypto_cache",
             "cosmetic_pack",
+            "event_pass",
+            "event_chest",
         }:
             return False, "Этот предмет пока нельзя использовать."
 
@@ -1951,6 +1995,15 @@ class FishingCog(commands.Cog, name="Fishing"):
                 theme_key = payload.get("theme")
                 if theme_key and unlock_theme(user, str(theme_key)):
                     result_lines.append(f"Открыта тема: **{reward_text({'type': 'theme', 'key': theme_key})}**")
+            elif item_type == "event_pass":
+                if unlock_easter_pond(user):
+                    result_lines.append("Открыт **Пруд золотого кролика**. Теперь его можно выбрать в снастях и ловить ивентовую рыбу.")
+                else:
+                    result_lines.append("Пруд золотого кролика уже был открыт ранее.")
+            elif item_type == "event_chest":
+                rewards = open_easter_chest(user)
+                result_lines.append("Пасхальный сундук открыт:")
+                result_lines.extend(rewards["lines"])
 
             await db.update_user(
                 user_id,
@@ -2015,11 +2068,22 @@ class FishingCog(commands.Cog, name="Fishing"):
                     chance_bonus["legendary"] = float(chance_bonus.get("legendary", 1.0)) * 1.05
                     bait_for_roll["chance_bonus"] = chance_bonus
             zone_key = str(fishing.get("selected_zone", "river_bank") or "river_bank")
+            if zone_key == EASTER_POND_ZONE_KEY and not easter_pond_available(now):
+                zone_key = "river_bank"
+                fishing["selected_zone"] = zone_key
             fish_multiplier, event = self._market_multiplier(guild_id, "fish")
             fish_data = roll_catch(rod_bonus=float(rod["bonus"]), tackle=tackle, bait=bait_for_roll, zone_key=zone_key, now=now)
             world_state = fish_data["world_state"]
             fish_name = _display_species_name(fish_data.get("species_id"), fish_data.get("name"))
             rarity_name = _display_rarity_name(fish_data.get("rarity"))
+            easter_cog = self.bot.get_cog("EasterEvent")
+            guild_state = easter_cog.get_cached_guild_state(guild_id) if easter_cog else None
+            easter_lines = grant_easter_drops(user, "fish", guild_state=guild_state)
+            pond_lines: list[str] = []
+            if zone_key == EASTER_POND_ZONE_KEY and easter_pond_available(now):
+                pond_lines = grant_pond_bonus_loot(user, guild_state=guild_state)
+                easter_state = ensure_easter_state(user)
+                easter_state["rabbit_pond_catches"] = int(easter_state.get("rabbit_pond_catches", 0) or 0) + 1
 
             if bait_key and bait is not None and int(bait_stock.get(bait_key, 0) or 0) > 0:
                 bait_stock[bait_key] = int(bait_stock.get(bait_key, 0) or 0) - 1
@@ -2056,6 +2120,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                         color=COLORS["success"],
                     )
                     chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
+                    if easter_lines or pond_lines:
+                        chest_embed.add_field(name="Пасха 2026", value="\n".join([*easter_lines, *pond_lines]), inline=False)
                     await check_quest_progress(user_id, guild_id, "fish", 1)
                     await check_quest_progress(user_id, guild_id, "earn", cash_reward)
                     asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
@@ -2088,6 +2154,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                         color=crypto_drop["color"],
                     )
                     chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
+                    if easter_lines or pond_lines:
+                        chest_embed.add_field(name="Пасха 2026", value="\n".join([*easter_lines, *pond_lines]), inline=False)
                     await check_quest_progress(user_id, guild_id, "fish", 1)
                     asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
                     asyncio.create_task(record_player_progress(user_id, guild_id, action="fish", amount=1))
@@ -2127,6 +2195,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                     color=crypto_drop["color"],
                 )
                 chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
+                if easter_lines or pond_lines:
+                    chest_embed.add_field(name="Пасха 2026", value="\n".join([*easter_lines, *pond_lines]), inline=False)
                 await check_quest_progress(user_id, guild_id, "fish", 1)
                 asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
                 asyncio.create_task(record_player_progress(user_id, guild_id, action="fish", amount=1))
@@ -2201,6 +2271,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             result.add_field(name="Ивент", value=f"Сейчас активно **{_display_event_name(fish_data['event_key'])}**.", inline=False)
         if event is not None and fish_multiplier != 1.0:
             result.add_field(name="Рынок", value=f"На рыбу сейчас действует бонус от события **{event['name']}**.", inline=False)
+        if easter_lines or pond_lines:
+            result.add_field(name="Пасха 2026", value="\n".join([*easter_lines, *pond_lines]), inline=False)
         result.set_footer(text=f"Улов сохранён в /inventory под ID #{fish_item['id']}. Там его можно продать или залочить.")
         return True, result
 
@@ -2408,17 +2480,18 @@ class InventoryView(discord.ui.View):
         self.gear_btn.style = discord.ButtonStyle.primary if self.active_tab == "gear" else discord.ButtonStyle.secondary
 
         fishing = _fishing_state(user) if user else {}
+        active_general_items, _ = split_active_and_archived_items(general_items)
         sellable_fish = [item for item in fish_items if not bool(item.get("locked"))]
         common_uncommon = [item for item in sellable_fish if str(item.get("rarity") or "") in {"common", "uncommon"}]
 
-        self.use_id_btn.disabled = not bool(general_items)
+        self.use_id_btn.disabled = not bool(active_general_items)
         self.sell_all_btn.disabled = not bool(sellable_fish)
         self.sell_common_btn.disabled = not bool(common_uncommon)
         self.sell_id_btn.disabled = not bool(fish_items)
         self.lock_id_btn.disabled = not bool(fish_items)
 
         fish_max_page = max(0, (len(fish_items) - 1) // INVENTORY_FISH_PAGE_SIZE) if fish_items else 0
-        general_max_page = max(0, (len(general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if general_items else 0
+        general_max_page = max(0, (len(active_general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if active_general_items else 0
         if self.active_tab == "fish":
             max_page = fish_max_page
         elif self.active_tab == "general":
@@ -2495,8 +2568,12 @@ class InventoryView(discord.ui.View):
         self.bait_select.disabled = not bool(self.bait_select.options)
 
         unlocked_zones = set(fishing.get("unlocked_zones", ["river_bank"]))
+        if current_zone == EASTER_POND_ZONE_KEY and not easter_pond_available():
+            current_zone = "river_bank"
         zone_options = []
         for zone_key in FISHING_ZONES:
+            if zone_key == EASTER_POND_ZONE_KEY and not easter_pond_available():
+                continue
             if zone_key != "river_bank" and zone_key not in unlocked_zones:
                 continue
             zone_options.append(
