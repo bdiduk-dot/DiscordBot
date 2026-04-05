@@ -418,11 +418,11 @@ class _BaseShopView(discord.ui.View):
         if self.active_page == "exchange":
             self.action_btn_1.disabled = False
             self.action_btn_1.style = discord.ButtonStyle.success
-            self.action_btn_1.label = "Деньги -> гемы"
+            self.action_btn_1.label = "Гемы -> деньги"
 
             self.action_btn_2.disabled = False
             self.action_btn_2.style = discord.ButtonStyle.success
-            self.action_btn_2.label = "Гемы -> деньги"
+            self.action_btn_2.label = "Деньги -> гемы"
 
             self.action_btn_3.disabled = True
             self.action_btn_3.style = discord.ButtonStyle.secondary
@@ -570,13 +570,13 @@ class _BaseShopView(discord.ui.View):
             color=COLORS["info"],
         )
         embed.add_field(
-            name="Деньги -> гемы",
-            value="Курс: **$1,000 = 1 гем**\nКнопка ниже откроет ввод количества гемов.",
+            name="Гемы -> деньги",
+            value="Курс: **1 гем = $900**\nКнопка ниже откроет ввод количества гемов.",
             inline=True,
         )
         embed.add_field(
-            name="Гемы -> деньги",
-            value="Курс: **1 гем = $900**\nКнопка ниже откроет ввод количества гемов.",
+            name="Деньги -> гемы",
+            value="Курс: **$1,000 = 1 гем**\nКнопка ниже откроет ввод количества гемов.",
             inline=True,
         )
         embed.add_field(
@@ -941,10 +941,10 @@ class _BaseShopView(discord.ui.View):
     async def _handle_action(self, interaction: discord.Interaction, slot_index: int | None = None):
         async with self._view_lock:
             if self.active_page == "exchange" and slot_index == 0:
-                await interaction.response.send_modal(ExchangeModal(self, "to_gems"))
+                await interaction.response.send_modal(ExchangeModal(self, "to_money"))
                 return
             if self.active_page == "exchange" and slot_index == 1:
-                await interaction.response.send_modal(ExchangeModal(self, "to_money"))
+                await interaction.response.send_modal(ExchangeModal(self, "to_gems"))
                 return
 
             await interaction.response.defer()
@@ -1487,10 +1487,10 @@ class ShopView(_BaseShopView):
                 return
 
             if self.active_page == "exchange" and slot_index == 0:
-                await interaction.response.send_modal(ExchangeModal(self, "to_gems"))
+                await interaction.response.send_modal(ExchangeModal(self, "to_money"))
                 return
             if self.active_page == "exchange" and slot_index == 1:
-                await interaction.response.send_modal(ExchangeModal(self, "to_money"))
+                await interaction.response.send_modal(ExchangeModal(self, "to_gems"))
                 return
 
             if not await safe_defer(interaction):

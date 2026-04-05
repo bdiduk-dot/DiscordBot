@@ -72,7 +72,7 @@ def _add_home_furniture_item(user: dict[str, Any], furniture_key: str) -> None:
         item_type=HOME_FURNITURE_ITEM_TYPE,
         code=furniture_key,
         name=str(furniture.get("name") or furniture_key),
-        description="Use this after buying a house to install it.",
+        description="Используй после покупки дома, чтобы установить мебель.",
         quantity=1,
         emoji=str(furniture.get("emoji") or ""),
         payload={"furniture_key": furniture_key},
@@ -316,23 +316,23 @@ async def buy_watering_can_upgrade(user_id: int, guild_id: int, can_key: str) ->
 
 async def buy_furniture_item(user_id: int, guild_id: int, furniture_key: str) -> tuple[bool, discord.Embed | str]:
     if furniture_key not in FURNITURE_ITEMS:
-        return False, "No such furniture item."
+        return False, "Такого предмета мебели нет."
     furniture = FURNITURE_ITEMS[furniture_key]
     async with get_user_lock(user_id):
         user = await db.get_user(user_id, guild_id)
         if not user:
-            return False, "Failed to load profile."
+            return False, "Не удалось загрузить профиль."
         house_state, _ = _migrate_house_state(user)
         migrate_legacy_reserved_furniture(user, house_state=house_state)
         house_data = _house_current_data(house_state)
         owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
         pending = _pending_furniture_keys(user)
         if house_data is None and len(pending) >= 1:
-            return False, "Without a house you can pre-buy only one furniture item. Buy a house first for more."
+            return False, "Без дома можно заранее купить только один предмет мебели. Для остального сначала купи дом."
         if furniture_key in owned or furniture_key in pending:
-            return False, "This furniture item is already owned."
+            return False, "Этот предмет мебели уже у тебя есть."
         if int(user.get("balance", 0) or 0) < int(furniture["price"]):
-            return False, f"Not enough money: need {format_money(int(furniture['price']) - int(user.get('balance', 0) or 0))} more."
+            return False, f"Не хватает денег: нужно ещё {format_money(int(furniture['price']) - int(user.get('balance', 0) or 0))}."
         user["balance"] = int(user.get("balance", 0) or 0) - int(furniture["price"])
         if house_data is None:
             _add_home_furniture_item(user, furniture_key)
@@ -348,13 +348,17 @@ async def buy_furniture_item(user_id: int, guild_id: int, furniture_key: str) ->
                 "game_stats": user.get("game_stats", {}),
             },
         )
-    status_line = FURNITURE_BUFFS.get(furniture_key, "Buff activated.") if house_data else "Added to inventory. Use it after buying a house."
+    status_line = (
+        FURNITURE_BUFFS.get(furniture_key, "Бонус мебели активирован.")
+        if house_data
+        else "Предмет добавлен в инвентарь. Используй его после покупки дома."
+    )
     return True, discord.Embed(
-        title="Home Purchase",
+        title="Покупка мебели",
         description=(
-            f"Bought **{furniture['name']}**.\n"
+            f"Куплено: **{furniture['name']}**.\n"
             f"{status_line}\n"
-            f"Balance: **{format_money(user['balance'])}**"
+            f"Баланс: **{format_money(user['balance'])}**"
         ),
         color=COLORS["success"],
     )
@@ -826,8 +830,10 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if installed_lines or pending:
             furniture_lines = installed_lines[:]
             if pending:
-                furniture_lines.extend(f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** (in inventory)" for key in pending)
-            embed.add_field(name="Furniture", value="\n".join(furniture_lines[:10]), inline=False)
+                furniture_lines.extend(
+                    f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** (в инвентаре)" for key in pending
+                )
+            embed.add_field(name="Мебель", value="\n".join(furniture_lines[:10]), inline=False)
         embed.set_footer(text="Новые дома и GPU покупаются в `/shop` → `Недвижимость`, а вся настройка остаётся в `/house`.")
         return embed
 
@@ -998,9 +1004,9 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
     async def build_decor_embed(self, user_id: int, guild_id: int) -> discord.Embed:
         user, house_state = await self._load_user(user_id, guild_id)
         if not user or not house_state:
-            return discord.Embed(title="Decor", description="Failed to load profile.", color=COLORS["warning"])
+            return discord.Embed(title="Обустройство", description="Не удалось загрузить профиль.", color=COLORS["warning"])
         house_data = _house_current_data(house_state)
-        embed = discord.Embed(title="Decor", color=COLORS["gold"])
+        embed = discord.Embed(title="Обустройство", color=COLORS["gold"])
         from easter_event import get_owned_easter_furniture
 
         owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
@@ -1008,25 +1014,25 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         easter_owned = get_owned_easter_furniture(user)
         if house_data is None:
             if not pending:
-                embed.description = "Decor opens after buying a house, but one furniture item can now be bought in advance from `/shop` -> `IKEA`."
+                embed.description = "Обустройство откроется после покупки дома, но один предмет мебели уже можно купить заранее в `/shop` → `IKEA`."
                 return embed
-            embed.description = "No house yet, but one furniture item is already reserved. Its buff will activate after you buy a house."
-            lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - waiting in inventory" for key in pending]
-            embed.add_field(name="Reserved Decor", value="\n".join(lines), inline=False)
+            embed.description = "Дома пока нет, но один предмет мебели уже ждёт в инвентаре. Его бонус активируется после покупки дома."
+            lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - ждёт в инвентаре" for key in pending]
+            embed.add_field(name="Отложенная мебель", value="\n".join(lines), inline=False)
             return embed
         if not owned and not pending and not easter_owned:
-            embed.description = "No furniture yet. Open `/shop` -> `IKEA`."
+            embed.description = "Мебели пока нет. Открой `/shop` → `IKEA`."
             return embed
-        embed.description = f"House: **{house_data['name']}**\nFurniture gives permanent buffs to the house and related systems."
+        embed.description = f"Дом: **{house_data['name']}**\nМебель даёт постоянные бонусы дому и связанным системам."
         if owned:
-            lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - {FURNITURE_BUFFS.get(key, 'Buff active.')}" for key in owned]
-            embed.add_field(name="Installed Furniture", value="\n".join(lines), inline=False)
+            lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - {FURNITURE_BUFFS.get(key, 'Бонус активен.')}" for key in owned]
+            embed.add_field(name="Установленная мебель", value="\n".join(lines), inline=False)
         if easter_owned:
             easter_lines = [f"{item['emoji']} **{item['name']}** - {item['description']}" for item in easter_owned]
-            embed.add_field(name="Easter Decor", value="\n".join(easter_lines), inline=False)
+            embed.add_field(name="Пасхальный декор", value="\n".join(easter_lines), inline=False)
         if pending:
-            pending_lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - use it from inventory to install" for key in pending]
-            embed.add_field(name="In Inventory", value="\n".join(pending_lines), inline=False)
+            pending_lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - используй из инвентаря, чтобы установить" for key in pending]
+            embed.add_field(name="В инвентаре", value="\n".join(pending_lines), inline=False)
         return embed
 
     async def plant_seed(self, user_id: int, guild_id: int, plot_index: int, crop_code: str) -> tuple[bool, discord.Embed | str]:
