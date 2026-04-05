@@ -18,6 +18,7 @@ from easter_event import (
     EASTER_EVENT_END_AT,
     EASTER_EXCHANGE_END_AT,
     EASTER_POND_PASS_CODE,
+    EASTER_SHOP_CATEGORY_META,
     EASTER_SHOP_ITEMS,
     claim_collection,
     collection_can_claim,
@@ -65,6 +66,7 @@ class EasterView(discord.ui.View):
         *,
         section: str = "hub",
         selected_shop_code: str | None = None,
+        selected_shop_category: str | None = None,
     ):
         super().__init__(timeout=120)
         self.cog = cog
@@ -72,6 +74,7 @@ class EasterView(discord.ui.View):
         self.guild_id = guild_id
         self.section = section
         self.selected_shop_code = selected_shop_code or (EASTER_SHOP_ITEMS[0]["code"] if EASTER_SHOP_ITEMS else None)
+        self.selected_shop_category = selected_shop_category or self.cog.normalize_shop_category(None, self.selected_shop_code)
         self.message: discord.Message | None = None
         self._build_dynamic_items()
 
@@ -94,6 +97,24 @@ class EasterView(discord.ui.View):
 
     def _build_dynamic_items(self):
         if self.section == "shop":
+            self.selected_shop_category = self.cog.normalize_shop_category(self.selected_shop_category, self.selected_shop_code)
+            shop_items = self.cog.shop_items_for_category(self.selected_shop_category)
+            selected_codes = {str(item["code"]) for item in shop_items}
+            if self.selected_shop_code not in selected_codes and shop_items:
+                self.selected_shop_code = str(shop_items[0]["code"])
+            category_options = [
+                discord.SelectOption(
+                    label=str(meta["label"])[:100],
+                    value=str(category_key),
+                    description=str(meta["hint"])[:100],
+                    default=str(category_key) == str(self.selected_shop_category),
+                    emoji=str(meta.get("emoji") or None),
+                )
+                for category_key, meta in EASTER_SHOP_CATEGORY_META.items()
+            ]
+            self.shop_category_select = discord.ui.Select(placeholder="Категория магазина", row=1, options=category_options)
+            self.shop_category_select.callback = self._on_shop_category_select
+            self.add_item(self.shop_category_select)
             options = [
                 discord.SelectOption(
                     label=str(item["name"])[:100],
@@ -102,13 +123,15 @@ class EasterView(discord.ui.View):
                     default=str(item["code"]) == str(self.selected_shop_code),
                     emoji=str(item.get("emoji") or None),
                 )
-                for item in EASTER_SHOP_ITEMS[:25]
+                for item in shop_items[:25]
             ]
             self.shop_select = discord.ui.Select(placeholder="Выбери товар", row=1, options=options)
             self.shop_select.callback = self._on_shop_select
+            self.shop_select.row = 2
             self.add_item(self.shop_select)
             self.buy_btn = discord.ui.Button(label="Купить", style=discord.ButtonStyle.success, row=2)
             self.buy_btn.callback = self._on_buy
+            self.buy_btn.row = 3
             self.add_item(self.buy_btn)
 
         if self.section == "exchange":
@@ -137,6 +160,7 @@ class EasterView(discord.ui.View):
         self.collection_nav.callback = self._open_collection
         self.leaderboard_nav.callback = self._open_leaderboard
         self.business_collect_btn.callback = self._collect_businesses
+        self.business_collect_btn.row = 4
         self.add_item(self.shop_nav)
         self.add_item(self.exchange_nav)
         self.add_item(self.collection_nav)
@@ -150,18 +174,39 @@ class EasterView(discord.ui.View):
         self.collection_nav.style = discord.ButtonStyle.primary if self.section == "collection" else discord.ButtonStyle.secondary
         self.leaderboard_nav.style = discord.ButtonStyle.primary if self.section == "leaderboard" else discord.ButtonStyle.secondary
 
-    async def _rerender(self, interaction: discord.Interaction, *, section: str | None = None, selected_shop_code: str | None = None):
+    async def _rerender(
+        self,
+        interaction: discord.Interaction,
+        *,
+        section: str | None = None,
+        selected_shop_code: str | None = None,
+        selected_shop_category: str | None = None,
+    ):
         target_section = section or self.section
         selected_code = selected_shop_code if selected_shop_code is not None else self.selected_shop_code
-        view = EasterView(self.cog, self.user_id, self.guild_id, section=target_section, selected_shop_code=selected_code)
-        embed = await self.cog.build_embed(self.user_id, self.guild_id, section=target_section, selected_shop_code=selected_code)
+        category_key = selected_shop_category if selected_shop_category is not None else self.selected_shop_category
+        view = EasterView(
+            self.cog,
+            self.user_id,
+            self.guild_id,
+            section=target_section,
+            selected_shop_code=selected_code,
+            selected_shop_category=category_key,
+        )
+        embed = await self.cog.build_embed(
+            self.user_id,
+            self.guild_id,
+            section=target_section,
+            selected_shop_code=selected_code,
+            selected_shop_category=category_key,
+        )
         if not await safe_edit_original_response(interaction, embed=embed, view=view):
             return
         view.message = await interaction.original_response()
 
     async def _open_shop(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        await self._rerender(interaction, section="shop")
+        await self._rerender(interaction, section="shop", selected_shop_category=self.selected_shop_category)
 
     async def _open_exchange(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -178,12 +223,34 @@ class EasterView(discord.ui.View):
     async def _on_shop_select(self, interaction: discord.Interaction):
         selected = self.shop_select.values[0] if self.shop_select.values else self.selected_shop_code
         await interaction.response.defer()
-        await self._rerender(interaction, section="shop", selected_shop_code=selected)
+        await self._rerender(
+            interaction,
+            section="shop",
+            selected_shop_code=selected,
+            selected_shop_category=self.selected_shop_category,
+        )
+
+    async def _on_shop_category_select(self, interaction: discord.Interaction):
+        selected_category = self.shop_category_select.values[0] if self.shop_category_select.values else self.selected_shop_category
+        items = self.cog.shop_items_for_category(selected_category)
+        selected_code = str(items[0]["code"]) if items else self.selected_shop_code
+        await interaction.response.defer()
+        await self._rerender(
+            interaction,
+            section="shop",
+            selected_shop_code=selected_code,
+            selected_shop_category=selected_category,
+        )
 
     async def _on_buy(self, interaction: discord.Interaction):
         await interaction.response.defer()
         result = await self.cog.buy_shop_item(self.user_id, self.guild_id, str(self.selected_shop_code or ""))
-        await self._rerender(interaction, section="shop", selected_shop_code=self.selected_shop_code)
+        await self._rerender(
+            interaction,
+            section="shop",
+            selected_shop_code=self.selected_shop_code,
+            selected_shop_category=self.selected_shop_category,
+        )
         await interaction.followup.send(result, ephemeral=True)
 
     async def _upgrade_to_painted(self, interaction: discord.Interaction):
@@ -213,7 +280,7 @@ class EasterView(discord.ui.View):
     async def _collect_businesses(self, interaction: discord.Interaction):
         await interaction.response.defer()
         result = await self.cog.collect_business_rewards(self.user_id, self.guild_id)
-        await self._rerender(interaction, section=self.section)
+        await self._rerender(interaction, section=self.section, selected_shop_category=self.selected_shop_category)
         await interaction.followup.send(result, ephemeral=True)
 
 
@@ -253,6 +320,64 @@ class EasterCog(commands.Cog, name="EasterEvent"):
         if int(item.get("money_price", 0) or 0) > 0:
             parts.append(format_money(int(item["money_price"])))
         return " + ".join(parts) or "Бесплатно"
+
+    def shop_category_key(self, item: dict[str, Any]) -> str:
+        category = str(item.get("category") or "")
+        if category in EASTER_SHOP_CATEGORY_META:
+            return category
+        kind = str(item.get("kind") or "")
+        kind_map = {
+            "case": "loot",
+            "bait": "loot",
+            "pass": "loot",
+            "theme": "profile",
+            "title": "profile",
+            "furniture": "decor",
+            "business": "business",
+        }
+        return kind_map.get(kind, "loot")
+
+    def normalize_shop_category(self, category: str | None, selected_shop_code: str | None = None) -> str:
+        if str(category or "") in EASTER_SHOP_CATEGORY_META:
+            return str(category)
+        if selected_shop_code:
+            selected = next((item for item in EASTER_SHOP_ITEMS if str(item.get("code")) == str(selected_shop_code)), None)
+            if selected is not None:
+                return self.shop_category_key(selected)
+        return next(iter(EASTER_SHOP_CATEGORY_META))
+
+    def shop_items_for_category(self, category: str | None) -> list[dict[str, Any]]:
+        normalized = self.normalize_shop_category(category)
+        items = [item for item in EASTER_SHOP_ITEMS if self.shop_category_key(item) == normalized]
+        return items or list(EASTER_SHOP_ITEMS)
+
+    def describe_shop_item(self, item: dict[str, Any]) -> str:
+        code = str(item.get("code") or "")
+        kind = str(item.get("kind") or "")
+        code_descriptions = {
+            "easter_case_basic": "Открывается через инвентарь и может принести деньги, яйца, декор и редкие пасхальные награды.",
+            "easter_bait_pack": "Даёт набор праздничной наживки. Используй предмет через `/inventory`, чтобы получить заряды наживки.",
+            EASTER_POND_PASS_CODE: "Открывает доступ к Пруду золотого кролика, где ловится ивентовая рыба, яйца и сундуки.",
+            "easter_profile_theme": "После использования через `/inventory` открывает и сразу активирует пасхальный фон профиля.",
+            "easter_profile_title": "После использования через `/inventory` открывает пасхальный титул для профиля.",
+            "easter_egg_basket": "Декор дома: повышает шанс выпадения яиц на 5% во время ивента.",
+            "easter_rabbit_lamp": "Декор дома: даёт +5% к доходу пасхальных бизнесов во время ивента.",
+            "easter_chocolate_fountain": "Декор дома: даёт +5% к денежной награде из `/work` во время ивента.",
+            "easter_bakery": "Временный бизнес: приносит немного денег и пасхальные яйца, а после ивента превращается в трофей.",
+            "easter_chocolate_lab": "Продвинутый временный бизнес: приносит больше денег, яиц и может дать расписное яйцо. После ивента становится трофеем.",
+        }
+        if code in code_descriptions:
+            return code_descriptions[code]
+        descriptions = {
+            "case": "Кейс с валютой, декором и редкими пасхальными наградами.",
+            "bait": "Набор праздничной наживки для обычной рыбалки и пасхального пруда.",
+            "pass": "Открывает доступ к Пруду золотого кролика на время ивента.",
+            "theme": "Косметический фон профиля в пасхальном стиле.",
+            "title": "Статусный пасхальный титул для профиля.",
+            "furniture": "Домашний декор с пассивным бонусом на время ивента.",
+            "business": "Временный бизнес с пассивным доходом и дропом яиц.",
+        }
+        return descriptions.get(kind, "Пасхальный предмет из временного магазина.")
 
     async def build_leaderboard_payload(self, guild_id: int) -> dict[str, list[str]]:
         try:
@@ -301,7 +426,15 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             "pond": _top_lines("pond", "🎣"),
         }
 
-    async def build_embed(self, user_id: int, guild_id: int, *, section: str = "hub", selected_shop_code: str | None = None) -> discord.Embed:
+    async def build_embed(
+        self,
+        user_id: int,
+        guild_id: int,
+        *,
+        section: str = "hub",
+        selected_shop_code: str | None = None,
+        selected_shop_category: str | None = None,
+    ) -> discord.Embed:
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
@@ -324,10 +457,38 @@ class EasterCog(commands.Cog, name="EasterEvent"):
 
         if section == "shop":
             embed = discord.Embed(title="🐰 Пасхальный магазин", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
-            selected = next((item for item in EASTER_SHOP_ITEMS if item["code"] == selected_shop_code), EASTER_SHOP_ITEMS[0])
+            normalized_category = self.normalize_shop_category(selected_shop_category, selected_shop_code)
+            category_meta = EASTER_SHOP_CATEGORY_META[normalized_category]
+            category_items = self.shop_items_for_category(normalized_category)
+            selected = next((item for item in category_items if item["code"] == selected_shop_code), category_items[0])
+            category_lines = [
+                f"{'→' if key == normalized_category else '•'} {meta['emoji']} **{meta['label']}**"
+                for key, meta in EASTER_SHOP_CATEGORY_META.items()
+            ]
+            section_lines = [
+                f"{item['emoji']} **{item['name']}** — {self.describe_shop_price(item)}"
+                for item in category_items[:6]
+            ]
             embed.add_field(name="Кошелёк яиц", value=f"🥚 **{counts['common']}**\n🎨 **{counts['painted']}**\n✨ **{counts['gold']}**", inline=True)
             embed.add_field(name="Баланс", value=f"💰 **{format_money(int(user.get('balance', 0) or 0))}**", inline=True)
-            embed.add_field(name="Выбранный товар", value=f"{selected['emoji']} **{selected['name']}**\nЦена: **{self.describe_shop_price(selected)}**", inline=False)
+            embed.add_field(
+                name="Категории",
+                value="\n".join(category_lines),
+                inline=False,
+            )
+            embed.add_field(
+                name=f"{category_meta['emoji']} {category_meta['label']}",
+                value="\n".join(section_lines) if section_lines else "В этой категории пока нет товаров.",
+                inline=False,
+            )
+            embed.add_field(
+                name=f"Выбранный товар: {selected['emoji']} {selected['name']}",
+                value=(
+                    f"Цена: **{self.describe_shop_price(selected)}**\n"
+                    f"{self.describe_shop_item(selected)}"
+                ),
+                inline=False,
+            )
             embed.set_footer(text="Магазин работает только в фазе active.")
             return embed
 

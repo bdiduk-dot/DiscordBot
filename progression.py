@@ -39,6 +39,7 @@ PROFILE_TITLES: dict[str, dict[str, Any]] = {
     "fish_psychic": {"name": "Рыбный телепат", "display": "<< FISH PSYCHIC >>"},
     "panic_investor": {"name": "Паник-инвестор", "display": "[ PANIC INVESTOR ]"},
     "sofa_tycoon": {"name": "Диванный магнат", "display": "< SOFA TYCOON >"},
+    "easter_hunter": {"name": "Охотник за яйцами", "display": "{ EASTER HUNTER }"},
 }
 
 PROFILE_THEMES: dict[str, dict[str, Any]] = {
@@ -47,6 +48,11 @@ PROFILE_THEMES: dict[str, dict[str, Any]] = {
     "ember": {"name": "Янтарь", "color": 0xE67E22},
     "royal": {"name": "Королевская", "color": 0xD4AF37},
     "abyss": {"name": "Бездна", "color": 0x5B6CFF},
+    "sakura": {
+        "name": "Пасхальная сакура",
+        "color": 0xFFB6C1,
+        "image_url": "https://i.pinimg.com/736x/e3/d9/a9/e3d9a9830de5dce351cfeeeec52b7b46.jpg",
+    },
 }
 
 SEASON_FREE_REWARDS: list[dict[str, Any]] = [
@@ -494,6 +500,16 @@ def get_profile_theme_color(user: dict[str, Any], fallback: int) -> int:
     profile = get_profile_state(user)
     theme_key = str(profile.get("active_theme", DEFAULT_THEME) or DEFAULT_THEME)
     return int(PROFILE_THEMES.get(theme_key, PROFILE_THEMES[DEFAULT_THEME])["color"] or fallback)
+
+
+def get_profile_theme_image(user: dict[str, Any]) -> str | None:
+    profile = get_profile_state(user)
+    theme_key = str(profile.get("active_theme", DEFAULT_THEME) or DEFAULT_THEME)
+    theme = PROFILE_THEMES.get(theme_key, PROFILE_THEMES[DEFAULT_THEME])
+    image_url = theme.get("image_url")
+    if not image_url:
+        return None
+    return str(image_url)
 
 
 def reward_text(reward: dict[str, Any]) -> str:

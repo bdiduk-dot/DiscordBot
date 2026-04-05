@@ -12,6 +12,7 @@ from economy_events import CRIME_POOL, SLUT_POOL, WORK_POOL
 from config import ADMIN_IDS, BUSINESSES, COLORS, get_rank, get_vip_level
 from database import db, get_user_lock
 from progression import (
+    PROFILE_THEMES,
     PROFILE_TITLES,
     SEASON_NAME,
     battle_pass_progress_to_next,
@@ -19,10 +20,12 @@ from progression import (
     ensure_battle_pass_state,
     get_profile_state,
     get_profile_theme_color,
+    get_profile_theme_image,
     get_profile_title_text,
     get_reputation,
     reputation_crime_bonus,
     reputation_label,
+    set_active_theme,
     set_active_title,
     set_favorite_catch,
 )
@@ -413,7 +416,6 @@ class ProfileCustomizeView(discord.ui.View):
         self.target_id = target_id
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
-        self.remove_item(self.theme_btn)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -454,8 +456,17 @@ class ProfileCustomizeView(discord.ui.View):
                     next_key = owned[(owned.index(current) + 1) % len(owned)]
                     set_active_title(user, next_key)
                     message = f"Активный титул: **{PROFILE_TITLES[next_key]['name']}**"
+                elif mode == "theme":
+                    owned = [key for key in profile.get("owned_themes", []) if key in PROFILE_THEMES]
+                    current = str(profile.get("active_theme", owned[0] if owned else "classic"))
+                    if not owned:
+                        await interaction.response.send_message("У тебя пока нет доступных фонов.", ephemeral=True)
+                        return
+                    next_key = owned[(owned.index(current) + 1) % len(owned)]
+                    set_active_theme(user, next_key)
+                    message = f"Активный фон: **{PROFILE_THEMES[next_key]['name']}**"
                 else:
-                    message = "Новые титулы теперь покупаются через `/shop` во вкладке `Кастомизация`."
+                    message = "Новые фоны и титулы открываются через награды, сезон и временные ивенты."
 
                 await db.update_user(self.user_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
 
@@ -472,9 +483,9 @@ class ProfileCustomizeView(discord.ui.View):
     async def title_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._cycle_profile_value(interaction, mode="title")
 
-    @discord.ui.button(label="Где купить титулы", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Сменить фон", style=discord.ButtonStyle.secondary, row=0)
     async def theme_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Новые титулы покупаются через `/shop` во вкладке `Кастомизация`.", ephemeral=True)
+        await self._cycle_profile_value(interaction, mode="theme")
 
     @discord.ui.button(label="Выбрать улов", style=discord.ButtonStyle.success, row=1)
     async def catch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -679,6 +690,9 @@ class EconomyCog(commands.Cog, name="Economy"):
         )
         embed.set_author(name=f"{admin_badge}{target.display_name}", icon_url=target.display_avatar.url)
         embed.set_thumbnail(url=target.display_avatar.url)
+        theme_image = get_profile_theme_image(user)
+        if theme_image:
+            embed.set_image(url=theme_image)
         embed.add_field(
             name="💳 Кошелёк",
             value=(
@@ -987,6 +1001,7 @@ class EconomyCog(commands.Cog, name="Economy"):
 
         profile = get_profile_state(user)
         active_title = str(profile.get("active_title", "rookie"))
+        active_theme = str(profile.get("active_theme", "classic"))
         favorite_catch = profile.get("favorite_catch")
 
         title_lines = [
@@ -994,13 +1009,22 @@ class EconomyCog(commands.Cog, name="Economy"):
             for key in profile.get("owned_titles", [])
             if key in PROFILE_TITLES
         ] or ["Нет доступных титулов."]
+        theme_lines = [
+            f"{'•' if key != active_theme else '▶'} {PROFILE_THEMES[key]['name']}"
+            for key in profile.get("owned_themes", [])
+            if key in PROFILE_THEMES
+        ] or ["Нет доступных фонов."]
 
         embed = discord.Embed(
             title="Профиль: кастомизация",
-            description="Меняй титул и выставляй любимый улов.",
+            description="Меняй титул, фон профиля и выставляй любимый улов.",
             color=get_profile_theme_color(user, COLORS["info"]),
         )
+        theme_image = get_profile_theme_image(user)
         embed.add_field(name="Титулы", value="\n".join(title_lines[:10]), inline=False)
+        embed.add_field(name="Фоны", value="\n".join(theme_lines[:10]), inline=False)
+        if theme_image:
+            embed.set_image(url=theme_image)
         if favorite_catch:
             catch_text = (
                 f"{favorite_catch.get('emoji', '')} **{favorite_catch.get('name', 'Улов')}**\n"
@@ -1010,7 +1034,7 @@ class EconomyCog(commands.Cog, name="Economy"):
         else:
             catch_text = "Любимый улов не выбран. Нажми кнопку, чтобы поставить последний улов из `/fish`."
         embed.add_field(name="Выбранный улов", value=catch_text, inline=False)
-        embed.set_footer(text="Кнопками ниже можно менять титул и ставить последний улов из `/fish`.")
+        embed.set_footer(text="Кнопками ниже можно менять титул, фон профиля и ставить последний улов из `/fish`.")
         return embed
 
     @app_commands.command(name="profile", description="Показать профиль")

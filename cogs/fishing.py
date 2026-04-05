@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from cogs.mining import _house_state
+from cogs.mining import GARDEN_CROPS, _house_state
 from cogs.fishing_world import (
     CHISINAU_TZ,
     FISHING_BAITS as WORLD_FISHING_BAITS,
@@ -48,7 +48,7 @@ from inventory_system import (
     sell_fish_items,
     toggle_fish_lock,
 )
-from progression import change_reputation, reward_text, unlock_theme, unlock_title
+from progression import change_reputation, reward_text, set_active_theme, unlock_theme, unlock_title
 from utils import (
     check_channel,
     check_quest_progress,
@@ -190,6 +190,22 @@ BAIT_SHOP_ALWAYS_AVAILABLE = ("worms",)
 
 def format_money(value: int | float) -> str:
     return f"${int(value):,}"
+
+
+def _round_money_step(value: int, step: int = 50) -> int:
+    if step <= 0:
+        return int(value)
+    return max(step, int(round(int(value) / step) * step))
+
+
+def crop_harvest_unit_price(crop_code: str) -> int:
+    crop = GARDEN_CROPS.get(str(crop_code) or "")
+    if not isinstance(crop, dict):
+        return 0
+    avg_yield = (int(crop.get("yield_min", 1) or 1) + int(crop.get("yield_max", 1) or 1)) / 2
+    base_seed_price = int(crop.get("price", 0) or 0)
+    unit_price = int(round((base_seed_price * 1.25) / max(avg_yield, 1)))
+    return _round_money_step(unit_price)
 
 
 def _default_bait_stock() -> dict[str, int]:
@@ -1714,8 +1730,14 @@ class FishingCog(commands.Cog, name="Fishing"):
             for item in visible_general:
                 emoji = f"{item.get('emoji', '')} " if item.get("emoji") else ""
                 quantity = int(item.get("quantity", 1) or 1)
+                item_type = str(item.get("item_type") or "")
+                item_code = str(item.get("code") or "")
                 description = str(item.get("description") or "Без описания.")
-                if len(description) > 110:
+                if item_type == "crop_harvest":
+                    unit_price = crop_harvest_unit_price(item_code)
+                    total_price = unit_price * quantity
+                    description = f"Можно продать через инвентарь за **{format_money(unit_price)}** за 1 шт. • Стопка: **{format_money(total_price)}**"
+                elif len(description) > 110:
                     description = description[:107].rstrip() + "..."
                 lines.append(
                     f"`#{item['id']}` {emoji}**{item.get('name', 'Предмет')}** x{quantity}\n{description}"
@@ -1858,6 +1880,74 @@ class FishingCog(commands.Cog, name="Fishing"):
             )
         return True, discord.Embed(title="Рыба продана", description=description, color=COLORS["success"])
 
+    async def sell_inventory_harvest(self, user_id: int, guild_id: int, mode: str, item_id: int | None = None) -> tuple[bool, discord.Embed | str]:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+
+            sold_lines: list[str] = []
+            sold_count = 0
+            total = 0
+
+            if mode == "id":
+                if item_id is None:
+                    return False, "Нужен ID урожая."
+                item = find_general_item(user, item_id)
+                if item is None or str(item.get("item_type") or "") != "crop_harvest":
+                    return False, "По этому ID не найден урожай."
+                quantity = int(item.get("quantity", 0) or 0)
+                crop_code = str(item.get("code") or "")
+                unit_price = crop_harvest_unit_price(crop_code)
+                if quantity <= 0 or unit_price <= 0:
+                    return False, "Этот урожай пока нельзя продать."
+                total = unit_price * quantity
+                decrement_general_item(user, item_id, quantity)
+                sold_count = quantity
+                sold_lines.append(f"{item.get('emoji', '🌾')} **{item.get('name', 'Урожай')}** x{quantity}")
+            else:
+                harvest_items = [
+                    item for item in get_general_items(user)
+                    if str(item.get("item_type") or "") == "crop_harvest"
+                ]
+                if not harvest_items:
+                    return False, "В инвентаре нет урожая для продажи."
+                for item in harvest_items:
+                    quantity = int(item.get("quantity", 0) or 0)
+                    crop_code = str(item.get("code") or "")
+                    unit_price = crop_harvest_unit_price(crop_code)
+                    if quantity <= 0 or unit_price <= 0:
+                        continue
+                    total += unit_price * quantity
+                    sold_count += quantity
+                    decrement_general_item(user, int(item.get("id", 0) or 0), quantity)
+                    sold_lines.append(f"{item.get('emoji', '🌾')} **{item.get('name', 'Урожай')}** x{quantity}")
+                if total <= 0:
+                    return False, "В инвентаре нет урожая для продажи."
+
+            user["balance"] = int(user.get("balance", 0) or 0) + int(total)
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user["balance"],
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
+
+        await check_quest_progress(user_id, guild_id, "earn", int(total))
+        preview_lines = sold_lines[:5]
+        extra = f"\n... и ещё **{len(sold_lines) - 5}** стак(ов)." if len(sold_lines) > 5 else ""
+        description = (
+            f"Продано урожая: **{sold_count}**\n"
+            f"Сумма продажи: **{format_money(total)}**\n"
+            f"Баланс: **{format_money(user['balance'])}**\n\n"
+            + "\n".join(preview_lines)
+            + extra
+        )
+        return True, discord.Embed(title="Урожай продан", description=description, color=COLORS["success"])
+
     async def toggle_inventory_fish_lock(self, user_id: int, guild_id: int, item_id: int) -> tuple[bool, discord.Embed | str]:
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
@@ -1994,7 +2084,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                     result_lines.append(f"Открыт титул: **{reward_text({'type': 'title', 'key': title_key})}**")
                 theme_key = payload.get("theme")
                 if theme_key and unlock_theme(user, str(theme_key)):
-                    result_lines.append(f"Открыта тема: **{reward_text({'type': 'theme', 'key': theme_key})}**")
+                    set_active_theme(user, str(theme_key))
+                    result_lines.append(f"Открыта и активирована тема: **{reward_text({'type': 'theme', 'key': theme_key})}**")
             elif item_type == "event_pass":
                 if unlock_easter_pond(user):
                     result_lines.append("Открыт **Пруд золотого кролика**. Теперь его можно выбрать в снастях и ловить ивентовую рыбу.")
@@ -2306,6 +2397,7 @@ class InventoryIdModal(discord.ui.Modal):
         self.action = action
         title_map = {
             "sell": "Продать по ID",
+            "sell_harvest": "Продать урожай по ID",
             "lock": "Лок по ID",
             "use": "Использовать по ID",
         }
@@ -2327,6 +2419,8 @@ class InventoryIdModal(discord.ui.Modal):
 
         if self.action == "sell":
             success, payload = await self.view.cog.sell_inventory_fish(self.view.user_id, self.view.guild_id, "id", item_id=item_id)
+        elif self.action == "sell_harvest":
+            success, payload = await self.view.cog.sell_inventory_harvest(self.view.user_id, self.view.guild_id, "id", item_id=item_id)
         elif self.action == "lock":
             success, payload = await self.view.cog.toggle_inventory_fish_lock(self.view.user_id, self.view.guild_id, item_id)
         else:
@@ -2381,6 +2475,9 @@ class InventoryView(discord.ui.View):
         self.use_id_btn = discord.ui.Button(label="Исп. предмет", style=discord.ButtonStyle.success, row=1)
         self.use_id_btn.callback = self._on_use_id
 
+        self.sell_harvest_btn = discord.ui.Button(label="Продать урожай", style=discord.ButtonStyle.danger, row=1)
+        self.sell_harvest_btn.callback = self._on_sell_harvest
+
         self.sell_all_btn = discord.ui.Button(label="Продать всё", style=discord.ButtonStyle.danger, row=1)
         self.sell_all_btn.callback = self._on_sell_all
 
@@ -2389,6 +2486,9 @@ class InventoryView(discord.ui.View):
 
         self.sell_id_btn = discord.ui.Button(label="Продать по ID", style=discord.ButtonStyle.secondary, row=2)
         self.sell_id_btn.callback = self._on_sell_id
+
+        self.sell_harvest_id_btn = discord.ui.Button(label="Продать урожай по ID", style=discord.ButtonStyle.secondary, row=2)
+        self.sell_harvest_id_btn.callback = self._on_sell_harvest_id
 
         self.lock_id_btn = discord.ui.Button(label="Лок по ID", style=discord.ButtonStyle.secondary, row=2)
         self.lock_id_btn.callback = self._on_lock_id
@@ -2433,9 +2533,11 @@ class InventoryView(discord.ui.View):
         self._static_items = (self.general_btn, self.fish_btn, self.gear_btn)
         self._dynamic_items = (
             self.use_id_btn,
+            self.sell_harvest_btn,
             self.sell_all_btn,
             self.sell_common_btn,
             self.sell_id_btn,
+            self.sell_harvest_id_btn,
             self.lock_id_btn,
             self.prev_btn,
             self.refresh_btn,
@@ -2483,8 +2585,11 @@ class InventoryView(discord.ui.View):
         active_general_items, _ = split_active_and_archived_items(general_items)
         sellable_fish = [item for item in fish_items if not bool(item.get("locked"))]
         common_uncommon = [item for item in sellable_fish if str(item.get("rarity") or "") in {"common", "uncommon"}]
+        harvest_items = [item for item in active_general_items if str(item.get("item_type") or "") == "crop_harvest"]
 
         self.use_id_btn.disabled = not bool(active_general_items)
+        self.sell_harvest_btn.disabled = not bool(harvest_items)
+        self.sell_harvest_id_btn.disabled = not bool(harvest_items)
         self.sell_all_btn.disabled = not bool(sellable_fish)
         self.sell_common_btn.disabled = not bool(common_uncommon)
         self.sell_id_btn.disabled = not bool(fish_items)
@@ -2602,6 +2707,8 @@ class InventoryView(discord.ui.View):
 
         if self.active_tab == "general":
             self._toggle_item(self.use_id_btn, True)
+            self._toggle_item(self.sell_harvest_btn, True)
+            self._toggle_item(self.sell_harvest_id_btn, True)
             self._toggle_item(self.prev_btn, True)
             self._toggle_item(self.refresh_btn, True)
             self._toggle_item(self.next_btn, True)
@@ -2698,6 +2805,23 @@ class InventoryView(discord.ui.View):
             await interaction.response.send_message("Использование предметов по ID доступно только во вкладке Общее.", ephemeral=True)
             return
         await interaction.response.send_modal(InventoryIdModal(self, "use"))
+
+    async def _on_sell_harvest(self, interaction: discord.Interaction):
+        async with self._view_lock:
+            if self.active_tab != "general":
+                await interaction.response.send_message("Продажа урожая доступна только во вкладке Предметы.", ephemeral=True)
+                return
+            if not await safe_defer(interaction):
+                return
+            _, payload = await self.cog.sell_inventory_harvest(self.user_id, self.guild_id, "all")
+            await self.refresh(interaction)
+            await self._send_payload(interaction, payload)
+
+    async def _on_sell_harvest_id(self, interaction: discord.Interaction):
+        if self.active_tab != "general":
+            await interaction.response.send_message("Продажа урожая по ID доступна только во вкладке Предметы.", ephemeral=True)
+            return
+        await interaction.response.send_modal(InventoryIdModal(self, "sell_harvest"))
 
     async def _on_sell_all(self, interaction: discord.Interaction):
         async with self._view_lock:
