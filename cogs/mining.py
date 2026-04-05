@@ -345,9 +345,37 @@ def _current_market_rows() -> tuple[list[dict[str, Any]], float]:
     return rows, market_factor
 
 
-def _gpu_breakdown(installed_gpus: list[str]) -> dict[str, int]:
+def _gpu_entry_id(entry: Any) -> str:
+    if isinstance(entry, dict):
+        raw_value = entry.get("gpu_id", entry.get("id"))
+    else:
+        raw_value = entry
+    return str(raw_value or "")
+
+
+def _gpu_entry_buy_price(entry: Any) -> int:
+    if isinstance(entry, dict):
+        try:
+            return int(entry.get("buy_price", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+    gpu_id = _gpu_entry_id(entry)
+    return int(GPU_MODELS.get(gpu_id, {}).get("price", 0) or 0)
+
+
+def _gpu_entry_resale_price(entry: Any) -> int:
+    buy_price = _gpu_entry_buy_price(entry)
+    if buy_price <= 0:
+        return 0
+    return max(1, int(round(buy_price * 0.30)))
+
+
+def _gpu_breakdown(installed_gpus: list[Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for gpu_id in installed_gpus:
+    for entry in installed_gpus:
+        gpu_id = _gpu_entry_id(entry)
+        if gpu_id not in GPU_MODELS:
+            continue
         counts[gpu_id] = counts.get(gpu_id, 0) + 1
     return counts
 
@@ -926,6 +954,20 @@ class CleanHouseView(discord.ui.View):
 
             self._add_action_button(f"Купить #{slot + 1}", discord.ButtonStyle.success, 1, buy_gpu_callback)
 
+            async def sell_gpu_callback(interaction: discord.Interaction, target_gpu_id: str = gpu_id):
+                async with self._view_lock:
+                    if not await safe_defer(interaction):
+                        return
+                    _, payload = await self.cog.sell_gpu(self.user_id, self.guild_id, target_gpu_id)
+                    view = CleanHouseView(self.cog, self.user_id, self.guild_id, tab="gpus", entry_mode=self.entry_mode)
+                    await self._show_new_view(interaction, view)
+                    if isinstance(payload, discord.Embed):
+                        await interaction.followup.send(embed=payload, ephemeral=True)
+                    else:
+                        await interaction.followup.send(str(payload), ephemeral=True)
+
+            self._add_action_button(f"Продать #{slot + 1}", discord.ButtonStyle.secondary, 2, sell_gpu_callback)
+
         async def refresh(interaction: discord.Interaction):
             async with self._view_lock:
                 if not await safe_defer(interaction):
@@ -933,7 +975,7 @@ class CleanHouseView(discord.ui.View):
                 view = CleanHouseView(self.cog, self.user_id, self.guild_id, tab="gpus", entry_mode=self.entry_mode)
                 await self._show_new_view(interaction, view)
 
-        self._add_action_button("Обновить", discord.ButtonStyle.secondary, 2, refresh)
+        self._add_action_button("Обновить", discord.ButtonStyle.secondary, 3, refresh)
 
     async def on_timeout(self):
         for child in self.children:
@@ -996,7 +1038,11 @@ class HouseCog(commands.Cog, name="House"):
             }
 
         basement_level = max(1, min(int(house_state.get("basement_level", 1) or 1), int(house_data["max_basement_level"])))
-        installed_gpus = [gpu_id for gpu_id in house_state.get("installed_gpus", []) if gpu_id in GPU_MODELS]
+        installed_gpu_entries = list(house_state.get("installed_gpus", []))
+        installed_gpus = [
+            gpu_id for gpu_id in (_gpu_entry_id(entry) for entry in installed_gpu_entries)
+            if gpu_id in GPU_MODELS
+        ]
         market_rows, market_factor = _current_market_rows()
         event_multiplier, event = self._market_multiplier(guild_id, "mine")
         base_hourly = sum(int(GPU_MODELS[gpu_id]["hourly_income"]) for gpu_id in installed_gpus)
@@ -1393,23 +1439,44 @@ class HouseCog(commands.Cog, name="House"):
             embed.description = "Сначала купи дом, чтобы ставить видеокарты в подвал."
             return embed
 
-        installed_counts = _gpu_breakdown([gpu_id for gpu_id in snapshot["house_state"].get("installed_gpus", []) if gpu_id in GPU_MODELS])
+        installed_entries = [
+            entry for entry in snapshot["house_state"].get("installed_gpus", [])
+            if _gpu_entry_id(entry) in GPU_MODELS
+        ]
+        installed_counts = _gpu_breakdown(installed_entries)
+        resale_by_gpu: dict[str, int] = {}
+        for entry in installed_entries:
+            gpu_id = _gpu_entry_id(entry)
+            resale_by_gpu[gpu_id] = resale_by_gpu.get(gpu_id, 0) + _gpu_entry_resale_price(entry)
         installed_lines = [
-            f"{GPU_MODELS[gpu_id]['emoji']} {GPU_MODELS[gpu_id]['name']}: **{count}x**"
+            f"{GPU_MODELS[gpu_id]['emoji']} {GPU_MODELS[gpu_id]['name']}: **{count}x** • Продажа: **{format_money(resale_by_gpu.get(gpu_id, 0))}**"
             for gpu_id, count in installed_counts.items()
         ] or ["Пока не куплено ни одной карты."]
+        total_resale_value = sum(resale_by_gpu.values())
+        free_slots = max(0, int(snapshot["capacity"]) - int(snapshot["installed_count"]))
 
         embed.description = (
             f"**{house_data['name']}**\n"
-            f"Занято слотов: **{snapshot['installed_count']}/{snapshot['capacity']}** • "
-            f"Доход: **{format_money(snapshot['hourly_income'])}/ч**"
+            f"GPU: **{snapshot['installed_count']}/{snapshot['capacity']}** • Свободно: **{free_slots}**\n"
+            f"Доход: **{format_money(snapshot['hourly_income'])}/ч** • Продажа всего: **{format_money(total_resale_value)}**"
         )
         embed.add_field(name="Установленные карты", value="\n".join(installed_lines), inline=False)
+        embed.add_field(
+            name="Управление",
+            value="Верхний ряд кнопок покупает GPU по номеру. Нижний ряд продаёт одну установленную карту того же номера за **30%** от цены покупки.",
+            inline=False,
+        )
 
         balance = int(user.get("balance", 0) or 0)
         shop_lines = []
         for index, gpu_id in enumerate(GPU_ORDER, start=1):
             gpu = GPU_MODELS[gpu_id]
+            owned_count = installed_counts.get(gpu_id, 0)
+            next_sale_value = 0
+            for entry in installed_entries:
+                if _gpu_entry_id(entry) == gpu_id:
+                    next_sale_value = _gpu_entry_resale_price(entry)
+                    break
             if snapshot["installed_count"] >= snapshot["capacity"]:
                 status = "🚫 Нет свободных слотов"
             elif balance >= gpu["price"]:
@@ -1417,13 +1484,14 @@ class HouseCog(commands.Cog, name="House"):
             else:
                 status = f"💸 Не хватает {format_money(gpu['price'] - balance)}"
             shop_lines.append(
-                f"**{index}. {gpu['name']}**\n"
+                f"**{index}. {gpu['emoji']} {gpu['name']}**\n"
                 f"{gpu['description']}\n"
-                f"Цена: **{format_money(gpu['price'])}** • Доход: **{format_money(gpu['hourly_income'])}/ч**\n"
+                f"Покупка: **{format_money(gpu['price'])}** • Доход: **{format_money(gpu['hourly_income'])}/ч**\n"
+                f"Установлено: **{owned_count}x** • Продажа 1 шт.: **{format_money(next_sale_value) if next_sale_value > 0 else 'нет'}**\n"
                 f"Статус: **{status}**"
             )
         embed.add_field(name="Магазин GPU", value="\n\n".join(shop_lines), inline=False)
-        embed.set_footer(text="Кнопками ниже можно купить одну из пяти видеокарт NVIDIA.")
+        embed.set_footer(text="Ряд 1 — покупка GPU. Ряд 2 — продажа установленной карты. Возврат считается от цены покупки.")
         return embed
 
     async def buy_house(self, user_id: int, guild_id: int, house_id: str) -> tuple[bool, discord.Embed | str]:
@@ -1509,13 +1577,63 @@ class HouseCog(commands.Cog, name="House"):
             self._sync_mining_wallet(user, guild_id)
             user["balance"] = int(user.get("balance", 0) or 0) - int(gpu["price"])
             installed = house_state.get("installed_gpus", [])
-            installed.append(gpu_id)
+            installed.append(
+                {
+                    "gpu_id": gpu_id,
+                    "buy_price": int(gpu["price"]),
+                    "bought_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             house_state["installed_gpus"] = installed
             await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
 
         embed = discord.Embed(
             title="🖥 Видеокарта куплена",
             description=f"Установлена **{gpu['name']}**.\nБаланс: **{format_money(user['balance'])}**",
+            color=COLORS["success"],
+        )
+        return True, embed
+
+    async def sell_gpu(self, user_id: int, guild_id: int, gpu_id: str) -> tuple[bool, discord.Embed | str]:
+        if gpu_id not in GPU_MODELS:
+            return False, "Такой видеокарты нет."
+
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            house_state = _house_state(user)
+            if not _house_current_data(house_state):
+                return False, "Сначала купи дом."
+
+            installed = list(house_state.get("installed_gpus", []))
+            sell_index = next((index for index, entry in enumerate(installed) if _gpu_entry_id(entry) == gpu_id), None)
+            if sell_index is None:
+                return False, f"У тебя не установлена **{GPU_MODELS[gpu_id]['name']}**."
+
+            self._sync_mining_wallet(user, guild_id)
+            installed = list(house_state.get("installed_gpus", []))
+            sell_index = next((index for index, entry in enumerate(installed) if _gpu_entry_id(entry) == gpu_id), None)
+            if sell_index is None:
+                return False, f"У тебя не установлена **{GPU_MODELS[gpu_id]['name']}**."
+
+            gpu_entry = installed.pop(sell_index)
+            resale_value = _gpu_entry_resale_price(gpu_entry)
+            if resale_value <= 0:
+                resale_value = max(1, int(round(int(GPU_MODELS[gpu_id]["price"]) * 0.30)))
+
+            house_state["installed_gpus"] = installed
+            user["balance"] = int(user.get("balance", 0) or 0) + resale_value
+            await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+
+        gpu = GPU_MODELS[gpu_id]
+        embed = discord.Embed(
+            title="🖥 Видеокарта продана",
+            description=(
+                f"Продана **{gpu['name']}**.\n"
+                f"Возврат: **{format_money(resale_value)}**\n"
+                f"Баланс: **{format_money(user['balance'])}**"
+            ),
             color=COLORS["success"],
         )
         return True, embed

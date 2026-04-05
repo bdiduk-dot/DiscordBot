@@ -858,6 +858,9 @@ def buy_easter_shop_item(user: dict[str, Any], item_code: str) -> tuple[bool, st
     item = next((entry for entry in EASTER_SHOP_ITEMS if entry["code"] == item_code), None)
     if item is None:
         return False, "Такого предмета нет."
+    kind = str(item["kind"])
+    if kind == "business":
+        return buy_easter_business(user, item_code)
     counts = get_easter_counts(user)
     if counts["common"] < int(item.get("price_common", 0) or 0):
         return False, "Не хватает обычных яиц."
@@ -877,7 +880,6 @@ def buy_easter_shop_item(user: dict[str, Any], item_code: str) -> tuple[bool, st
     if money_price > 0:
         user["balance"] = int(user.get("balance", 0) or 0) - money_price
 
-    kind = str(item["kind"])
     if kind == "case":
         add_easter_item(user, EASTER_CHEST_CODE, 1)
         return True, "Куплен **Пасхальный кейс** и добавлен в инвентарь."

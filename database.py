@@ -46,6 +46,12 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _gpu_entry_id(entry: Any) -> str:
+    if isinstance(entry, dict):
+        return str(entry.get("gpu_id", entry.get("id")) or "")
+    return str(entry or "")
+
+
 def _house_basement_upgrade_spend(house_id: str | None, basement_level: int) -> int:
     base_price = HOUSE_NET_WORTH.get(str(house_id or ""))
     if not base_price or basement_level <= 1:
@@ -81,7 +87,11 @@ def _house_net_worth(game_stats: Any) -> dict[str, int]:
 
     house_value = HOUSE_NET_WORTH.get(house_id, 0)
     basement_value = _house_basement_upgrade_spend(house_id, basement_level)
-    gpu_value = sum(GPU_NET_WORTH.get(str(gpu_id), 0) for gpu_id in installed_gpus if gpu_id is not None)
+    gpu_value = sum(
+        GPU_NET_WORTH.get(_gpu_entry_id(gpu_entry), 0)
+        for gpu_entry in installed_gpus
+        if _gpu_entry_id(gpu_entry)
+    )
 
     furniture_value = 0
     for item in furniture if isinstance(furniture, list) else []:

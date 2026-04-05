@@ -760,11 +760,27 @@ class BlackMarketView(discord.ui.View):
             if index >= len(offers):
                 button.disabled = True
                 button.label = "Нет лота"
+                button.style = discord.ButtonStyle.secondary
+                button.emoji = None
                 continue
             offer = offers[index]
             already = offer["code"] in purchased
             button.disabled = already
-            button.label = "Куплено" if already else f"Купить #{index + 1}"
+            button.label = "Куплено" if already else f"Лот #{index + 1}"
+            if already:
+                button.style = discord.ButtonStyle.secondary
+            elif offer.get("legendary"):
+                button.style = discord.ButtonStyle.danger
+            elif str(offer.get("currency") or "").lower() == "gems":
+                button.style = discord.ButtonStyle.success
+            else:
+                button.style = discord.ButtonStyle.primary
+            if offer.get("legendary"):
+                button.emoji = "🕶️"
+            elif str(offer.get("currency") or "").lower() == "gems":
+                button.emoji = "💎"
+            else:
+                button.emoji = "💵"
 
     async def _refresh(self, interaction: discord.Interaction):
         offers, purchased = await self.cog.get_black_market_offers(self.user_id, self.guild_id)
@@ -1816,13 +1832,13 @@ class SystemsCog(commands.Cog, name="Systems"):
         embed = discord.Embed(
             title="🕶️ Чёрный рынок",
             description=(
-                "Персональные предложения на 12 часов.\n"
-                f"Следующая ротация: {format_discord_deadline(reset_at)}."
+                "Персональная витрина редких и полезных лотов.\n"
+                f"Ротация обновится {format_discord_deadline(reset_at)}."
             ),
             color=COLORS["warning"],
         )
         embed.add_field(
-            name="Кошелёк",
+            name="Баланс сделки",
             value=(
                 f"Наличные: **{format_money(user.get('balance', 0))}**\n"
                 f"Гемы: **{int(user.get('gems', 0) or 0):,}**"
@@ -1830,7 +1846,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             inline=True,
         )
         embed.add_field(
-            name="Репутация",
+            name="Репутация и скидка",
             value=(
                 f"Счёт: **{reputation}** ({reputation_label(reputation)})\n"
                 f"Скидка: **x{rep_discount:.2f}**"
@@ -1838,8 +1854,12 @@ class SystemsCog(commands.Cog, name="Systems"):
             inline=True,
         )
         embed.add_field(
-            name="Особенность",
-            value="У каждого игрока свой набор лотов. Все покупки сначала отправляются в `/inventory`.",
+            name="Как работает",
+            value=(
+                "У каждого игрока свой набор лотов.\n"
+                "Любая покупка сначала уходит в `/inventory`.\n"
+                "Кнопки ниже соответствуют номерам лотов в карточках."
+            ),
             inline=False,
         )
 
@@ -1847,23 +1867,32 @@ class SystemsCog(commands.Cog, name="Systems"):
             price, _, event_multiplier, active_event = self._market_offer_price(user, guild_id, offer)
             status = "Куплено" if offer["code"] in purchased else "Доступно"
             price_text = format_money(price) if offer["currency"] == "money" else f"{price} гем."
-            title_prefix = "ЛЕГЕНДАРНЫЙ " if offer.get("legendary") else ""
-            extra_line = ""
+            currency_label = "💵 Наличные" if str(offer.get("currency") or "").lower() == "money" else "💎 Гемы"
+            rarity_label = "Легендарный слот" if offer.get("legendary") else "Стандартный слот"
+            extra_lines: list[str] = []
             if active_event is not None and event_multiplier != 1.0:
-                extra_line = f"\nСобытие: **{active_event['name']}**"
+                extra_lines.append(f"Событие цены: **{active_event['name']}**")
             embed.add_field(
-                name=f"{index}. {title_prefix}{offer['name']}",
+                name=f"#{index} • {offer['name']}",
                 value=(
                     f"{offer['description']}\n"
+                    f"Тип: **{rarity_label}**\n"
+                    f"Оплата: **{currency_label}**\n"
                     f"Цена: **{price_text}**\n"
-                    "Куда уйдёт: **в инвентарь**\n"
+                    "Выдача: **в инвентарь**\n"
                     f"Статус: **{status}**"
-                    f"{extra_line}"
+                    + (f"\n" + "\n".join(extra_lines) if extra_lines else "")
                 ),
                 inline=False,
             )
 
-        embed.set_footer(text="Рынок обновляется раз в 12 часов. Покупай здесь, используй предметы позже через /inventory.")
+        legendary_present = any(bool(offer.get("legendary")) for offer in offers)
+        embed.add_field(
+            name="Сегодня на рынке",
+            value="Есть легендарный слот." if legendary_present else "Открыта только обычная витрина.",
+            inline=False,
+        )
+        embed.set_footer(text="Покупай лоты по номеру кнопками ниже. После сделки предмет лежит в `/inventory`, пока ты сам его не активируешь.")
         return embed
 
     async def _announce_event(self, guild: discord.Guild, event: dict[str, Any]):

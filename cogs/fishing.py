@@ -1695,6 +1695,14 @@ class FishingCog(commands.Cog, name="Fishing"):
     async def build_inventory_embed(self, user_id: int, guild_id: int, tab: str = "general", page: int = 0) -> discord.Embed:
         user, fishing, _, fish_items, general_items = await self._inventory_snapshot(user_id, guild_id)
         active_general_items, archived_general_items = split_active_and_archived_items(general_items)
+        harvest_items = [
+            item for item in active_general_items
+            if str(item.get("item_type") or "") == "crop_harvest"
+        ]
+        active_general_items = [
+            item for item in active_general_items
+            if str(item.get("item_type") or "") != "crop_harvest"
+        ]
         if not user:
             return discord.Embed(title="Инвентарь", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
@@ -1733,13 +1741,18 @@ class FishingCog(commands.Cog, name="Fishing"):
         if tab == "general":
             embed = discord.Embed(
                 title="📦 Общий инвентарь",
-                description="Кейсы, страховки, наборы наживки и прочие предметы, которые лежат у тебя в инвентаре.",
+                description="Кейсы, страховки, наборы наживки и прочие предметы. Урожай теперь лежит в отдельной вкладке.",
                 color=COLORS["warning"],
                 timestamp=datetime.now(timezone.utc),
             )
             if not active_general_items and not archived_general_items:
-                embed.add_field(name="Хранилище", value="Пока пусто. Покупай кейсы, чёрный рынок и специальные предметы.", inline=False)
-                embed.set_footer(text="Использование предметов по ID доступно на этой вкладке.")
+                empty_text = "Обычных предметов пока нет."
+                if harvest_items:
+                    empty_text += " Урожай уже перенесён во вкладку `Урожай`."
+                else:
+                    empty_text += " Покупай кейсы, чёрный рынок и специальные предметы."
+                embed.add_field(name="Хранилище", value=empty_text, inline=False)
+                embed.set_footer(text="Использование предметов по ID доступно только на этой вкладке.")
                 return embed
 
             start = page * INVENTORY_GENERAL_PAGE_SIZE
@@ -1748,14 +1761,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             for item in visible_general:
                 emoji = f"{item.get('emoji', '')} " if item.get("emoji") else ""
                 quantity = int(item.get("quantity", 1) or 1)
-                item_type = str(item.get("item_type") or "")
-                item_code = str(item.get("code") or "")
                 description = str(item.get("description") or "Без описания.")
-                if item_type == "crop_harvest":
-                    unit_price = crop_harvest_unit_price(item_code)
-                    total_price = unit_price * quantity
-                    description = f"Можно продать через инвентарь за **{format_money(unit_price)}** за 1 шт. • Стопка: **{format_money(total_price)}**"
-                elif len(description) > 110:
+                if len(description) > 110:
                     description = description[:107].rstrip() + "..."
                 lines.append(
                     f"`#{item['id']}` {emoji}**{item.get('name', 'Предмет')}** x{quantity}\n{description}"
@@ -1767,7 +1774,53 @@ class FishingCog(commands.Cog, name="Fishing"):
             if archived_general_items:
                 embed.add_field(name=EASTER_ARCHIVE_CATEGORY, value="\n".join(archive_summary_lines(archived_general_items)), inline=False)
             general_max_page = max(0, (len(active_general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if active_general_items else 0
-            embed.set_footer(text=f"Страница {page + 1}/{general_max_page + 1}. Использование предметов по ID доступно только для активных предметов.")
+            embed.set_footer(text=f"Страница {page + 1}/{general_max_page + 1}. Использование предметов по ID доступно только для активных предметов. Урожай вынесен во вкладку `Урожай`.")
+            return embed
+
+        if tab == "harvest":
+            embed = discord.Embed(
+                title="🌾 Урожай",
+                description="Свежий урожай из сада. Здесь удобно продавать весь запас сразу или по ID.",
+                color=COLORS["success"],
+                timestamp=datetime.now(timezone.utc),
+            )
+            if not harvest_items:
+                embed.add_field(name="Склад урожая", value="Пока нет собранного урожая. Посади культуры в `/house`, а потом возвращайся сюда.", inline=False)
+                embed.set_footer(text="Кнопки продажи урожая появляются только на этой вкладке.")
+                return embed
+
+            start = page * INVENTORY_GENERAL_PAGE_SIZE
+            visible_harvest = harvest_items[start:start + INVENTORY_GENERAL_PAGE_SIZE]
+            lines = []
+            total_quantity = 0
+            total_value = 0
+            for item in visible_harvest:
+                emoji = item.get("emoji", "🌾")
+                quantity = int(item.get("quantity", 1) or 1)
+                unit_price = crop_harvest_unit_price(str(item.get("code") or ""))
+                stack_price = unit_price * quantity
+                total_quantity += quantity
+                total_value += stack_price
+                lines.append(
+                    f"`#{item['id']}` {emoji} **{item.get('name', 'Урожай')}** x{quantity}\n"
+                    f"Продажа: **{format_money(unit_price)}** за 1 шт. • Стопка: **{format_money(stack_price)}**"
+                )
+            embed.add_field(name="Склад урожая", value="\n\n".join(lines), inline=False)
+            all_harvest_quantity = sum(int(item.get("quantity", 1) or 1) for item in harvest_items)
+            all_harvest_value = sum(
+                crop_harvest_unit_price(str(item.get("code") or "")) * int(item.get("quantity", 1) or 1)
+                for item in harvest_items
+            )
+            embed.add_field(
+                name="Сводка",
+                value=(
+                    f"На странице: **{total_quantity}** шт. • **{format_money(total_value)}**\n"
+                    f"Всего в урожае: **{all_harvest_quantity}** шт. • **{format_money(all_harvest_value)}**"
+                ),
+                inline=False,
+            )
+            harvest_max_page = max(0, (len(harvest_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE)
+            embed.set_footer(text=f"Страница {page + 1}/{harvest_max_page + 1}. Продажа урожая по кнопкам и по ID доступна только на этой вкладке.")
             return embed
 
         unlocked_value = sum(int(item.get("price", 0) or 0) for item in fish_items if not bool(item.get("locked")))
@@ -2525,6 +2578,9 @@ class InventoryView(discord.ui.View):
         self.fish_btn = discord.ui.Button(label="Рыба", style=discord.ButtonStyle.secondary, row=0)
         self.fish_btn.callback = self._on_fish
 
+        self.harvest_btn = discord.ui.Button(label="Урожай", style=discord.ButtonStyle.secondary, row=0)
+        self.harvest_btn.callback = self._on_harvest
+
         self.gear_btn = discord.ui.Button(label="Снаряжение", style=discord.ButtonStyle.secondary, row=0)
         self.gear_btn.callback = self._on_gear
 
@@ -2586,7 +2642,7 @@ class InventoryView(discord.ui.View):
         self.next_btn = discord.ui.Button(label="Дальше", style=discord.ButtonStyle.secondary, row=4)
         self.next_btn.callback = self._on_next
 
-        self._static_items = (self.general_btn, self.fish_btn, self.gear_btn)
+        self._static_items = (self.general_btn, self.fish_btn, self.harvest_btn, self.gear_btn)
         self._dynamic_items = (
             self.use_id_btn,
             self.sell_harvest_btn,
@@ -2635,15 +2691,20 @@ class InventoryView(discord.ui.View):
     def sync_buttons(self, user: dict[str, Any] | None, fish_items: list[dict[str, Any]], general_items: list[dict[str, Any]]):
         self.general_btn.style = discord.ButtonStyle.primary if self.active_tab == "general" else discord.ButtonStyle.secondary
         self.fish_btn.style = discord.ButtonStyle.primary if self.active_tab == "fish" else discord.ButtonStyle.secondary
+        self.harvest_btn.style = discord.ButtonStyle.primary if self.active_tab == "harvest" else discord.ButtonStyle.secondary
         self.gear_btn.style = discord.ButtonStyle.primary if self.active_tab == "gear" else discord.ButtonStyle.secondary
 
         fishing = _fishing_state(user) if user else {}
         active_general_items, _ = split_active_and_archived_items(general_items)
+        regular_general_items = [
+            item for item in active_general_items
+            if str(item.get("item_type") or "") != "crop_harvest"
+        ]
         sellable_fish = [item for item in fish_items if not bool(item.get("locked"))]
         common_uncommon = [item for item in sellable_fish if str(item.get("rarity") or "") in {"common", "uncommon"}]
         harvest_items = [item for item in active_general_items if str(item.get("item_type") or "") == "crop_harvest"]
 
-        self.use_id_btn.disabled = not bool(active_general_items)
+        self.use_id_btn.disabled = not bool(regular_general_items)
         self.sell_harvest_btn.disabled = not bool(harvest_items)
         self.sell_harvest_id_btn.disabled = not bool(harvest_items)
         self.sell_all_btn.disabled = not bool(sellable_fish)
@@ -2652,9 +2713,12 @@ class InventoryView(discord.ui.View):
         self.lock_id_btn.disabled = not bool(fish_items)
 
         fish_max_page = max(0, (len(fish_items) - 1) // INVENTORY_FISH_PAGE_SIZE) if fish_items else 0
-        general_max_page = max(0, (len(active_general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if active_general_items else 0
+        general_max_page = max(0, (len(regular_general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if regular_general_items else 0
+        harvest_max_page = max(0, (len(harvest_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if harvest_items else 0
         if self.active_tab == "fish":
             max_page = fish_max_page
+        elif self.active_tab == "harvest":
+            max_page = harvest_max_page
         elif self.active_tab == "general":
             max_page = general_max_page
         else:
@@ -2763,6 +2827,12 @@ class InventoryView(discord.ui.View):
 
         if self.active_tab == "general":
             self._toggle_item(self.use_id_btn, True)
+            self._toggle_item(self.prev_btn, True)
+            self._toggle_item(self.refresh_btn, True)
+            self._toggle_item(self.next_btn, True)
+            return
+
+        if self.active_tab == "harvest":
             self._toggle_item(self.sell_harvest_btn, True)
             self._toggle_item(self.sell_harvest_id_btn, True)
             self._toggle_item(self.prev_btn, True)
@@ -2853,6 +2923,9 @@ class InventoryView(discord.ui.View):
     async def _on_fish(self, interaction: discord.Interaction):
         await self._switch_tab(interaction, "fish")
 
+    async def _on_harvest(self, interaction: discord.Interaction):
+        await self._switch_tab(interaction, "harvest")
+
     async def _on_gear(self, interaction: discord.Interaction):
         await self._switch_tab(interaction, "gear")
 
@@ -2864,8 +2937,8 @@ class InventoryView(discord.ui.View):
 
     async def _on_sell_harvest(self, interaction: discord.Interaction):
         async with self._view_lock:
-            if self.active_tab != "general":
-                await interaction.response.send_message("Продажа урожая доступна только во вкладке Предметы.", ephemeral=True)
+            if self.active_tab != "harvest":
+                await interaction.response.send_message("Продажа урожая доступна только во вкладке Урожай.", ephemeral=True)
                 return
             if not await safe_defer(interaction):
                 return
@@ -2874,8 +2947,8 @@ class InventoryView(discord.ui.View):
             await self._send_payload(interaction, payload)
 
     async def _on_sell_harvest_id(self, interaction: discord.Interaction):
-        if self.active_tab != "general":
-            await interaction.response.send_message("Продажа урожая по ID доступна только во вкладке Предметы.", ephemeral=True)
+        if self.active_tab != "harvest":
+            await interaction.response.send_message("Продажа урожая по ID доступна только во вкладке Урожай.", ephemeral=True)
             return
         await interaction.response.send_modal(InventoryIdModal(self, "sell_harvest"))
 
