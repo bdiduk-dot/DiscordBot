@@ -50,8 +50,8 @@ from utils import (
 )
 
 RABBIT_DURATION = timedelta(minutes=15)
-RABBIT_MIN_RESPAWN = timedelta(hours=3)
-RABBIT_SPAWN_CHANCE = 0.16
+RABBIT_MIN_RESPAWN = timedelta(hours=4)
+RABBIT_SPAWN_CHANCE = 0.10
 
 
 def format_money(value: int | float) -> str:

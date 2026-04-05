@@ -26,6 +26,8 @@ from database import db, get_user_lock
 from easter_event import (
     EASTER_ARCHIVE_CATEGORY,
     EASTER_CHEST_CODE,
+    EASTER_DECOR_TROPHY_PREFIX,
+    EASTER_FURNITURE_BUFFS,
     EASTER_POND_PASS_CODE,
     EASTER_POND_ZONE_KEY,
     archive_summary_lines,
@@ -2078,8 +2080,31 @@ class FishingCog(commands.Cog, name="Fishing"):
         if item_type == "event_trophy":
             item_code = str(preview_item.get("code") or "")
             if item_code.startswith("easter_decor_"):
-                return False, "This is passive Easter decor. Its bonus is already active, so you do not need to use it."
-            return False, "This is a trophy item. It stays in inventory as a collectible reward and cannot be used."
+                async with get_user_lock(user_id):
+                    user = await db.get_user(user_id, guild_id)
+                    if not user:
+                        return False, "Не удалось загрузить профиль."
+                    migrate_legacy_easter_decor_inventory(user)
+                    await db.update_user(
+                        user_id,
+                        guild_id,
+                        {
+                            "inventory": user.get("inventory"),
+                            "game_stats": user.get("game_stats", {}),
+                        },
+                    )
+                    decor_code = item_code.removeprefix(EASTER_DECOR_TROPHY_PREFIX)
+                    decor = EASTER_FURNITURE_BUFFS.get(decor_code, {})
+                    decor_name = str(decor.get("name") or preview_item.get("name") or "Пасхальный декор")
+                return True, discord.Embed(
+                    title="🧺 Пасхальный декор уже активен",
+                    description=(
+                        f"**{decor_name}** работает как пассивный пасхальный бафф.\n"
+                        "Открывать или использовать его отдельно не нужно."
+                    ),
+                    color=COLORS["info"],
+                )
+            return False, "Это трофейный предмет. Он хранится в инвентаре как коллекционная награда и не используется вручную."
 
         if item_type == "home_furniture":
             furniture_key = str(preview_item.get("code") or "")
