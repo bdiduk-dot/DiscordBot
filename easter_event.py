@@ -166,7 +166,7 @@ EASTER_SHOP_ITEMS: list[dict[str, Any]] = [
     {"code": "easter_case_basic", "name": "Пасхальный кейс", "emoji": "🎁", "kind": "case", "price_common": 30, "price_painted": 0, "price_gold": 0},
     {"code": "easter_bait_pack", "name": "Праздничная наживка", "emoji": "🪱", "kind": "bait", "price_common": 12, "price_painted": 0, "price_gold": 0},
     {"code": EASTER_POND_PASS_CODE, "name": "Пропуск на Пруд золотого кролика", "emoji": "🎟️", "kind": "pass", "price_common": 60, "price_painted": 1, "price_gold": 0},
-    {"code": "easter_profile_theme", "name": "Пасхальный фон", "emoji": "🌸", "kind": "theme", "price_common": 50, "price_painted": 2, "price_gold": 0},
+    {"code": "easter_profile_theme", "name": "Mint Bunny", "emoji": "🌿", "kind": "theme", "price_common": 50, "price_painted": 2, "price_gold": 0},
     {"code": "easter_profile_title", "name": "Пасхальный титул", "emoji": "👑", "kind": "title", "price_common": 0, "price_painted": 3, "price_gold": 0},
     {"code": "easter_egg_basket", "name": "Корзина с яйцами", "emoji": "🧺", "kind": "furniture", "price_common": 45, "price_painted": 0, "price_gold": 0},
     {"code": "easter_rabbit_lamp", "name": "Кроличья лампа", "emoji": "🐰", "kind": "furniture", "price_common": 95, "price_painted": 1, "price_gold": 0},
@@ -808,14 +808,14 @@ def buy_easter_shop_item(user: dict[str, Any], item_code: str) -> tuple[bool, st
             user,
             item_type="cosmetic_pack",
             code="easter_profile_theme",
-            name="Пасхальный фон",
-            emoji="🌸",
-            description="Открывает пасхальную тему профиля при использовании.",
+            name="Mint Bunny",
+            emoji="🌿",
+            description="Открывает мятную пасхальную тему профиля при использовании.",
             quantity=1,
-            payload=_event_payload({"theme": "sakura"}),
+            payload=_event_payload({"theme": "mint_bunny"}),
             stackable=False,
         )
-        return True, "Куплен **Пасхальный фон**."
+        return True, "Куплена тема **Mint Bunny**."
     if kind == "title":
         add_general_item(
             user,

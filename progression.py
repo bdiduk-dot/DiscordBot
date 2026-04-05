@@ -44,12 +44,38 @@ PROFILE_TITLES: dict[str, dict[str, Any]] = {
 
 PROFILE_THEMES: dict[str, dict[str, Any]] = {
     "classic": {"name": "Классика", "color": 0x3498DB},
-    "neon": {"name": "Неон", "color": 0x00D1B2},
-    "ember": {"name": "Янтарь", "color": 0xE67E22},
-    "royal": {"name": "Королевская", "color": 0xD4AF37},
-    "abyss": {"name": "Бездна", "color": 0x5B6CFF},
+    "neon": {
+        "name": "Frost",
+        "color": 0xCFEAFF,
+        "image_url": "https://i.pinimg.com/originals/fa/ae/65/faae656df5906380cdd8323b4b42145a.gif",
+    },
+    "ember": {
+        "name": "Bloom",
+        "color": 0xF3A7D6,
+        "image_url": "https://i.pinimg.com/originals/28/c4/1f/28c41f4bffc8cb5f711d2474006ca5bb.gif",
+    },
+    "royal": {
+        "name": "Mist",
+        "color": 0x9BE3DC,
+        "image_url": "https://i.pinimg.com/originals/fc/20/f7/fc20f7d47033b4f56538842a0a350ddd.gif",
+    },
+    "abyss": {
+        "name": "Abyss",
+        "color": 0x5B6CFF,
+        "image_url": "https://i.pinimg.com/736x/df/75/6f/df756fd3fe216c16dcf4a183e55dc840.jpg",
+    },
+    "void": {
+        "name": "Void",
+        "color": 0x2E1A47,
+        "image_url": "https://i.pinimg.com/originals/dd/3d/40/dd3d40b02db42630c4952fe1c6b819ba.gif",
+    },
+    "mint_bunny": {
+        "name": "Mint Bunny",
+        "color": 0xA8E6CF,
+        "image_url": "https://i.pinimg.com/originals/7d/b3/89/7db389786b7754560cb38796784295b4.gif",
+    },
     "sakura": {
-        "name": "Пасхальная сакура",
+        "name": "Sakura",
         "color": 0xFFB6C1,
         "image_url": "https://i.pinimg.com/736x/e3/d9/a9/e3d9a9830de5dce351cfeeeec52b7b46.jpg",
     },

@@ -131,11 +131,20 @@ THEME_SHOP_ITEMS: list[dict[str, Any]] = [
     {
         "kind": "theme",
         "key": "sakura",
-        "name": "Пасхальная сакура",
+        "name": "Sakura",
         "price": 125_000,
         "currency": "money",
         "description": "Нежный пасхальный фон профиля с большим баннером и мягкой розовой темой.",
         "preview_url": str(PROFILE_THEMES.get("sakura", {}).get("image_url") or ""),
+    },
+    {
+        "kind": "theme",
+        "key": "void",
+        "name": "Void",
+        "price": 165_000,
+        "currency": "money",
+        "description": "Темная космическая тема профиля с анимированным баннером и холодным глубоким вайбом.",
+        "preview_url": str(PROFILE_THEMES.get("void", {}).get("image_url") or ""),
     },
 ]
 
