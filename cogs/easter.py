@@ -170,13 +170,21 @@ class EasterView(discord.ui.View):
                     )
                     for item in business_items[:25]
                 ]
-                self.business_select = discord.ui.Select(placeholder="Выбери пасхальный бизнес", row=2, options=business_options)
+                self.business_select = discord.ui.Select(placeholder="Выбери пасхальный бизнес для покупки", row=2, options=business_options)
                 self.business_select.callback = self._on_business_select
                 self.add_item(self.business_select)
+            self.buy_business_btn = discord.ui.Button(label="Купить бизнес", style=discord.ButtonStyle.success, row=3)
+            self.buy_business_btn.callback = self._buy_business
+            self.add_item(self.buy_business_btn)
+            self.open_my_businesses_btn = discord.ui.Button(label="Мои бизнесы", style=discord.ButtonStyle.secondary, row=3)
+            self.open_my_businesses_btn.callback = self._open_my_businesses
+            self.add_item(self.open_my_businesses_btn)
+
+        if self.section == "my_businesses":
             self.collect_business_btn = discord.ui.Button(label="Собрать доход", style=discord.ButtonStyle.success, row=3)
             self.collect_business_btn.callback = self._collect_businesses
             self.add_item(self.collect_business_btn)
-            self.open_business_shop_btn = discord.ui.Button(label="Витрина бизнеса", style=discord.ButtonStyle.secondary, row=3)
+            self.open_business_shop_btn = discord.ui.Button(label="Купить бизнес", style=discord.ButtonStyle.secondary, row=3)
             self.open_business_shop_btn.callback = self._open_business_shop
             self.add_item(self.open_business_shop_btn)
 
@@ -185,16 +193,19 @@ class EasterView(discord.ui.View):
         self.collection_nav = discord.ui.Button(label="🏆 Коллекция", style=discord.ButtonStyle.secondary, row=0)
         self.leaderboard_nav = discord.ui.Button(label="📊 Топ", style=discord.ButtonStyle.secondary, row=0)
         self.business_nav = discord.ui.Button(label="💼 Бизнесы", style=discord.ButtonStyle.secondary, row=0)
+        self.my_business_nav = discord.ui.Button(label="🏪 Мои бизнесы", style=discord.ButtonStyle.secondary, row=4)
         self.shop_nav.callback = self._open_shop
         self.exchange_nav.callback = self._open_exchange
         self.collection_nav.callback = self._open_collection
         self.leaderboard_nav.callback = self._open_leaderboard
         self.business_nav.callback = self._open_businesses
+        self.my_business_nav.callback = self._open_my_businesses
         self.add_item(self.shop_nav)
         self.add_item(self.exchange_nav)
         self.add_item(self.collection_nav)
         self.add_item(self.leaderboard_nav)
         self.add_item(self.business_nav)
+        self.add_item(self.my_business_nav)
         self._sync_nav_styles()
 
     def _sync_nav_styles(self):
@@ -203,6 +214,7 @@ class EasterView(discord.ui.View):
         self.collection_nav.style = discord.ButtonStyle.primary if self.section == "collection" else discord.ButtonStyle.secondary
         self.leaderboard_nav.style = discord.ButtonStyle.primary if self.section == "leaderboard" else discord.ButtonStyle.secondary
         self.business_nav.style = discord.ButtonStyle.primary if self.section == "businesses" else discord.ButtonStyle.secondary
+        self.my_business_nav.style = discord.ButtonStyle.primary if self.section == "my_businesses" else discord.ButtonStyle.secondary
 
     async def _rerender(
         self,
@@ -258,6 +270,10 @@ class EasterView(discord.ui.View):
         await interaction.response.defer()
         await self._rerender(interaction, section="businesses", selected_business_code=self.selected_business_code)
 
+    async def _open_my_businesses(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="my_businesses", selected_business_code=self.selected_business_code)
+
     async def _on_shop_select(self, interaction: discord.Interaction):
         selected = self.shop_select.values[0] if self.shop_select.values else self.selected_shop_code
         await interaction.response.defer()
@@ -283,7 +299,18 @@ class EasterView(discord.ui.View):
     async def _on_business_select(self, interaction: discord.Interaction):
         selected = self.business_select.values[0] if self.business_select.values else self.selected_business_code
         await interaction.response.defer()
-        await self._rerender(interaction, section="businesses", selected_business_code=selected)
+        await self._rerender(interaction, section=self.section, selected_business_code=selected)
+
+    async def _buy_business(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.buy_shop_item(self.user_id, self.guild_id, str(self.selected_business_code or ""))
+        await self._rerender(
+            interaction,
+            section="businesses",
+            selected_business_code=self.selected_business_code,
+            selected_shop_category="business",
+        )
+        await interaction.followup.send(result, ephemeral=True)
 
     async def _on_buy(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -324,9 +351,7 @@ class EasterView(discord.ui.View):
         await interaction.response.defer()
         await self._rerender(
             interaction,
-            section="shop",
-            selected_shop_code=self.selected_business_code,
-            selected_shop_category="business",
+            section="businesses",
             selected_business_code=self.selected_business_code,
         )
 
@@ -335,7 +360,7 @@ class EasterView(discord.ui.View):
         result = await self.cog.collect_business_rewards(self.user_id, self.guild_id)
         await self._rerender(
             interaction,
-            section="businesses",
+            section="my_businesses",
             selected_shop_category=self.selected_shop_category,
             selected_business_code=self.selected_business_code,
         )
@@ -424,6 +449,47 @@ class EasterCog(commands.Cog, name="EasterEvent"):
         if str(business_code or "") in valid_codes:
             return str(business_code)
         return str(items[0]["code"])
+
+    def business_runtime_snapshot(
+        self,
+        user: dict[str, Any],
+        business_key: str,
+        owned_payload: dict[str, Any] | None = None,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        business = EASTER_TEMP_BUSINESSES.get(str(business_key), {})
+        current_time = now or datetime.now(timezone.utc)
+        cycle_hours = max(1, int(business.get("cycle_hours", 1) or 1))
+        cycles_per_day = 24 / cycle_hours
+        money_multiplier = 1.05 if has_easter_furniture(user, "easter_rabbit_lamp") else 1.0
+        reward_money = int(round(int(business.get("income_money", 0) or 0) * money_multiplier))
+        common_min, common_max = business.get("income_common", (0, 0))
+        common_min = int(common_min or 0)
+        common_max = int(common_max or 0)
+        daily_money = int(round(reward_money * cycles_per_day))
+        daily_common_min = int(round(common_min * cycles_per_day))
+        daily_common_max = int(round(common_max * cycles_per_day))
+        painted_chance = int(round(float(business.get("painted_chance", 0.0) or 0.0) * 100))
+        owned_at = normalize_datetime(owned_payload.get("owned_at")) if isinstance(owned_payload, dict) else None
+        last_collect = normalize_datetime(owned_payload.get("last_collect") or owned_payload.get("owned_at")) if isinstance(owned_payload, dict) else None
+        ready_at = last_collect + timedelta(hours=cycle_hours) if last_collect is not None else None
+        ready = ready_at is None or ready_at <= current_time if isinstance(owned_payload, dict) else False
+        return {
+            "reward_money": reward_money,
+            "common_min": common_min,
+            "common_max": common_max,
+            "cycle_hours": cycle_hours,
+            "cycles_per_day": cycles_per_day,
+            "daily_money": daily_money,
+            "daily_common_min": daily_common_min,
+            "daily_common_max": daily_common_max,
+            "painted_chance": painted_chance,
+            "owned_at": owned_at,
+            "last_collect": last_collect,
+            "ready_at": ready_at,
+            "ready": ready,
+        }
 
     def describe_shop_item(self, item: dict[str, Any]) -> str:
         code = str(item.get("code") or "")
@@ -612,9 +678,65 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             businesses = get_easter_businesses(user)
             business_items = self.business_catalog_items()
             selected_code = self.normalize_business_code(selected_business_code)
-            lamp_active = has_easter_furniture(user, "easter_rabbit_lamp")
-            money_multiplier = 1.05 if lamp_active else 1.0
+            selected_item = next((item for item in business_items if str(item["code"]) == str(selected_code)), business_items[0] if business_items else None)
+            owned_codes = {str(key) for key, value in businesses.items() if isinstance(value, dict)} if isinstance(businesses, dict) else set()
             now = datetime.now(timezone.utc)
+            lamp_active = has_easter_furniture(user, "easter_rabbit_lamp")
+
+            catalog_lines: list[str] = []
+            for item in business_items:
+                business_key = str(item["code"])
+                snapshot = self.business_runtime_snapshot(user, business_key, businesses.get(business_key) if isinstance(businesses, dict) else None, now=now)
+                status_icon = "✅" if business_key in owned_codes else "🛒"
+                catalog_lines.append(
+                    f"{status_icon} {item['emoji']} **{item['name']}** — {self.describe_shop_price(item)}\n"
+                    f"Доход: **{format_money(snapshot['reward_money'])}/цикл** • **{format_money(snapshot['daily_money'])}/сутки**"
+                )
+
+            embed.add_field(name="Кошелёк яиц", value=f"🥚 **{counts['common']}**\n🎨 **{counts['painted']}**\n✨ **{counts['gold']}**", inline=True)
+            embed.add_field(name="Баланс", value=f"💰 **{format_money(int(user.get('balance', 0) or 0))}**", inline=True)
+            embed.add_field(name="Статус", value=f"Куплено: **{len(owned_codes)}/{len(business_items)}**\nЛампа: **{'активна' if lamp_active else 'не активна'}**", inline=True)
+            embed.add_field(
+                name="Витрина бизнеса",
+                value="\n\n".join(catalog_lines) if catalog_lines else "В этой категории пока нет пасхальных бизнесов.",
+                inline=False,
+            )
+
+            if selected_item is not None:
+                business_key = str(selected_item["code"])
+                owned_payload = businesses.get(business_key) if isinstance(businesses, dict) else None
+                snapshot = self.business_runtime_snapshot(user, business_key, owned_payload, now=now)
+                cycles_per_day = f"{snapshot['cycles_per_day']:g}"
+                detail_lines = [
+                    f"Статус: **{'уже куплен' if isinstance(owned_payload, dict) else 'доступен к покупке'}**",
+                    f"Цена: **{self.describe_shop_price(selected_item)}**",
+                    f"Деньги: **{format_money(snapshot['reward_money'])} / цикл** • **{format_money(snapshot['daily_money'])} / сутки**",
+                    f"Обычные яйца: **{snapshot['common_min']}-{snapshot['common_max']} / цикл** • **{snapshot['daily_common_min']}-{snapshot['daily_common_max']} / сутки**",
+                    f"Шанс расписного яйца: **{snapshot['painted_chance']}% за цикл**",
+                    f"Цикл сбора: **каждые {snapshot['cycle_hours']} ч** • **{cycles_per_day} цикла/сутки**",
+                    self.describe_shop_item(selected_item),
+                ]
+                if isinstance(owned_payload, dict):
+                    detail_lines.append(
+                        f"Сейчас: **{'можно собирать' if snapshot['ready'] else format_discord_deadline(snapshot['ready_at'])}**"
+                    )
+                if lamp_active:
+                    detail_lines.append("Бонус лампы: **+5% к денежной награде уже учтены**.")
+                embed.add_field(
+                    name=f"Покупка: {selected_item['emoji']} {selected_item['name']}",
+                    value="\n".join(detail_lines),
+                    inline=False,
+                )
+
+            embed.set_footer(text="Здесь только покупка пасхальных бизнесов. Управление и сбор дохода находятся во вкладке «Мои бизнесы».")
+            return embed
+
+        if section == "my_businesses":
+            embed = discord.Embed(title="🏪 Мои пасхальные бизнесы", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            businesses = get_easter_businesses(user)
+            business_items = self.business_catalog_items()
+            now = datetime.now(timezone.utc)
+            lamp_active = has_easter_furniture(user, "easter_rabbit_lamp")
 
             total_owned = 0
             total_ready = 0
@@ -622,38 +744,32 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             total_daily_money = 0
             total_common_min = 0
             total_common_max = 0
-            portfolio_lines: list[str] = []
+            owned_blocks: list[str] = []
 
             for item in business_items:
                 business_key = str(item["code"])
-                business = EASTER_TEMP_BUSINESSES.get(business_key)
-                if business is None:
-                    continue
                 owned_payload = businesses.get(business_key) if isinstance(businesses, dict) else None
-                reward_money = int(round(int(business["income_money"]) * money_multiplier))
-                common_min, common_max = business["income_common"]
-                cycle_hours = max(1, int(business["cycle_hours"]))
-                ready_at = None
-                ready = False
-
-                if isinstance(owned_payload, dict):
-                    total_owned += 1
-                    total_cycle_money += reward_money
-                    total_daily_money += int(round(reward_money * 24 / cycle_hours))
-                    total_common_min += int(common_min)
-                    total_common_max += int(common_max)
-                    last_collect = normalize_datetime(owned_payload.get("last_collect") or owned_payload.get("owned_at"))
-                    ready_at = last_collect + timedelta(hours=cycle_hours) if last_collect is not None else None
-                    ready = ready_at is None or ready_at <= now
-                    if ready:
-                        total_ready += 1
-
-                if isinstance(owned_payload, dict):
-                    status_text = "✅ Готов к сбору" if ready else f"⏳ Будет готов {discord_timestamp(ready_at, 'R')}"
-                    portfolio_lines.append(
-                        f"{item['emoji']} **{item['name']}**\n"
-                        f"{status_text} • **{format_money(reward_money)}** • **{common_min}-{common_max} 🥚**"
-                    )
+                if not isinstance(owned_payload, dict):
+                    continue
+                snapshot = self.business_runtime_snapshot(user, business_key, owned_payload, now=now)
+                total_owned += 1
+                total_cycle_money += int(snapshot["reward_money"])
+                total_daily_money += int(snapshot["daily_money"])
+                total_common_min += int(snapshot["common_min"])
+                total_common_max += int(snapshot["common_max"])
+                if snapshot["ready"]:
+                    total_ready += 1
+                cycles_per_day = f"{snapshot['cycles_per_day']:g}"
+                status_text = "✅ Можно собирать" if snapshot["ready"] else f"⏳ Готов {discord_timestamp(snapshot['ready_at'], 'R')}"
+                owned_blocks.append(
+                    f"{item['emoji']} **{item['name']}**\n"
+                    f"{status_text}\n"
+                    f"Деньги: **{format_money(snapshot['reward_money'])} / цикл** • **{format_money(snapshot['daily_money'])} / сутки**\n"
+                    f"Обычные яйца: **{snapshot['common_min']}-{snapshot['common_max']} / цикл** • **{snapshot['daily_common_min']}-{snapshot['daily_common_max']} / сутки**\n"
+                    f"Расписное яйцо: **{snapshot['painted_chance']}% за цикл**\n"
+                    f"Цикл: **каждые {snapshot['cycle_hours']} ч** • **{cycles_per_day} цикла/сутки**\n"
+                    f"Куплен: **{discord_timestamp(owned_payload.get('owned_at'), 'R')}**"
+                )
 
             embed.add_field(name="Кошелёк яиц", value=f"🥚 **{counts['common']}**\n🎨 **{counts['painted']}**\n✨ **{counts['gold']}**", inline=True)
             embed.add_field(name="Баланс", value=f"💰 **{format_money(int(user.get('balance', 0) or 0))}**", inline=True)
@@ -661,61 +777,25 @@ class EasterCog(commands.Cog, name="EasterEvent"):
                 name="Сводка",
                 value=(
                     f"Куплено: **{total_owned}/{len(business_items)}**\n"
-                    f"Готово: **{total_ready}**\n"
-                    f"Пассив/день: **{format_money(total_daily_money)}**"
+                    f"Готово к сбору: **{total_ready}**\n"
+                    f"Пассив/сутки: **{format_money(total_daily_money)}**"
                 ),
                 inline=True,
             )
             embed.add_field(
-                name="Портфель",
-                value="\n\n".join(portfolio_lines) if portfolio_lines else "У тебя пока нет пасхальных бизнесов. Открой витрину бизнеса и купи первый.",
+                name="Мой портфель",
+                value="\n\n".join(owned_blocks) if owned_blocks else "У тебя пока нет пасхальных бизнесов. Открой вкладку «Бизнесы» и купи первый.",
                 inline=False,
             )
-
-            selected_item = next((item for item in business_items if str(item["code"]) == str(selected_code)), None)
-            if selected_item is not None:
-                business_key = str(selected_item["code"])
-                business = EASTER_TEMP_BUSINESSES.get(business_key, {})
-                owned_payload = businesses.get(business_key) if isinstance(businesses, dict) else None
-                reward_money = int(round(int(business.get("income_money", 0) or 0) * money_multiplier))
-                common_min, common_max = business.get("income_common", (0, 0))
-                cycle_hours = max(1, int(business.get("cycle_hours", 1) or 1))
-                ready_at = None
-                ready = False
-                if isinstance(owned_payload, dict):
-                    last_collect = normalize_datetime(owned_payload.get("last_collect") or owned_payload.get("owned_at"))
-                    ready_at = last_collect + timedelta(hours=cycle_hours) if last_collect is not None else None
-                    ready = ready_at is None or ready_at <= now
-
-                detail_lines = [
-                    f"Статус: **{'куплен' if isinstance(owned_payload, dict) else 'ещё не куплен'}**",
-                    f"Цена: **{self.describe_shop_price(selected_item)}**",
-                    f"Доход за цикл: **{format_money(reward_money)}**",
-                    f"Яйца за цикл: **{common_min}-{common_max} 🥚**",
-                    f"Шанс расписного яйца: **{int(round(float(business.get('painted_chance', 0.0) or 0.0) * 100))}%**",
-                    f"Период сбора: **каждые {cycle_hours} ч**",
-                ]
-                if isinstance(owned_payload, dict):
-                    detail_lines.append(f"Готовность: **{'можно собирать' if ready else format_discord_deadline(ready_at)}**")
-                    detail_lines.append(f"Куплен: **{discord_timestamp(owned_payload.get('owned_at'), 'R')}**")
-                else:
-                    detail_lines.append("Подсказка: купи его через витрину бизнеса ниже.")
-                if lamp_active:
-                    detail_lines.append("Бонус лампы: **+5% к денежной награде уже учтены**.")
-
-                embed.add_field(
-                    name=f"Выбранный бизнес: {selected_item['emoji']} {selected_item['name']}",
-                    value="\n".join(detail_lines),
-                    inline=False,
-                )
-
             cycle_summary = (
-                f"За полный цикл твоих бизнесов: **{format_money(total_cycle_money)}** и **{total_common_min}-{total_common_max} 🥚**."
+                f"За полный цикл всех бизнесов: **{format_money(total_cycle_money)}** и **{total_common_min}-{total_common_max} 🥚**."
                 if total_owned > 0
-                else "Пока пусто. Купи первый пасхальный бизнес в магазине и возвращайся сюда за управлением."
+                else "Дохода пока нет: сначала купи хотя бы один пасхальный бизнес."
             )
-            embed.add_field(name="Доход", value=cycle_summary, inline=False)
-            embed.set_footer(text="Кнопка «Собрать доход» забирает награды со всех готовых пасхальных бизнесов сразу.")
+            embed.add_field(name="Общий цикл", value=cycle_summary, inline=False)
+            if lamp_active:
+                embed.add_field(name="Бонус дома", value="🐰 Кроличья лампа активна и уже даёт **+5% к денежной награде** каждого пасхального бизнеса.", inline=False)
+            embed.set_footer(text="Кнопка «Собрать доход» забирает награды сразу со всех готовых пасхальных бизнесов.")
             return embed
 
         if section == "leaderboard":
