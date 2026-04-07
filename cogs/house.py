@@ -15,6 +15,9 @@ from cogs.mining import (
     GPU_MODELS,
     GPU_ORDER,
     WATERING_CANS,
+    _gpu_breakdown,
+    _gpu_entry_id,
+    _gpu_entry_resale_price,
     _current_market_rows,
     _house_current_data,
     _house_rental_capacity,
@@ -232,8 +235,14 @@ def _plot_status_line(index: int, plot: dict[str, Any], house_state: dict[str, A
 
 
 def _migrate_house_state(user: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    game_stats = user.get("game_stats")
+    systems = game_stats.get("_systems") if isinstance(game_stats, dict) else None
+    raw_house_state = systems.get("house") if isinstance(systems, dict) else None
+    had_stored_gpus = isinstance(raw_house_state, dict) and isinstance(raw_house_state.get("stored_gpus"), list)
     house_state = _house_state(user)
     changed = False
+    if not had_stored_gpus:
+        changed = True
     if int(house_state.get("mining_version", 1) or 1) < 2:
         legacy_total = int(house_state.get("legacy_mining_wallet", 0) or 0) + int(house_state.get("mining_wallet", 0) or 0)
         house_state["legacy_mining_wallet"] = legacy_total
@@ -374,6 +383,7 @@ class HouseV2View(discord.ui.View):
         selected_plot: int = 0,
         selected_seed: str | None = None,
         selected_symbol: str | None = None,
+        crypto_section: str = "coins",
         selected_gpu: str | None = None,
     ):
         super().__init__(timeout=120)
@@ -384,7 +394,8 @@ class HouseV2View(discord.ui.View):
         self.selected_plot = selected_plot
         self.selected_seed = selected_seed
         self.selected_symbol = selected_symbol
-        self.selected_gpu = selected_gpu or GPU_ORDER[0]
+        self.crypto_section = crypto_section if crypto_section in {"coins", "gpus"} else "coins"
+        self.selected_gpu = selected_gpu if selected_gpu in GPU_MODELS else GPU_ORDER[0]
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
         self._build_static_tabs()
@@ -556,6 +567,26 @@ class HouseV2View(discord.ui.View):
             self.add_item(item)
 
     def _build_crypto_controls(self):
+        section_options = [
+            discord.SelectOption(label="Монеты", value="coins", default=self.crypto_section == "coins"),
+            discord.SelectOption(label="Видеокарты", value="gpus", default=self.crypto_section == "gpus"),
+        ]
+        self.crypto_section_select = discord.ui.Select(placeholder="Категория крипты", row=1, options=section_options)
+
+        async def section_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                next_section = str(self.crypto_section_select.values[0]) if self.crypto_section_select.values else "coins"
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, crypto_section=next_section)
+
+        self.crypto_section_select.callback = section_callback
+        self.add_item(self.crypto_section_select)
+
+        if self.crypto_section == "gpus":
+            self._build_crypto_gpu_controls()
+            return
+
         current_focus = _normalize_crypto_focus(self.selected_symbol)
         focus_options = [
             discord.SelectOption(
@@ -574,7 +605,7 @@ class HouseV2View(discord.ui.View):
                     description="Повышенный шанс при сборе и выбор для продажи"[:100],
                 )
             )
-        self.coin_select = discord.ui.Select(placeholder="Фокус майнинга и монета для продажи", row=1, options=focus_options[:25])
+        self.coin_select = discord.ui.Select(placeholder="Фокус майнинга и монета для продажи", row=2, options=focus_options[:25])
 
         async def focus_callback(interaction: discord.Interaction):
             async with self._view_lock:
@@ -583,17 +614,17 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 await self.cog.set_crypto_focus(self.user_id, self.guild_id, focus_symbol)
-                await self._swap(interaction, selected_symbol=focus_symbol)
+                await self._swap(interaction, selected_symbol=focus_symbol, crypto_section="coins")
 
         self.coin_select.callback = focus_callback
         self.add_item(self.coin_select)
 
-        collect_btn = discord.ui.Button(label="Собрать", style=discord.ButtonStyle.success, row=2)
-        sell_all_btn = discord.ui.Button(label="Продать всё", style=discord.ButtonStyle.primary, row=2)
-        sell_one_btn = discord.ui.Button(label="Продать по монете", style=discord.ButtonStyle.secondary, row=2)
-        upgrade_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.secondary, row=3)
-        legacy_btn = discord.ui.Button(label="Забрать старый кошелёк", style=discord.ButtonStyle.secondary, row=3)
-        back_btn = discord.ui.Button(label="Назад к дому", style=discord.ButtonStyle.secondary, row=3)
+        collect_btn = discord.ui.Button(label="Собрать", style=discord.ButtonStyle.success, row=3)
+        sell_all_btn = discord.ui.Button(label="Продать всё", style=discord.ButtonStyle.primary, row=3)
+        sell_one_btn = discord.ui.Button(label="Продать по монете", style=discord.ButtonStyle.secondary, row=3)
+        upgrade_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.secondary, row=4)
+        legacy_btn = discord.ui.Button(label="Забрать старый кошелёк", style=discord.ButtonStyle.secondary, row=4)
+        back_btn = discord.ui.Button(label="Назад к дому", style=discord.ButtonStyle.secondary, row=4)
         sell_one_btn.disabled = current_focus is None
 
         async def collect_callback(interaction: discord.Interaction):
@@ -601,7 +632,7 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.collect_crypto(self.user_id, self.guild_id)
-                await self._swap(interaction)
+                await self._swap(interaction, crypto_section="coins")
                 await self._send_payload(interaction, payload[1])
 
         async def sell_all_callback(interaction: discord.Interaction):
@@ -609,7 +640,7 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.sell_crypto(self.user_id, self.guild_id, symbol=None)
-                await self._swap(interaction)
+                await self._swap(interaction, crypto_section="coins")
                 await self._send_payload(interaction, payload[1])
 
         async def sell_one_callback(interaction: discord.Interaction):
@@ -621,7 +652,7 @@ class HouseV2View(discord.ui.View):
                     await interaction.followup.send("Сначала выбери конкретную монету во фокусе майнинга.", ephemeral=True)
                     return
                 payload = await self.cog.sell_crypto(self.user_id, self.guild_id, symbol=target_symbol)
-                await self._swap(interaction, selected_symbol=target_symbol)
+                await self._swap(interaction, selected_symbol=target_symbol, crypto_section="coins")
                 await self._send_payload(interaction, payload[1])
 
         async def upgrade_callback(interaction: discord.Interaction):
@@ -630,7 +661,7 @@ class HouseV2View(discord.ui.View):
                     return
                 house_cog = self.cog._house_core()
                 payload = await house_cog.upgrade_basement(self.user_id, self.guild_id) if house_cog is not None else (False, "Система дома недоступна.")
-                await self._swap(interaction)
+                await self._swap(interaction, crypto_section="coins")
                 await self._send_payload(interaction, payload[1])
 
         async def back_callback(interaction: discord.Interaction):
@@ -644,7 +675,7 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.withdraw_legacy_wallet(self.user_id, self.guild_id)
-                await self._swap(interaction)
+                await self._swap(interaction, crypto_section="coins")
                 await self._send_payload(interaction, payload[1])
 
         collect_btn.callback = collect_callback
@@ -654,6 +685,90 @@ class HouseV2View(discord.ui.View):
         legacy_btn.callback = legacy_callback
         back_btn.callback = back_callback
         for item in (collect_btn, sell_all_btn, sell_one_btn, upgrade_btn, legacy_btn, back_btn):
+            self.add_item(item)
+
+    def _build_crypto_gpu_controls(self):
+        gpu_options = [
+            discord.SelectOption(
+                label=f"{GPU_MODELS[gpu_id]['name']}"[:100],
+                value=gpu_id,
+                default=gpu_id == self.selected_gpu,
+                description=f"Доход: {format_money(GPU_MODELS[gpu_id]['hourly_income'])}/ч"[:100],
+                emoji=str(GPU_MODELS[gpu_id]["emoji"]),
+            )
+            for gpu_id in GPU_ORDER
+        ]
+        self.gpu_select = discord.ui.Select(placeholder="Выбери видеокарту", row=2, options=gpu_options[:25])
+
+        async def gpu_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                next_gpu = str(self.gpu_select.values[0]) if self.gpu_select.values else GPU_ORDER[0]
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, crypto_section="gpus", selected_gpu=next_gpu)
+
+        self.gpu_select.callback = gpu_callback
+        self.add_item(self.gpu_select)
+
+        install_btn = discord.ui.Button(label="Поставить", style=discord.ButtonStyle.success, row=3)
+        store_btn = discord.ui.Button(label="Убрать в сарай", style=discord.ButtonStyle.secondary, row=3)
+        sell_btn = discord.ui.Button(label="Продать", style=discord.ButtonStyle.primary, row=3)
+        upgrade_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.secondary, row=4)
+        refresh_btn = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=4)
+        back_btn = discord.ui.Button(label="Назад к дому", style=discord.ButtonStyle.secondary, row=4)
+
+        async def install_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.install_stored_gpu(self.user_id, self.guild_id, self.selected_gpu)
+                await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
+                await self._send_payload(interaction, payload[1])
+
+        async def store_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.store_gpu(self.user_id, self.guild_id, self.selected_gpu)
+                await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
+                await self._send_payload(interaction, payload[1])
+
+        async def sell_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.sell_owned_gpu(self.user_id, self.guild_id, self.selected_gpu)
+                await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
+                await self._send_payload(interaction, payload[1])
+
+        async def upgrade_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                house_cog = self.cog._house_core()
+                payload = await house_cog.upgrade_basement(self.user_id, self.guild_id) if house_cog is not None else (False, "Система дома недоступна.")
+                await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
+                await self._send_payload(interaction, payload[1])
+
+        async def refresh_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
+
+        async def back_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, tab="home")
+
+        install_btn.callback = install_callback
+        store_btn.callback = store_callback
+        sell_btn.callback = sell_callback
+        upgrade_btn.callback = upgrade_callback
+        refresh_btn.callback = refresh_callback
+        back_btn.callback = back_callback
+        for item in (install_btn, store_btn, sell_btn, upgrade_btn, refresh_btn, back_btn):
             self.add_item(item)
 
     def _build_rent_controls(self):
@@ -718,6 +833,7 @@ class HouseV2View(discord.ui.View):
             selected_plot=int(overrides.get("selected_plot", self.selected_plot)),
             selected_seed=overrides.get("selected_seed", self.selected_seed),
             selected_symbol=overrides.get("selected_symbol", self.selected_symbol),
+            crypto_section=str(overrides.get("crypto_section", self.crypto_section)),
             selected_gpu=overrides.get("selected_gpu", self.selected_gpu),
         )
         embed = await view.render_embed()
@@ -729,7 +845,13 @@ class HouseV2View(discord.ui.View):
         if self.tab == "garden":
             return await self.cog.build_garden_embed(self.user_id, self.guild_id, selected_plot=self.selected_plot, selected_seed=self.selected_seed)
         if self.tab == "crypto":
-            return await self.cog.build_crypto_embed(self.user_id, self.guild_id, selected_symbol=self.selected_symbol, selected_gpu=self.selected_gpu)
+            return await self.cog.build_crypto_embed(
+                self.user_id,
+                self.guild_id,
+                selected_symbol=self.selected_symbol,
+                selected_gpu=self.selected_gpu,
+                section=self.crypto_section,
+            )
         if self.tab == "rent":
             return await self.cog.build_rent_embed(self.user_id, self.guild_id)
         if self.tab == "decor":
@@ -884,6 +1006,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         *,
         selected_symbol: str | None = None,
         selected_gpu: str | None = None,
+        section: str = "coins",
     ) -> discord.Embed:
         user, house_state = await self._load_user(user_id, guild_id)
         if not user or not house_state:
@@ -896,6 +1019,71 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
 
         house_cog = self._house_core()
         snapshot = house_cog._house_snapshot(user, guild_id) if house_cog is not None else {}
+        section = section if section in {"coins", "gpus"} else "coins"
+        selected_gpu = selected_gpu if selected_gpu in GPU_MODELS else GPU_ORDER[0]
+
+        if section == "gpus":
+            installed_entries = [
+                entry for entry in house_state.get("installed_gpus", [])
+                if _gpu_entry_id(entry) in GPU_MODELS
+            ]
+            stored_entries = [
+                entry for entry in house_state.get("stored_gpus", [])
+                if _gpu_entry_id(entry) in GPU_MODELS
+            ]
+            installed_counts = _gpu_breakdown(installed_entries)
+            stored_counts = _gpu_breakdown(stored_entries)
+            selected_meta = GPU_MODELS[selected_gpu]
+
+            selected_stored_entry = next((entry for entry in stored_entries if _gpu_entry_id(entry) == selected_gpu), None)
+            selected_installed_entry = next((entry for entry in installed_entries if _gpu_entry_id(entry) == selected_gpu), None)
+            selected_sale_entry = selected_stored_entry or selected_installed_entry
+            selected_sale_price = _gpu_entry_resale_price(selected_sale_entry) if selected_sale_entry is not None else 0
+            if selected_sale_price <= 0 and (selected_stored_entry is not None or selected_installed_entry is not None):
+                selected_sale_price = max(1, int(round(int(selected_meta["price"]) * 0.30)))
+
+            installed_lines = [
+                f"{GPU_MODELS[gpu_id]['emoji']} **{GPU_MODELS[gpu_id]['name']}** — {count} шт."
+                for gpu_id, count in installed_counts.items()
+            ] or ["В подвале пока нет установленных карт."]
+            stored_lines = [
+                f"{GPU_MODELS[gpu_id]['emoji']} **{GPU_MODELS[gpu_id]['name']}** — {count} шт."
+                for gpu_id, count in stored_counts.items()
+            ] or ["Сарай пока пуст."]
+
+            free_slots = max(0, int(snapshot.get("capacity", 0) or 0) - int(snapshot.get("installed_count", 0) or 0))
+            embed.title = "Крипта • Видеокарты"
+            embed.description = (
+                f"Дом: **{house_data['name']}**\n"
+                f"Установлено: **{int(snapshot.get('installed_count', 0) or 0)}/{int(snapshot.get('capacity', 0) or 0)}**\n"
+                f"В сарае: **{sum(stored_counts.values())}**\n"
+                f"Доход дают только установленные карты: **{format_money(int(snapshot.get('hourly_income', 0) or 0))} в час**"
+            )
+            embed.add_field(
+                name=f"Выбрана карта: {selected_meta['emoji']} {selected_meta['name']}",
+                value=(
+                    f"Установлено: **{installed_counts.get(selected_gpu, 0)}**\n"
+                    f"В сарае: **{stored_counts.get(selected_gpu, 0)}**\n"
+                    f"Свободно слотов: **{free_slots}**\n"
+                    f"Продажа 1 шт.: **{format_money(selected_sale_price) if selected_sale_price > 0 else 'нет карты'}**"
+                ),
+                inline=False,
+            )
+            embed.add_field(name="Установленные", value="\n".join(installed_lines), inline=False)
+            embed.add_field(name="Сарай", value="\n".join(stored_lines), inline=False)
+            embed.add_field(
+                name="Как это работает",
+                value=(
+                    "Новая GPU покупается как обычно и сразу ставится в подвал.\n"
+                    "Кнопка `Убрать в сарай` снимает карту без продажи.\n"
+                    "Кнопка `Поставить` возвращает карту из сарая обратно в подвал.\n"
+                    "Продажа возвращает **30%** от цены покупки конкретной карты."
+                ),
+                inline=False,
+            )
+            embed.set_footer(text="Карты в сарае считаются твоими активами, но не занимают слоты и не дают доход, пока не установлены.")
+            return embed
+
         market_rows, _ = _current_market_rows()
         furniture = set(house_state.get("furniture", []))
         pending_value = int(snapshot.get("ready", 0) or 0)
@@ -1147,6 +1335,24 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if focus_symbol is None:
             return True, "Фокус майнинга сброшен. Снова работает авто-распределение."
         return True, f"Фокус майнинга переключен на **{focus_symbol}**."
+
+    async def install_stored_gpu(self, user_id: int, guild_id: int, gpu_id: str) -> tuple[bool, discord.Embed | str]:
+        house_cog = self._house_core()
+        if house_cog is None:
+            return False, "Система дома недоступна."
+        return await house_cog.install_stored_gpu(user_id, guild_id, gpu_id)
+
+    async def store_gpu(self, user_id: int, guild_id: int, gpu_id: str) -> tuple[bool, discord.Embed | str]:
+        house_cog = self._house_core()
+        if house_cog is None:
+            return False, "Система дома недоступна."
+        return await house_cog.store_gpu(user_id, guild_id, gpu_id)
+
+    async def sell_owned_gpu(self, user_id: int, guild_id: int, gpu_id: str) -> tuple[bool, discord.Embed | str]:
+        house_cog = self._house_core()
+        if house_cog is None:
+            return False, "Система дома недоступна."
+        return await house_cog.sell_owned_gpu(user_id, guild_id, gpu_id)
 
     async def collect_crypto(self, user_id: int, guild_id: int) -> tuple[bool, discord.Embed | str]:
         house_cog = self._house_core()

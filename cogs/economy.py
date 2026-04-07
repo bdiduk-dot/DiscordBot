@@ -225,55 +225,14 @@ class WorkChoiceView(discord.ui.View):
         if index >= len(self.choices):
             await interaction.response.send_message("Этот вариант сейчас недоступен.", ephemeral=True)
             return
-        choice = self.choices[index]
-        async with get_user_lock(self.user_id):
-            user = await db.get_user(self.user_id, self.guild_id)
-            if not user:
-                await interaction.response.send_message("Ошибка загрузки профиля.", ephemeral=True)
-                return
-            now = datetime.now(timezone.utc)
-            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
-            cooldown_minutes = int(10 * (1 - vip["cooldown_reduction"]))
-            if user.get("last_work"):
-                last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
-                if now - last_work < timedelta(minutes=cooldown_minutes):
-                    next_work_at = last_work + timedelta(minutes=cooldown_minutes)
-                    await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
-                    return
-            salary = random.randint(int(choice["reward_min"]), int(choice["reward_max"]))
-            if vip["daily_bonus"] > 1:
-                salary = int(salary * vip["daily_bonus"])
-            event_multiplier, active_event = self.cog._market_multiplier(self.guild_id, "economy")
-            if event_multiplier > 1:
-                salary = int(salary * event_multiplier)
-            from easter_event import grant_easter_drops, maybe_apply_easter_work_bonus
-
-            easter_cog = self.cog.bot.get_cog("EasterEvent")
-            salary = maybe_apply_easter_work_bonus(user, salary)
-            user["balance"] = int(user.get("balance", 0) or 0) + salary
-            easter_lines = grant_easter_drops(
-                user,
-                "work",
-                guild_state=easter_cog.get_cached_guild_state(self.guild_id) if easter_cog else None,
-            )
-            user["last_work"] = now.isoformat()
-            await db.update_user(self.user_id, self.guild_id, user)
-
-        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "work", 1))
-        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "earn", salary))
-        asyncio.create_task(self.cog._progress_contracts(self.user_id, self.guild_id, "work", 1))
-        asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="work", amount=1, money=salary))
-
-        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
-        embed = create_embed(
-            "💼 РАБОТА ВЫПОЛНЕНА",
-            f"{choice['summary']}\n\n✅ Получено: `{format_money(salary)}`\n💰 Баланс: `{format_money(user['balance'])}`{event_note}",
-            COLORS["success"],
-        )
-        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
-        if easter_lines:
-            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
+        success, payload = await self.cog._run_work_once(self.user_id, self.guild_id, choice=self.choices[index])
+        if not success:
+            if isinstance(payload, discord.Embed):
+                await interaction.response.send_message(embed=payload, ephemeral=True)
+            else:
+                await interaction.response.send_message(str(payload), ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=payload, view=None)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)
 
@@ -758,6 +717,77 @@ class EconomyCog(commands.Cog, name="Economy"):
         systems_cog = self.bot.get_cog("Systems")
         if systems_cog is not None:
             await systems_cog.progress_contracts(user_id, guild_id, code, amount)
+
+    @staticmethod
+    def _work_cooldown_minutes(user: dict[str, Any]) -> int:
+        vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+        return int(10 * (1 - vip["cooldown_reduction"]))
+
+    async def _run_work_once(
+        self,
+        user_id: int,
+        guild_id: int,
+        *,
+        choice: dict[str, Any] | None = None,
+    ) -> tuple[bool, discord.Embed | str]:
+        selected_choice = choice or random.choice(WORK_POOL)
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Ошибка загрузки профиля."
+
+            now = datetime.now(timezone.utc)
+            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+            cooldown_minutes = self._work_cooldown_minutes(user)
+            if user.get("last_work"):
+                try:
+                    last_work = datetime.fromisoformat(str(user["last_work"]))
+                except ValueError:
+                    last_work = now - timedelta(minutes=cooldown_minutes)
+                if last_work.tzinfo is None:
+                    last_work = last_work.replace(tzinfo=timezone.utc)
+                else:
+                    last_work = last_work.astimezone(timezone.utc)
+                if now - last_work < timedelta(minutes=cooldown_minutes):
+                    next_work_at = last_work + timedelta(minutes=cooldown_minutes)
+                    return False, f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}."
+
+            salary = random.randint(int(selected_choice["reward_min"]), int(selected_choice["reward_max"]))
+            if vip["daily_bonus"] > 1:
+                salary = int(salary * vip["daily_bonus"])
+
+            event_multiplier, active_event = self._market_multiplier(guild_id, "economy")
+            if event_multiplier > 1:
+                salary = int(salary * event_multiplier)
+
+            from easter_event import grant_easter_drops, maybe_apply_easter_work_bonus
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            salary = maybe_apply_easter_work_bonus(user, salary)
+            user["balance"] = int(user.get("balance", 0) or 0) + salary
+            easter_lines = grant_easter_drops(
+                user,
+                "work",
+                guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
+            )
+            user["last_work"] = now.isoformat()
+            await db.update_user(user_id, guild_id, user)
+
+        asyncio.create_task(check_quest_progress(user_id, guild_id, "work", 1))
+        asyncio.create_task(check_quest_progress(user_id, guild_id, "earn", salary))
+        asyncio.create_task(self._progress_contracts(user_id, guild_id, "work", 1))
+        asyncio.create_task(record_player_progress(user_id, guild_id, action="work", amount=1, money=salary))
+
+        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
+        embed = create_embed(
+            "💼 РАБОТА ВЫПОЛНЕНА",
+            f"{selected_choice['summary']}\n\n✅ Получено: `{format_money(salary)}`\n💰 Баланс: `{format_money(user['balance'])}`{event_note}",
+            COLORS["success"],
+        )
+        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
+        return True, embed
 
     async def build_profile_embed(self, target: discord.Member, guild_id: int) -> discord.Embed:
         user = await db.get_user(target.id, guild_id)
@@ -1327,22 +1357,15 @@ class EconomyCog(commands.Cog, name="Economy"):
                 await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
                 return
 
-        choices = random.sample(WORK_POOL, k=3)
-        embed = discord.Embed(
-            title="💼 Работа",
-            description="Выбери одну из трёх безопасных подработок. Успех всегда 100%.",
-            color=COLORS["success"],
+        success, payload = await self._run_work_once(
+            interaction.user.id,
+            interaction.guild_id,
+            choice=random.choice(WORK_POOL),
         )
-        for index, choice in enumerate(choices, start=1):
-            embed.add_field(
-                name=f"Вариант {index}",
-                value=f"{choice['summary']}\nОплата: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**",
-                inline=False,
-            )
-        embed.set_footer(text="После выбора награда сразу зачислится на баланс.")
-        view = WorkChoiceView(self, interaction.user.id, interaction.guild_id, choices)
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if isinstance(payload, discord.Embed):
+            await interaction.response.send_message(embed=payload, ephemeral=not success)
+        else:
+            await interaction.response.send_message(str(payload), ephemeral=True)
 
     @app_commands.command(name="crime", description="Пойти на преступление ради денег")
     @app_commands.describe(risk="Сразу выбрать риск 1, 2 или 3 без кнопок")

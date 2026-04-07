@@ -83,13 +83,14 @@ def _house_net_worth(game_stats: Any) -> dict[str, int]:
     house_id = str(house.get("owned_house_id") or "")
     basement_level = _safe_int(house.get("basement_level"), 0)
     installed_gpus = house.get("installed_gpus", [])
+    stored_gpus = house.get("stored_gpus", [])
     furniture = house.get("furniture", [])
 
     house_value = HOUSE_NET_WORTH.get(house_id, 0)
     basement_value = _house_basement_upgrade_spend(house_id, basement_level)
     gpu_value = sum(
         GPU_NET_WORTH.get(_gpu_entry_id(gpu_entry), 0)
-        for gpu_entry in installed_gpus
+        for gpu_entry in list(installed_gpus) + list(stored_gpus)
         if _gpu_entry_id(gpu_entry)
     )
 
@@ -535,6 +536,7 @@ class Database:
             "crypto_wallet": house.get("crypto_wallet", {}),
             "furniture": house.get("furniture", []),
             "legacy_mining_wallet": int(house.get("legacy_mining_wallet", 0) or 0),
+            "stored_gpus": house.get("stored_gpus", []),
         }
 
         try:
@@ -553,6 +555,7 @@ class Database:
                     "crypto_wallet",
                     "furniture",
                     "legacy_mining_wallet",
+                    "stored_gpus",
                 )
             ):
                 try:
