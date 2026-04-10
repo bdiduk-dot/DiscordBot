@@ -40,6 +40,9 @@ PROFILE_TITLES: dict[str, dict[str, Any]] = {
     "panic_investor": {"name": "Паник-инвестор", "display": "[ PANIC INVESTOR ]"},
     "sofa_tycoon": {"name": "Диванный магнат", "display": "< SOFA TYCOON >"},
     "easter_hunter": {"name": "Охотник за яйцами", "display": "{ EASTER HUNTER }"},
+    "spring_chronicler": {"name": "Летописец весны", "display": "[ SPRING CHRONICLER ]"},
+    "easter_secret_keeper": {"name": "Хранитель пасхальных тайн", "display": "{ EASTER KEEPER }"},
+    "spring_archivist": {"name": "Архивариус весны", "display": "<< SPRING ARCHIVIST >>"},
 }
 
 PROFILE_THEMES: dict[str, dict[str, Any]] = {
@@ -73,6 +76,11 @@ PROFILE_THEMES: dict[str, dict[str, Any]] = {
         "name": "Mint Bunny",
         "color": 0xA8E6CF,
         "image_url": "https://i.pinimg.com/originals/7d/b3/89/7db389786b7754560cb38796784295b4.gif",
+    },
+    "moon_hare": {
+        "name": "Moon Hare",
+        "color": 0xC7C3FF,
+        "image_url": "https://i.pinimg.com/originals/44/16/b0/4416b0ca2b067c5a4fa5dc1d1cfa17cf.gif",
     },
     "sakura": {
         "name": "Sakura",

@@ -106,6 +106,96 @@ EASTER_COLLECTION_HISTORY_CODES = {
     EASTER_TALISMAN_CODE,
 }
 
+EASTER_CHAPTER2_STEPS: tuple[dict[str, Any], ...] = (
+    {"id": "earn_common", "name": "Заработать 20 обычных яиц", "target": 20},
+    {"id": "pond_catch", "name": "Поймать 5 рыб в пасхальном пруду", "target": 5},
+    {"id": "open_chest", "name": "Открыть 1 пасхальный сундук", "target": 1},
+    {"id": "buy_shop_item", "name": "Купить 1 предмет в пасхальном магазине", "target": 1},
+    {"id": "exchange_once", "name": "Сделать 1 апгрейд валюты", "target": 1},
+    {"id": "rabbit_reward", "name": "Получить награду при активном Золотом кролике", "target": 1},
+)
+
+EASTER_SECRET_EGG_CODES = (
+    "easter_secret_moon_egg",
+    "easter_secret_choco_heart",
+    "easter_secret_rabbit_egg",
+    "easter_secret_dawn_egg",
+    "easter_secret_mirror_egg",
+)
+
+EASTER_SERVER_PROGRESS_POINT_VALUES = {
+    EASTER_COMMON_EGG_CODE: 1,
+    EASTER_PAINTED_EGG_CODE: 25,
+    EASTER_GOLD_EGG_CODE: 250,
+}
+
+EASTER_SERVER_UNLOCK_SHOP_CODE = "easter_chronicle_title"
+
+EASTER_SECRET_EGG_META: dict[str, dict[str, Any]] = {
+    "easter_secret_moon_egg": {
+        "name": "Лунное яйцо",
+        "emoji": "🌙",
+        "description": "Редчайшее пасхальное яйцо, которое можно заметить только в ночной воде.",
+        "hint": "Ищи его ночью в пасхальном пруду.",
+    },
+    "easter_secret_choco_heart": {
+        "name": "Шоколадное сердце",
+        "emoji": "🍫",
+        "description": "Секретная находка, которая иногда прячется внутри пасхального сундука.",
+        "hint": "Не всё сладкое лежит в магазине. Иногда оно спрятано в сундуках.",
+    },
+    "easter_secret_rabbit_egg": {
+        "name": "Яйцо кролика",
+        "emoji": "🐇",
+        "description": "Редкий след Золотого кролика, который остаётся только во время его появления.",
+        "hint": "Появляется только пока сервер гонится за Золотым кроликом.",
+    },
+    "easter_secret_dawn_egg": {
+        "name": "Яйцо рассвета",
+        "emoji": "🌅",
+        "description": "Редкое яйцо, которое удаётся найти только на самом раннем утре.",
+        "hint": "Проверь утренние награды, пока город только просыпается.",
+    },
+    "easter_secret_mirror_egg": {
+        "name": "Зеркальное яйцо",
+        "emoji": "🪞",
+        "description": "Редкая пасхальная находка, которая иногда отражается прямо в обменнике.",
+        "hint": "Иногда тайна появляется не в дропе, а в самом обмене валюты.",
+    },
+}
+
+EASTER_SERVER_PROGRESS_MILESTONES: tuple[dict[str, Any], ...] = (
+    {
+        "level": 1,
+        "points": 2_500,
+        "name": "Тёплый след",
+        "description": "+5% к шансу выпадения яиц по серверу.",
+        "egg_drop_bonus": 0.05,
+    },
+    {
+        "level": 2,
+        "points": 7_500,
+        "name": "Сундук следопыта",
+        "description": "+3% к шансу пасхального сундука по серверу.",
+        "chest_bonus": 0.03,
+    },
+    {
+        "level": 3,
+        "points": 15_000,
+        "name": "Тайная витрина",
+        "description": "Открывает дополнительный товар во вкладке пасхального магазина.",
+        "unlock_shop_item": EASTER_SERVER_UNLOCK_SHOP_CODE,
+    },
+    {
+        "level": 4,
+        "points": 30_000,
+        "name": "Весенний размах",
+        "description": "+10% к деньгам с пасхальных бизнесов и +10% к цене рыбы в пасхальном пруду.",
+        "business_money_bonus": 0.10,
+        "pond_value_bonus": 0.10,
+    },
+)
+
 EASTER_FURNITURE_BUFFS = {
     "easter_egg_basket": {
         "name": "Корзина с яйцами",
@@ -176,8 +266,9 @@ EASTER_SHOP_ITEMS: list[dict[str, Any]] = [
     {"code": "easter_case_basic", "name": "Пасхальный кейс", "emoji": "🎁", "kind": "case", "price_common": 30, "price_painted": 0, "price_gold": 0},
     {"code": "easter_bait_pack", "name": "Праздничная наживка", "emoji": "🪱", "kind": "bait", "price_common": 12, "price_painted": 0, "price_gold": 0},
     {"code": EASTER_POND_PASS_CODE, "name": "Пропуск на Пруд золотого кролика", "emoji": "🎟️", "kind": "pass", "price_common": 60, "price_painted": 1, "price_gold": 0},
-    {"code": "easter_profile_theme", "name": "Mint Bunny", "emoji": "🌿", "kind": "theme", "price_common": 50, "price_painted": 2, "price_gold": 0},
-    {"code": "easter_profile_title", "name": "Пасхальный титул", "emoji": "👑", "kind": "title", "price_common": 0, "price_painted": 3, "price_gold": 0},
+    {"code": "easter_profile_theme", "name": "Mint Bunny", "emoji": "🌿", "kind": "theme", "price_common": 50, "price_painted": 2, "price_gold": 0, "theme_key": "mint_bunny"},
+    {"code": "easter_profile_title", "name": "Пасхальный титул", "emoji": "👑", "kind": "title", "price_common": 0, "price_painted": 3, "price_gold": 0, "title_key": "easter_hunter"},
+    {"code": EASTER_SERVER_UNLOCK_SHOP_CODE, "name": "Летописец весны", "emoji": "📜", "kind": "title", "price_common": 90, "price_painted": 2, "price_gold": 1, "title_key": "spring_chronicler", "locked_until_level": 3},
     {"code": "easter_egg_basket", "name": "Корзина с яйцами", "emoji": "🧺", "kind": "furniture", "price_common": 45, "price_painted": 0, "price_gold": 0},
     {"code": "easter_rabbit_lamp", "name": "Кроличья лампа", "emoji": "🐰", "kind": "furniture", "price_common": 95, "price_painted": 1, "price_gold": 0},
     {"code": "easter_chocolate_fountain", "name": "Шоколадный фонтан", "emoji": "🍫", "kind": "furniture", "price_common": 80, "price_painted": 1, "price_gold": 0},
@@ -312,7 +403,270 @@ def ensure_easter_state(user: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(owned_furniture, list):
         owned_furniture = []
         state["owned_furniture"] = owned_furniture
+    chapter2_progress = state.get("chapter2_progress")
+    if not isinstance(chapter2_progress, dict):
+        chapter2_progress = {}
+        state["chapter2_progress"] = chapter2_progress
+    for step in EASTER_CHAPTER2_STEPS:
+        chapter2_progress.setdefault(str(step["id"]), 0)
+    state.setdefault("chapter2_completed", False)
+    state.setdefault("chapter2_reward_claimed", False)
+    secret_found_codes = state.get("secret_found_codes")
+    if not isinstance(secret_found_codes, list):
+        secret_found_codes = []
+        state["secret_found_codes"] = secret_found_codes
+    state["secret_found_codes"] = [
+        str(code)
+        for code in secret_found_codes
+        if str(code) in EASTER_SECRET_EGG_META
+    ]
+    state.setdefault("secret_collection_reward_claimed", False)
+    state.setdefault("final_reward_claimed", False)
     return state
+
+
+def _time_phase_key(now: datetime | None = None) -> str:
+    current = (now or utc_now()).astimezone(timezone.utc)
+    hour = int(current.hour)
+    if 5 <= hour < 11:
+        return "morning"
+    if 11 <= hour < 17:
+        return "day"
+    if 17 <= hour < 22:
+        return "evening"
+    return "night"
+
+
+def get_server_progress_state(guild_state: dict[str, Any] | None) -> dict[str, Any]:
+    raw_state = guild_state if isinstance(guild_state, dict) else {}
+    points = max(0, int(raw_state.get("server_progress_points", 0) or 0))
+    unlocked_raw = raw_state.get("server_progress_unlocked")
+    if not isinstance(unlocked_raw, list):
+        unlocked_raw = []
+    unlocked_levels = {
+        int(level)
+        for level in unlocked_raw
+        if str(level).isdigit()
+    }
+    for milestone in EASTER_SERVER_PROGRESS_MILESTONES:
+        if points >= int(milestone["points"]):
+            unlocked_levels.add(int(milestone["level"]))
+    level = max(unlocked_levels, default=0)
+    next_milestone = next(
+        (milestone for milestone in EASTER_SERVER_PROGRESS_MILESTONES if int(milestone["level"]) not in unlocked_levels),
+        None,
+    )
+    return {
+        "points": points,
+        "level": level,
+        "unlocked_levels": sorted(unlocked_levels),
+        "next_milestone": next_milestone,
+    }
+
+
+def get_server_progress_bonuses(guild_state: dict[str, Any] | None) -> dict[str, Any]:
+    state = get_server_progress_state(guild_state)
+    bonuses = {
+        "egg_drop_bonus": 0.0,
+        "chest_bonus": 0.0,
+        "business_money_bonus": 0.0,
+        "pond_value_bonus": 0.0,
+        "unlocked_shop_codes": set(),
+    }
+    for milestone in EASTER_SERVER_PROGRESS_MILESTONES:
+        if int(milestone["level"]) not in state["unlocked_levels"]:
+            continue
+        bonuses["egg_drop_bonus"] += float(milestone.get("egg_drop_bonus", 0.0) or 0.0)
+        bonuses["chest_bonus"] += float(milestone.get("chest_bonus", 0.0) or 0.0)
+        bonuses["business_money_bonus"] += float(milestone.get("business_money_bonus", 0.0) or 0.0)
+        bonuses["pond_value_bonus"] += float(milestone.get("pond_value_bonus", 0.0) or 0.0)
+        unlock_code = str(milestone.get("unlock_shop_item") or "").strip()
+        if unlock_code:
+            bonuses["unlocked_shop_codes"].add(unlock_code)
+    return bonuses
+
+
+def easter_shop_item_visible(item: dict[str, Any], guild_state: dict[str, Any] | None = None) -> bool:
+    locked_until_level = int(item.get("locked_until_level", 0) or 0)
+    if locked_until_level <= 0:
+        return True
+    state = get_server_progress_state(guild_state)
+    return int(state["level"]) >= locked_until_level
+
+
+def get_visible_easter_shop_items(guild_state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    return [item for item in EASTER_SHOP_ITEMS if easter_shop_item_visible(item, guild_state)]
+
+
+def _server_points_from_reward_counts(common: int = 0, painted: int = 0, gold: int = 0) -> int:
+    return (
+        int(common or 0) * int(EASTER_SERVER_PROGRESS_POINT_VALUES[EASTER_COMMON_EGG_CODE])
+        + int(painted or 0) * int(EASTER_SERVER_PROGRESS_POINT_VALUES[EASTER_PAINTED_EGG_CODE])
+        + int(gold or 0) * int(EASTER_SERVER_PROGRESS_POINT_VALUES[EASTER_GOLD_EGG_CODE])
+    )
+
+
+def _empty_easter_reward_payload() -> dict[str, Any]:
+    return {
+        "lines": [],
+        "common": 0,
+        "painted": 0,
+        "gold": 0,
+        "chests": 0,
+        "server_points": 0,
+    }
+
+
+def get_chapter2_current_step(user: dict[str, Any]) -> dict[str, Any] | None:
+    state = ensure_easter_state(user)
+    progress = state.get("chapter2_progress", {})
+    for index, step in enumerate(EASTER_CHAPTER2_STEPS):
+        current_value = int(progress.get(str(step["id"]), 0) or 0)
+        if current_value < int(step["target"]):
+            return {
+                "index": index,
+                "step": step,
+                "progress": current_value,
+                "target": int(step["target"]),
+            }
+    state["chapter2_completed"] = True
+    return None
+
+
+def advance_chapter2_progress(user: dict[str, Any], step_id: str, amount: int = 1) -> dict[str, Any]:
+    state = ensure_easter_state(user)
+    progress = state["chapter2_progress"]
+    current = get_chapter2_current_step(user)
+    if current is None:
+        state["chapter2_completed"] = True
+        return {"advanced": False, "step_completed": False, "chapter_completed": False}
+    if str(current["step"]["id"]) != str(step_id):
+        return {"advanced": False, "step_completed": False, "chapter_completed": False}
+    target = int(current["target"])
+    before = int(progress.get(step_id, 0) or 0)
+    after = min(target, before + max(1, int(amount or 1)))
+    progress[step_id] = after
+    step_completed = before < target and after >= target
+    next_step = get_chapter2_current_step(user)
+    chapter_completed = step_completed and next_step is None
+    if chapter_completed:
+        state["chapter2_completed"] = True
+    return {
+        "advanced": after != before,
+        "step_completed": step_completed,
+        "chapter_completed": chapter_completed,
+        "progress": after,
+        "target": target,
+    }
+
+
+def chapter2_reward_can_claim(user: dict[str, Any]) -> bool:
+    state = ensure_easter_state(user)
+    return bool(state.get("chapter2_completed")) and not bool(state.get("chapter2_reward_claimed"))
+
+
+def claim_chapter2_reward(user: dict[str, Any]) -> bool:
+    if not chapter2_reward_can_claim(user):
+        return False
+    state = ensure_easter_state(user)
+    user["gems"] = int(user.get("gems", 0) or 0) + 50
+    add_easter_trophy(
+        user,
+        "easter_rabbit_trail_map",
+        "Карта кроличьих следов",
+        "Памятная карта за полное прохождение второй главы пасхального ивента 2026.",
+    )
+    state["chapter2_reward_claimed"] = True
+    return True
+
+
+def secret_hints_unlocked(user: dict[str, Any]) -> bool:
+    state = ensure_easter_state(user)
+    return bool(state.get("chapter2_reward_claimed"))
+
+
+def _register_secret_egg(user: dict[str, Any], code: str) -> bool:
+    if code not in EASTER_SECRET_EGG_META:
+        return False
+    state = ensure_easter_state(user)
+    found_codes = set(str(entry) for entry in state.get("secret_found_codes", []))
+    if code in found_codes:
+        return False
+    state["secret_found_codes"].append(code)
+    return True
+
+
+def get_secret_collection_progress(user: dict[str, Any]) -> dict[str, bool]:
+    state = ensure_easter_state(user)
+    found_codes = set(str(entry) for entry in state.get("secret_found_codes", []))
+    return {code: code in found_codes for code in EASTER_SECRET_EGG_CODES}
+
+
+def secret_collection_can_claim(user: dict[str, Any], now: datetime | None = None) -> bool:
+    phase = get_easter_phase(now)
+    state = ensure_easter_state(user)
+    return (
+        phase in {"active", "exchange"}
+        and not bool(state.get("secret_collection_reward_claimed"))
+        and all(get_secret_collection_progress(user).values())
+    )
+
+
+def claim_secret_collection(user: dict[str, Any]) -> bool:
+    if not secret_collection_can_claim(user):
+        return False
+    from progression import unlock_theme, unlock_title
+
+    state = ensure_easter_state(user)
+    unlock_title(user, "easter_secret_keeper")
+    unlock_theme(user, "moon_hare")
+    add_easter_trophy(
+        user,
+        "easter_secret_collection_trophy",
+        "Запечатанное яйцо 2026",
+        "Секретный трофей за полную hidden-коллекцию пасхальных яиц 2026.",
+    )
+    state["secret_collection_reward_claimed"] = True
+    return True
+
+
+def final_easter_reward_can_claim(user: dict[str, Any], guild_state: dict[str, Any] | None) -> bool:
+    state = ensure_easter_state(user)
+    server_state = get_server_progress_state(guild_state)
+    return (
+        bool(state.get("collection_reward_claimed"))
+        and bool(state.get("chapter2_reward_claimed"))
+        and bool(state.get("secret_collection_reward_claimed"))
+        and not bool(state.get("final_reward_claimed"))
+        and int(server_state["level"]) >= len(EASTER_SERVER_PROGRESS_MILESTONES)
+    )
+
+
+def claim_final_easter_reward(user: dict[str, Any], guild_state: dict[str, Any] | None) -> bool:
+    if not final_easter_reward_can_claim(user, guild_state):
+        return False
+    from progression import unlock_title
+
+    state = ensure_easter_state(user)
+    unlock_title(user, "spring_archivist")
+    user["gems"] = int(user.get("gems", 0) or 0) + 200
+    add_easter_trophy(
+        user,
+        "easter_rabbit_relic",
+        "Реликвия Золотого кролика",
+        "Финальная скрытая реликвия за 100% прохождение пасхального ивента 2026.",
+    )
+    state["final_reward_claimed"] = True
+    return True
+
+
+def _maybe_grant_secret_egg(user: dict[str, Any], code: str, chance: float) -> list[str]:
+    if chance <= 0 or random.random() > chance:
+        return []
+    if not _register_secret_egg(user, code):
+        return []
+    meta = EASTER_SECRET_EGG_META[code]
+    return [f"{meta['emoji']} Тайная находка: **{meta['name']}** добавлена в `/eggcollection`."]
 
 
 def _ensure_fishing_state(user: dict[str, Any]) -> dict[str, Any]:
@@ -603,6 +957,416 @@ def open_easter_chest(user: dict[str, Any]) -> dict[str, Any]:
         add_easter_item(user, EASTER_TALISMAN_CODE, 1)
         rewards["lines"].append("🐇 Кроличий талисман: **+1**")
     return rewards
+
+def grant_easter_drops(
+    user: dict[str, Any],
+    source: str,
+    *,
+    guild_state: dict[str, Any] | None = None,
+    natural_blackjack: bool = False,
+) -> dict[str, Any]:
+    now = utc_now()
+    if get_easter_phase(now) != "active":
+        return _empty_easter_reward_payload()
+
+    rabbit_active = rabbit_is_active(guild_state, now)
+    server_bonuses = get_server_progress_bonuses(guild_state)
+    egg_drop_bonus = _egg_drop_bonus_chance(user) + float(server_bonuses["egg_drop_bonus"])
+    payload = _empty_easter_reward_payload()
+    common_count = 0
+    painted_count = 0
+    gold_count = 0
+    chest_count = 0
+
+    common_drop_chances = {
+        "work": 0.55,
+        "crime": 0.70,
+        "slut": 0.50,
+        "fish": 0.60,
+        "daily": 1.00,
+        "blackjack_win": 0.65,
+        "business_collect": 0.55,
+        "rent_collect": 0.60,
+    }
+    common_drop_ranges = {
+        "work": (1, 3),
+        "crime": (2, 5),
+        "slut": (1, 4),
+        "fish": (1, 4),
+        "daily": (5, 5),
+        "blackjack_win": (2, 4),
+        "business_collect": (1, 3),
+        "rent_collect": (2, 4),
+    }
+
+    drop_chance = min(1.0, common_drop_chances.get(source, 0.0) + egg_drop_bonus)
+    if source in common_drop_ranges and random.random() <= drop_chance:
+        low, high = common_drop_ranges[source]
+        common_count += random.randint(low, high)
+
+    if source == "crime" and random.random() <= 0.05:
+        painted_count += 1
+    elif source == "slut" and random.random() <= 0.03:
+        painted_count += 1
+    elif source == "fish" and random.random() <= 0.06:
+        painted_count += 1
+    elif source == "blackjack_win" and natural_blackjack and random.random() <= 0.12:
+        painted_count += 1
+
+    if rabbit_active:
+        rabbit_common_chance = min(1.0, 0.65 + egg_drop_bonus)
+        if random.random() <= rabbit_common_chance:
+            common_count += random.randint(1, 3)
+        if random.random() <= 0.18:
+            painted_count += 1
+        if random.random() <= 0.03:
+            gold_count += 1
+        if random.random() <= min(1.0, 0.08 + float(server_bonuses["chest_bonus"])):
+            chest_count += 1
+
+    if common_count > 0:
+        _grant_code(user, EASTER_COMMON_EGG_CODE, common_count)
+        payload["lines"].append(f"🥚 Пасха: **+{common_count}** обычн. яиц.")
+    if painted_count > 0:
+        _grant_code(user, EASTER_PAINTED_EGG_CODE, painted_count)
+        payload["lines"].append(f"🎨 Пасха: **+{painted_count}** расписн. яиц.")
+    if gold_count > 0:
+        _grant_code(user, EASTER_GOLD_EGG_CODE, gold_count)
+        payload["lines"].append(f"✨ Пасха: **+{gold_count}** золот. яиц.")
+    if chest_count > 0:
+        add_easter_item(user, EASTER_CHEST_CODE, chest_count)
+        payload["lines"].append(f"📦 Пасха: **+{chest_count}** сундук(а) добавлено в инвентарь.")
+
+    payload["common"] = common_count
+    payload["painted"] = painted_count
+    payload["gold"] = gold_count
+    payload["chests"] = chest_count
+    payload["server_points"] = _server_points_from_reward_counts(common_count, painted_count, gold_count)
+
+    if common_count > 0:
+        advance_chapter2_progress(user, "earn_common", common_count)
+    if rabbit_active and (common_count > 0 or painted_count > 0 or gold_count > 0 or chest_count > 0):
+        advance_chapter2_progress(user, "rabbit_reward", 1)
+        payload["lines"].extend(_maybe_grant_secret_egg(user, "easter_secret_rabbit_egg", 0.025))
+    if source in {"work", "daily"} and _time_phase_key(now) == "morning" and (common_count > 0 or painted_count > 0 or gold_count > 0):
+        payload["lines"].extend(_maybe_grant_secret_egg(user, "easter_secret_dawn_egg", 0.03 if source == "daily" else 0.02))
+    return payload
+
+
+def grant_pond_bonus_loot(user: dict[str, Any], *, guild_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    if get_easter_phase() != "active":
+        return _empty_easter_reward_payload()
+    rabbit_active = rabbit_is_active(guild_state)
+    server_bonuses = get_server_progress_bonuses(guild_state)
+    payload = _empty_easter_reward_payload()
+    common = random.randint(2, 5)
+    painted = 1 if random.random() <= 0.14 else 0
+    gold = 1 if rabbit_active and random.random() <= 0.08 else 0
+    chest_chance = 0.12 if rabbit_active else 0.05
+    chests = 1 if random.random() <= min(1.0, chest_chance + float(server_bonuses["chest_bonus"])) else 0
+    _grant_code(user, EASTER_COMMON_EGG_CODE, common)
+    payload["lines"].append(f"🥚 Пасха: **+{common}** обычн. яиц.")
+    if painted:
+        _grant_code(user, EASTER_PAINTED_EGG_CODE, painted)
+        payload["lines"].append("🎨 Пасха: **+1** расписное яйцо.")
+    if gold:
+        _grant_code(user, EASTER_GOLD_EGG_CODE, gold)
+        payload["lines"].append("✨ Пасха: **+1** золотое яйцо.")
+    if chests:
+        add_easter_item(user, EASTER_CHEST_CODE, chests)
+        payload["lines"].append("📦 Пасха: Пасхальный сундук добавлен в инвентарь.")
+        payload["lines"].append("📦 Пасха: найден Пасхальный сундук.")
+    payload["common"] = common
+    payload["painted"] = painted
+    payload["gold"] = gold
+    payload["chests"] = chests
+    payload["server_points"] = _server_points_from_reward_counts(common, painted, gold)
+    if rabbit_active:
+        advance_chapter2_progress(user, "rabbit_reward", 1)
+        payload["lines"].extend(_maybe_grant_secret_egg(user, "easter_secret_rabbit_egg", 0.03))
+    if _time_phase_key() == "night":
+        payload["lines"].extend(_maybe_grant_secret_egg(user, "easter_secret_moon_egg", 0.03))
+    return payload
+
+
+def open_easter_chest(user: dict[str, Any], *, guild_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    rewards = {
+        "money": random.randint(12_000, 55_000),
+        "gems": random.randint(2, 8),
+        "lines": [],
+        "common": 0,
+        "painted": 0,
+        "gold": 0,
+        "server_points": 0,
+    }
+    user["balance"] = int(user.get("balance", 0) or 0) + rewards["money"]
+    user["gems"] = int(user.get("gems", 0) or 0) + rewards["gems"]
+    rewards["lines"].append(f"💰 Деньги: **+${rewards['money']:,}**")
+    rewards["lines"].append(f"💎 Гемы: **+{rewards['gems']}**")
+
+    common = random.randint(1, 4)
+    _grant_code(user, EASTER_COMMON_EGG_CODE, common)
+    rewards["common"] = common
+    rewards["lines"].append(f"🥚 Обычные яйца: **+{common}**")
+    if random.random() <= 0.28:
+        _grant_code(user, EASTER_PAINTED_EGG_CODE, 1)
+        rewards["painted"] = 1
+        rewards["lines"].append("🎨 Расписное яйцо: **+1**")
+    if random.random() <= 0.05:
+        _grant_code(user, EASTER_GOLD_EGG_CODE, 1)
+        rewards["gold"] = 1
+        rewards["lines"].append("✨ Золотое яйцо: **+1**")
+    if random.random() <= 0.08:
+        add_easter_item(user, EASTER_TALISMAN_CODE, 1)
+        rewards["lines"].append("🐇 Кроличий талисман: **+1**")
+    rewards["server_points"] = _server_points_from_reward_counts(rewards["common"], rewards["painted"], rewards["gold"])
+    advance_chapter2_progress(user, "open_chest", 1)
+    if rabbit_is_active(guild_state):
+        advance_chapter2_progress(user, "rabbit_reward", 1)
+        rewards["lines"].extend(_maybe_grant_secret_egg(user, "easter_secret_rabbit_egg", 0.03))
+    rewards["lines"].extend(_maybe_grant_secret_egg(user, "easter_secret_choco_heart", 0.08))
+    return rewards
+
+
+def upgrade_egg_currency_v2(user: dict[str, Any], tier: str) -> tuple[bool, str]:
+    if get_easter_phase() not in {"active", "exchange"}:
+        return False, "Обменник сейчас закрыт."
+
+    if tier == "painted":
+        if _count_code(user, EASTER_COMMON_EGG_CODE) < 25:
+            return False, "Для обмена нужно 25 обычных яиц."
+        if not _consume_code(user, EASTER_COMMON_EGG_CODE, 25):
+            return False, "Не удалось списать обычные яйца."
+        _grant_code(user, EASTER_PAINTED_EGG_CODE, 1)
+        advance_chapter2_progress(user, "exchange_once", 1)
+        secret_lines = _maybe_grant_secret_egg(user, "easter_secret_mirror_egg", 0.02)
+        message = "Обмен завершён: **25 обычных → 1 расписное**."
+        if secret_lines:
+            message += "\n" + "\n".join(secret_lines)
+        return True, message
+
+    if tier == "gold":
+        if _count_code(user, EASTER_PAINTED_EGG_CODE) < 10:
+            return False, "Для обмена нужно 10 расписных яиц."
+        if not _consume_code(user, EASTER_PAINTED_EGG_CODE, 10):
+            return False, "Не удалось списать расписные яйца."
+        _grant_code(user, EASTER_GOLD_EGG_CODE, 1)
+        advance_chapter2_progress(user, "exchange_once", 1)
+        secret_lines = _maybe_grant_secret_egg(user, "easter_secret_mirror_egg", 0.03)
+        message = "Обмен завершён: **10 расписных → 1 золотое**."
+        if secret_lines:
+            message += "\n" + "\n".join(secret_lines)
+        return True, message
+
+    return False, "Неизвестный тип обмена."
+
+
+def buy_easter_business_v2(user: dict[str, Any], business_key: str) -> tuple[bool, str]:
+    if get_easter_phase() != "active":
+        return False, "Пасхальные бизнесы доступны только во время активного ивента."
+    business = EASTER_TEMP_BUSINESSES.get(business_key)
+    if business is None:
+        return False, "Такого пасхального бизнеса нет."
+    businesses = get_easter_businesses(user)
+    if business_key in businesses:
+        return False, "Этот пасхальный бизнес уже куплен."
+
+    counts = get_easter_counts(user)
+    if counts["common"] < int(business["common_price"]):
+        return False, "Не хватает обычных яиц."
+    if counts["painted"] < int(business["painted_price"]):
+        return False, "Не хватает расписных яиц."
+    if counts["gold"] < int(business["gold_price"]):
+        return False, "Не хватает золотых яиц."
+    if int(user.get("balance", 0) or 0) < int(business["money_price"]):
+        return False, "Не хватает денег."
+
+    if int(business["common_price"]) > 0 and not _consume_code(user, EASTER_COMMON_EGG_CODE, int(business["common_price"])):
+        return False, "Не удалось списать обычные яйца."
+    if int(business["painted_price"]) > 0 and not _consume_code(user, EASTER_PAINTED_EGG_CODE, int(business["painted_price"])):
+        return False, "Не удалось списать расписные яйца."
+    if int(business["gold_price"]) > 0 and not _consume_code(user, EASTER_GOLD_EGG_CODE, int(business["gold_price"])):
+        return False, "Не удалось списать золотые яйца."
+
+    user["balance"] = int(user.get("balance", 0) or 0) - int(business["money_price"])
+    businesses[business_key] = {
+        "owned_at": utc_now().isoformat(),
+        "last_collect": utc_now().isoformat(),
+        "converted_to_trophy": False,
+    }
+    advance_chapter2_progress(user, "buy_shop_item", 1)
+    return True, f"Куплен бизнес **{business['name']}**."
+
+
+def collect_easter_businesses_v2(
+    user: dict[str, Any],
+    *,
+    guild_state: dict[str, Any] | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    if get_easter_phase() != "active":
+        return False, {"message": "Сбор пасхальных бизнесов закрыт."}
+    businesses = get_easter_businesses(user)
+    if not businesses:
+        return False, {"message": "Пасхальных бизнесов пока нет."}
+
+    now = utc_now()
+    total_money = 0
+    total_common = 0
+    total_painted = 0
+    ready = 0
+    lines: list[str] = []
+    server_bonuses = get_server_progress_bonuses(guild_state)
+    money_bonus = _event_business_money_bonus(user) * (1.0 + float(server_bonuses["business_money_bonus"]))
+
+    for business_key, payload in businesses.items():
+        business = EASTER_TEMP_BUSINESSES.get(business_key)
+        if business is None:
+            continue
+        try:
+            last_collect = _parse_dt(str(payload.get("last_collect") or payload.get("owned_at") or now.isoformat()))
+        except ValueError:
+            last_collect = now
+        cycle = timedelta(hours=int(business["cycle_hours"]))
+        if now - last_collect < cycle:
+            continue
+
+        ready += 1
+        money = int(round(int(business["income_money"]) * money_bonus))
+        eggs = random.randint(*business["income_common"])
+        total_money += money
+        total_common += eggs
+        if random.random() <= float(business["painted_chance"]):
+            total_painted += 1
+        payload["last_collect"] = now.isoformat()
+        lines.append(f"{business['emoji']} **{business['name']}**: +${money:,} и +{eggs} 🥚")
+
+    if ready <= 0:
+        return False, {"message": "Пасхальные бизнесы ещё не готовы."}
+
+    user["balance"] = int(user.get("balance", 0) or 0) + total_money
+    _grant_code(user, EASTER_COMMON_EGG_CODE, total_common)
+    if total_painted > 0:
+        _grant_code(user, EASTER_PAINTED_EGG_CODE, total_painted)
+
+    advance_chapter2_progress(user, "earn_common", total_common)
+    if rabbit_is_active(guild_state) and (total_common > 0 or total_painted > 0):
+        advance_chapter2_progress(user, "rabbit_reward", 1)
+        lines.extend(_maybe_grant_secret_egg(user, "easter_secret_rabbit_egg", 0.03))
+
+    return True, {
+        "money": total_money,
+        "common": total_common,
+        "painted": total_painted,
+        "lines": lines,
+        "server_points": _server_points_from_reward_counts(total_common, total_painted, 0),
+    }
+
+
+def buy_easter_shop_item_v2(
+    user: dict[str, Any],
+    item_code: str,
+    *,
+    guild_state: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    if get_easter_phase() != "active":
+        return False, "Пасхальный магазин открыт только во время активного ивента."
+
+    visible_items = get_visible_easter_shop_items(guild_state)
+    item = next((entry for entry in visible_items if entry["code"] == item_code), None)
+    if item is None:
+        hidden_item = next((entry for entry in EASTER_SHOP_ITEMS if entry["code"] == item_code), None)
+        if hidden_item is not None and not easter_shop_item_visible(hidden_item, guild_state):
+            return False, "Этот товар откроется позже, когда сервер продвинется дальше по пасхальному прогрессу."
+        return False, "Такого предмета нет."
+
+    kind = str(item["kind"])
+    if kind == "business":
+        return buy_easter_business_v2(user, item_code)
+
+    counts = get_easter_counts(user)
+    if counts["common"] < int(item.get("price_common", 0) or 0):
+        return False, "Не хватает обычных яиц."
+    if counts["painted"] < int(item.get("price_painted", 0) or 0):
+        return False, "Не хватает расписных яиц."
+    if counts["gold"] < int(item.get("price_gold", 0) or 0):
+        return False, "Не хватает золотых яиц."
+
+    money_price = int(item.get("money_price", 0) or 0)
+    if money_price > 0 and int(user.get("balance", 0) or 0) < money_price:
+        return False, "Не хватает денег."
+
+    if int(item.get("price_common", 0) or 0) > 0 and not _consume_code(user, EASTER_COMMON_EGG_CODE, int(item["price_common"])):
+        return False, "Не удалось списать обычные яйца."
+    if int(item.get("price_painted", 0) or 0) > 0 and not _consume_code(user, EASTER_PAINTED_EGG_CODE, int(item["price_painted"])):
+        return False, "Не удалось списать расписные яйца."
+    if int(item.get("price_gold", 0) or 0) > 0 and not _consume_code(user, EASTER_GOLD_EGG_CODE, int(item["price_gold"])):
+        return False, "Не удалось списать золотые яйца."
+    if money_price > 0:
+        user["balance"] = int(user.get("balance", 0) or 0) - money_price
+
+    if kind == "case":
+        add_easter_item(user, EASTER_CHEST_CODE, 1)
+        advance_chapter2_progress(user, "buy_shop_item", 1)
+        return True, "Куплен **Пасхальный кейс** и добавлен в инвентарь."
+    if kind == "bait":
+        add_general_item(
+            user,
+            item_type="bait_bundle",
+            code="easter_bait_festive",
+            name="Праздничная наживка",
+            emoji="",
+            description="Праздничная наживка. Используй её через `/inventory`.",
+            quantity=3,
+            payload=_event_payload({"bait": "festive", "amount": 2}),
+            stackable=True,
+        )
+        advance_chapter2_progress(user, "buy_shop_item", 1)
+        return True, "Куплена **Праздничная наживка**."
+    if kind == "pass":
+        add_easter_item(user, EASTER_POND_PASS_CODE, 1)
+        advance_chapter2_progress(user, "buy_shop_item", 1)
+        return True, "Куплен пропуск на **Пруд золотого кролика**."
+    if kind == "theme":
+        theme_key = str(item.get("theme_key") or "mint_bunny")
+        add_general_item(
+            user,
+            item_type="cosmetic_pack",
+            code=str(item["code"]),
+            name=str(item["name"]),
+            emoji="",
+            description=f"Открывает тему профиля {item['name']} при использовании.",
+            quantity=1,
+            payload=_event_payload({"theme": theme_key}),
+            stackable=False,
+        )
+        advance_chapter2_progress(user, "buy_shop_item", 1)
+        return True, f"Куплена тема **{item['name']}**."
+    if kind == "title":
+        title_key = str(item.get("title_key") or "easter_hunter")
+        add_general_item(
+            user,
+            item_type="cosmetic_pack",
+            code=str(item["code"]),
+            name=str(item["name"]),
+            emoji="",
+            description=f"Открывает титул {item['name']} при использовании.",
+            quantity=1,
+            payload=_event_payload({"title": title_key}),
+            stackable=False,
+        )
+        advance_chapter2_progress(user, "buy_shop_item", 1)
+        return True, f"Куплен титул **{item['name']}**."
+    if kind == "furniture":
+        easter_state = ensure_easter_state(user)
+        owned = set(str(entry) for entry in easter_state.get("owned_furniture", []))
+        if item_code in owned:
+            return False, "Этот пасхальный декор уже куплен."
+        easter_state["owned_furniture"].append(item_code)
+        advance_chapter2_progress(user, "buy_shop_item", 1)
+        furniture_name = EASTER_FURNITURE_BUFFS[item_code]["name"]
+        return True, f"Куплен декор **{furniture_name}**. Его бонус активируется сразу, без отдельного предмета в инвентаре."
+    return False, "Этот тип предмета пока не поддерживается."
+
 
 def unlock_easter_pond(user: dict[str, Any]) -> bool:
     fishing = _ensure_fishing_state(user)

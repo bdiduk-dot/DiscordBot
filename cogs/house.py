@@ -1491,12 +1491,15 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             from easter_event import grant_easter_drops
 
             easter_cog = self.bot.get_cog("EasterEvent")
-            easter_lines = grant_easter_drops(
+            easter_payload = grant_easter_drops(
                 user,
                 "rent_collect",
                 guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
             )
+            easter_lines = list(easter_payload["lines"])
             await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
         await check_quest_progress(user_id, guild_id, "rent", len(ready_rentals))
         asyncio.create_task(record_player_progress(user_id, guild_id, action="rent", amount=len(ready_rentals), money=total_value))

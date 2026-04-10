@@ -14,30 +14,45 @@ from database import db, get_user_lock, supabase
 from easter_event import (
     EASTER_ARCHIVE_CATEGORY,
     EASTER_CHEST_CODE,
+    EASTER_CHAPTER2_STEPS,
     EASTER_COLLECTION_REQUIREMENTS,
     EASTER_EVENT_END_AT,
     EASTER_EXCHANGE_END_AT,
     EASTER_POND_PASS_CODE,
+    EASTER_SECRET_EGG_CODES,
+    EASTER_SECRET_EGG_META,
     EASTER_SHOP_CATEGORY_META,
     EASTER_SHOP_ITEMS,
+    EASTER_SERVER_PROGRESS_MILESTONES,
     EASTER_TEMP_BUSINESSES,
+    chapter2_reward_can_claim,
     claim_collection,
+    claim_chapter2_reward,
+    claim_final_easter_reward,
+    claim_secret_collection,
     collection_can_claim,
     convert_inactive_easter_businesses_to_trophies,
     ensure_easter_state,
+    final_easter_reward_can_claim,
     get_collection_progress,
+    get_chapter2_current_step,
     get_easter_businesses,
     get_easter_counts,
     get_easter_phase,
+    get_secret_collection_progress,
+    get_server_progress_bonuses,
+    get_server_progress_state,
+    get_visible_easter_shop_items,
     has_easter_furniture,
     migrate_legacy_easter_decor_inventory,
-    open_easter_chest,
     rabbit_is_active,
     register_easter_fishing_content,
     sellback_eggs,
-    upgrade_egg_currency,
-    buy_easter_shop_item,
-    collect_easter_businesses,
+    secret_collection_can_claim,
+    secret_hints_unlocked,
+    upgrade_egg_currency_v2,
+    buy_easter_shop_item_v2,
+    collect_easter_businesses_v2,
     easter_is_active,
 )
 from progression import unlock_theme, unlock_title
@@ -79,7 +94,9 @@ class EasterView(discord.ui.View):
         self.user_id = user_id
         self.guild_id = guild_id
         self.section = section
-        self.selected_shop_code = selected_shop_code or (EASTER_SHOP_ITEMS[0]["code"] if EASTER_SHOP_ITEMS else None)
+        guild_state = self.cog.get_cached_guild_state(self.guild_id)
+        visible_shop_items = get_visible_easter_shop_items(guild_state)
+        self.selected_shop_code = selected_shop_code or (visible_shop_items[0]["code"] if visible_shop_items else None)
         self.selected_shop_category = selected_shop_category or self.cog.normalize_shop_category(None, self.selected_shop_code)
         self.selected_business_code = selected_business_code or self.cog.normalize_business_code(None)
         self.message: discord.Message | None = None
@@ -103,9 +120,10 @@ class EasterView(discord.ui.View):
             schedule_message_cleanup(self.message, delay_seconds=0)
 
     def _build_dynamic_items(self):
+        guild_state = self.cog.get_cached_guild_state(self.guild_id)
         if self.section == "shop":
             self.selected_shop_category = self.cog.normalize_shop_category(self.selected_shop_category, self.selected_shop_code)
-            shop_items = self.cog.shop_items_for_category(self.selected_shop_category)
+            shop_items = self.cog.shop_items_for_category(self.selected_shop_category, guild_state)
             selected_codes = {str(item["code"]) for item in shop_items}
             if self.selected_shop_code not in selected_codes and shop_items:
                 self.selected_shop_code = str(shop_items[0]["code"])
@@ -157,9 +175,14 @@ class EasterView(discord.ui.View):
             self.claim_btn.callback = self._claim_collection
             self.add_item(self.claim_btn)
 
+        if self.section == "chapter2":
+            self.claim_chapter2_btn = discord.ui.Button(label="Забрать награду главы", style=discord.ButtonStyle.success, row=1)
+            self.claim_chapter2_btn.callback = self._claim_chapter2
+            self.add_item(self.claim_chapter2_btn)
+
         if self.section == "businesses":
-            self.selected_business_code = self.cog.normalize_business_code(self.selected_business_code)
-            business_items = self.cog.business_catalog_items()
+            self.selected_business_code = self.cog.normalize_business_code(self.selected_business_code, guild_state)
+            business_items = self.cog.business_catalog_items(guild_state)
             if business_items:
                 business_options = [
                     discord.SelectOption(
@@ -195,18 +218,24 @@ class EasterView(discord.ui.View):
         self.leaderboard_nav = discord.ui.Button(label="📊 Топ", style=discord.ButtonStyle.secondary, row=0)
         self.business_nav = discord.ui.Button(label="💼 Бизнесы", style=discord.ButtonStyle.secondary, row=0)
         self.my_business_nav = discord.ui.Button(label="🏪 Мои бизнесы", style=discord.ButtonStyle.secondary, row=4)
+        self.chapter2_nav = discord.ui.Button(label="📖 Глава 2", style=discord.ButtonStyle.secondary, row=4)
+        self.server_progress_nav = discord.ui.Button(label="🌐 Прогресс сервера", style=discord.ButtonStyle.secondary, row=4)
         self.shop_nav.callback = self._open_shop
         self.exchange_nav.callback = self._open_exchange
         self.collection_nav.callback = self._open_collection
         self.leaderboard_nav.callback = self._open_leaderboard
         self.business_nav.callback = self._open_businesses
         self.my_business_nav.callback = self._open_my_businesses
+        self.chapter2_nav.callback = self._open_chapter2
+        self.server_progress_nav.callback = self._open_server_progress
         self.add_item(self.shop_nav)
         self.add_item(self.exchange_nav)
         self.add_item(self.collection_nav)
         self.add_item(self.leaderboard_nav)
         self.add_item(self.business_nav)
         self.add_item(self.my_business_nav)
+        self.add_item(self.chapter2_nav)
+        self.add_item(self.server_progress_nav)
         self._sync_nav_styles()
 
     def _sync_nav_styles(self):
@@ -216,6 +245,8 @@ class EasterView(discord.ui.View):
         self.leaderboard_nav.style = discord.ButtonStyle.primary if self.section == "leaderboard" else discord.ButtonStyle.secondary
         self.business_nav.style = discord.ButtonStyle.primary if self.section == "businesses" else discord.ButtonStyle.secondary
         self.my_business_nav.style = discord.ButtonStyle.primary if self.section == "my_businesses" else discord.ButtonStyle.secondary
+        self.chapter2_nav.style = discord.ButtonStyle.primary if self.section == "chapter2" else discord.ButtonStyle.secondary
+        self.server_progress_nav.style = discord.ButtonStyle.primary if self.section == "server_progress" else discord.ButtonStyle.secondary
 
     async def _rerender(
         self,
@@ -262,6 +293,14 @@ class EasterView(discord.ui.View):
     async def _open_collection(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await self._rerender(interaction, section="collection")
+
+    async def _open_chapter2(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="chapter2")
+
+    async def _open_server_progress(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self._rerender(interaction, section="server_progress")
 
     async def _open_leaderboard(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -348,6 +387,12 @@ class EasterView(discord.ui.View):
         await self._rerender(interaction, section="collection")
         await interaction.followup.send(result, ephemeral=True)
 
+    async def _claim_chapter2(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self.cog.claim_chapter2_reward(self.user_id, self.guild_id)
+        await self._rerender(interaction, section="chapter2")
+        await interaction.followup.send(result, ephemeral=True)
+
     async def _open_business_shop(self, interaction: discord.Interaction):
         await interaction.response.defer()
         await self._rerender(
@@ -365,6 +410,57 @@ class EasterView(discord.ui.View):
             selected_shop_category=self.selected_shop_category,
             selected_business_code=self.selected_business_code,
         )
+        await interaction.followup.send(result, ephemeral=True)
+
+class EggCollectionView(discord.ui.View):
+    def __init__(self, cog: "EasterCog", user_id: int, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = None
+
+    async def _rerender(self, interaction: discord.Interaction):
+        embed = await self.cog.build_eggcollection_embed(self.user_id, self.guild_id)
+        if not await safe_edit_original_response(interaction, embed=embed, view=self):
+            return
+        await self._remember_message(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+    @discord.ui.button(label="Забрать secret-награду", style=discord.ButtonStyle.success, row=0)
+    async def claim_secret(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        result = await self.cog.claim_secret_collection_reward(self.user_id, self.guild_id)
+        await self._rerender(interaction)
+        await interaction.followup.send(result, ephemeral=True)
+
+    @discord.ui.button(label="Забрать финал 100%", style=discord.ButtonStyle.primary, row=0)
+    async def claim_final(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        result = await self.cog.claim_final_secret_reward(self.user_id, self.guild_id)
+        await self._rerender(interaction)
         await interaction.followup.send(result, ephemeral=True)
 
 
@@ -430,20 +526,21 @@ class EasterCog(commands.Cog, name="EasterEvent"):
                 return self.shop_category_key(selected)
         return next(iter(EASTER_SHOP_CATEGORY_META))
 
-    def shop_items_for_category(self, category: str | None) -> list[dict[str, Any]]:
+    def shop_items_for_category(self, category: str | None, guild_state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         normalized = self.normalize_shop_category(category)
-        items = [item for item in EASTER_SHOP_ITEMS if self.shop_category_key(item) == normalized]
-        return items or list(EASTER_SHOP_ITEMS)
+        visible_items = get_visible_easter_shop_items(guild_state)
+        items = [item for item in visible_items if self.shop_category_key(item) == normalized]
+        return items or list(visible_items)
 
-    def business_catalog_items(self) -> list[dict[str, Any]]:
+    def business_catalog_items(self, guild_state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return [
             item
-            for item in EASTER_SHOP_ITEMS
+            for item in get_visible_easter_shop_items(guild_state)
             if str(item.get("kind") or "") == "business" and str(item.get("code") or "") in EASTER_TEMP_BUSINESSES
         ]
 
-    def normalize_business_code(self, business_code: str | None) -> str | None:
-        items = self.business_catalog_items()
+    def normalize_business_code(self, business_code: str | None, guild_state: dict[str, Any] | None = None) -> str | None:
+        items = self.business_catalog_items(guild_state)
         if not items:
             return None
         valid_codes = {str(item["code"]) for item in items}
@@ -458,12 +555,15 @@ class EasterCog(commands.Cog, name="EasterEvent"):
         owned_payload: dict[str, Any] | None = None,
         *,
         now: datetime | None = None,
+        guild_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         business = EASTER_TEMP_BUSINESSES.get(str(business_key), {})
         current_time = now or datetime.now(timezone.utc)
         cycle_hours = max(1, int(business.get("cycle_hours", 1) or 1))
         cycles_per_day = 24 / cycle_hours
         money_multiplier = 1.05 if has_easter_furniture(user, "easter_rabbit_lamp") else 1.0
+        server_bonuses = get_server_progress_bonuses(guild_state)
+        money_multiplier *= 1.0 + float(server_bonuses.get("business_money_bonus", 0.0) or 0.0)
         reward_money = int(round(int(business.get("income_money", 0) or 0) * money_multiplier))
         common_min, common_max = business.get("income_common", (0, 0))
         common_min = int(common_min or 0)
@@ -591,6 +691,8 @@ class EasterCog(commands.Cog, name="EasterEvent"):
 
         phase = get_easter_phase()
         rabbit_active = rabbit_is_active(guild_state)
+        server_state = get_server_progress_state(guild_state)
+        server_bonuses = get_server_progress_bonuses(guild_state)
         end_target = EASTER_EVENT_END_AT if phase == "active" else EASTER_EXCHANGE_END_AT
         base_description = (
             f"Фаза: **{phase}**\n"
@@ -602,8 +704,8 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             embed = discord.Embed(title="🐰 Пасхальный магазин", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
             normalized_category = self.normalize_shop_category(selected_shop_category, selected_shop_code)
             category_meta = EASTER_SHOP_CATEGORY_META[normalized_category]
-            category_items = self.shop_items_for_category(normalized_category)
-            selected = next((item for item in category_items if item["code"] == selected_shop_code), category_items[0])
+            category_items = self.shop_items_for_category(normalized_category, guild_state)
+            selected = next((item for item in category_items if item["code"] == selected_shop_code), category_items[0] if category_items else None)
             category_lines = [
                 f"{'→' if key == normalized_category else '•'} {meta['emoji']} **{meta['label']}**"
                 for key, meta in EASTER_SHOP_CATEGORY_META.items()
@@ -674,11 +776,60 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             )
             return embed
 
+        if section == "chapter2":
+            current_step = get_chapter2_current_step(user)
+            chapter_progress = easter_state.get("chapter2_progress", {})
+            chapter_lines: list[str] = []
+            for index, step in enumerate(EASTER_CHAPTER2_STEPS, start=1):
+                current_value = int(chapter_progress.get(str(step["id"]), 0) or 0)
+                target_value = int(step["target"])
+                prefix = "✅" if current_value >= target_value else ("👉" if current_step and str(current_step["step"]["id"]) == str(step["id"]) else "•")
+                chapter_lines.append(f"{prefix} **{index}.** {step['name']} — **{min(current_value, target_value)}/{target_value}**")
+            embed = discord.Embed(title="📖 Пасха 2026 — Глава 2", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            embed.add_field(name="Цепочка заданий", value="\n".join(chapter_lines), inline=False)
+            embed.add_field(name="Награда", value="💎 **+50 гемов**\n🗺️ **Карта кроличьих следов**\n🔎 Подсказки в `/eggcollection`", inline=False)
+            embed.add_field(
+                name="Статус",
+                value="Награда уже забрана." if bool(easter_state.get("chapter2_reward_claimed")) else ("Можно забирать." if chapter2_reward_can_claim(user) else "Сначала закрой все 6 шагов."),
+                inline=False,
+            )
+            return embed
+
+        if section == "server_progress":
+            next_milestone = server_state.get("next_milestone")
+            milestone_lines = []
+            unlocked_levels = set(server_state.get("unlocked_levels", set()))
+            for milestone in EASTER_SERVER_PROGRESS_MILESTONES:
+                prefix = "✅" if int(milestone["level"]) in unlocked_levels else "🔒"
+                milestone_lines.append(f"{prefix} **{milestone['points']:,} очков** — {milestone['name']}\n{milestone['description']}")
+            bonus_lines = []
+            if float(server_bonuses.get("egg_drop_bonus", 0.0) or 0.0) > 0:
+                bonus_lines.append(f"🥚 Шанс яиц: **+{int(round(float(server_bonuses['egg_drop_bonus']) * 100))}%**")
+            if float(server_bonuses.get("chest_bonus", 0.0) or 0.0) > 0:
+                bonus_lines.append(f"📦 Шанс сундука: **+{int(round(float(server_bonuses['chest_bonus']) * 100))}%**")
+            if float(server_bonuses.get("business_money_bonus", 0.0) or 0.0) > 0:
+                bonus_lines.append(f"🏪 Деньги с бизнесов: **+{int(round(float(server_bonuses['business_money_bonus']) * 100))}%**")
+            if float(server_bonuses.get("pond_value_bonus", 0.0) or 0.0) > 0:
+                bonus_lines.append(f"🎣 Цена рыбы из пруда: **+{int(round(float(server_bonuses['pond_value_bonus']) * 100))}%**")
+            if not bonus_lines:
+                bonus_lines.append("Пока активных серверных бонусов нет.")
+            embed = discord.Embed(title="🌐 Пасха 2026 — Прогресс сервера", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
+            embed.add_field(name="Очки сервера", value=f"**{int(server_state['points']):,}**", inline=True)
+            embed.add_field(name="Этап", value=f"**{int(server_state['level'])}/4**", inline=True)
+            embed.add_field(
+                name="Следующий этап",
+                value=f"**{next_milestone['name']}** на **{int(next_milestone['points']):,} очков**" if isinstance(next_milestone, dict) else "Все этапы уже открыты.",
+                inline=False,
+            )
+            embed.add_field(name="Этапы", value="\n\n".join(milestone_lines), inline=False)
+            embed.add_field(name="Активные бонусы", value="\n".join(bonus_lines), inline=False)
+            return embed
+
         if section == "businesses":
             embed = discord.Embed(title="💼 Пасхальные бизнесы", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
             businesses = get_easter_businesses(user)
-            business_items = self.business_catalog_items()
-            selected_code = self.normalize_business_code(selected_business_code)
+            business_items = self.business_catalog_items(guild_state)
+            selected_code = self.normalize_business_code(selected_business_code, guild_state)
             selected_item = next((item for item in business_items if str(item["code"]) == str(selected_code)), business_items[0] if business_items else None)
             owned_codes = {str(key) for key, value in businesses.items() if isinstance(value, dict)} if isinstance(businesses, dict) else set()
             now = datetime.now(timezone.utc)
@@ -687,7 +838,7 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             catalog_lines: list[str] = []
             for item in business_items:
                 business_key = str(item["code"])
-                snapshot = self.business_runtime_snapshot(user, business_key, businesses.get(business_key) if isinstance(businesses, dict) else None, now=now)
+                snapshot = self.business_runtime_snapshot(user, business_key, businesses.get(business_key) if isinstance(businesses, dict) else None, now=now, guild_state=guild_state)
                 status_icon = "✅" if business_key in owned_codes else "🛒"
                 catalog_lines.append(
                     f"{status_icon} {item['emoji']} **{item['name']}** — {self.describe_shop_price(item)}\n"
@@ -706,7 +857,7 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             if selected_item is not None:
                 business_key = str(selected_item["code"])
                 owned_payload = businesses.get(business_key) if isinstance(businesses, dict) else None
-                snapshot = self.business_runtime_snapshot(user, business_key, owned_payload, now=now)
+                snapshot = self.business_runtime_snapshot(user, business_key, owned_payload, now=now, guild_state=guild_state)
                 cycles_per_day = f"{snapshot['cycles_per_day']:g}"
                 detail_lines = [
                     f"Статус: **{'уже куплен' if isinstance(owned_payload, dict) else 'доступен к покупке'}**",
@@ -735,7 +886,7 @@ class EasterCog(commands.Cog, name="EasterEvent"):
         if section == "my_businesses":
             embed = discord.Embed(title="🏪 Мои пасхальные бизнесы", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
             businesses = get_easter_businesses(user)
-            business_items = self.business_catalog_items()
+            business_items = self.business_catalog_items(guild_state)
             now = datetime.now(timezone.utc)
             lamp_active = has_easter_furniture(user, "easter_rabbit_lamp")
 
@@ -752,7 +903,7 @@ class EasterCog(commands.Cog, name="EasterEvent"):
                 owned_payload = businesses.get(business_key) if isinstance(businesses, dict) else None
                 if not isinstance(owned_payload, dict):
                     continue
-                snapshot = self.business_runtime_snapshot(user, business_key, owned_payload, now=now)
+                snapshot = self.business_runtime_snapshot(user, business_key, owned_payload, now=now, guild_state=guild_state)
                 total_owned += 1
                 total_cycle_money += int(snapshot["reward_money"])
                 total_daily_money += int(snapshot["daily_money"])
@@ -837,12 +988,112 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             embed.set_footer(text=f"Ивент закрыт. Мёртвые предметы ушли в {EASTER_ARCHIVE_CATEGORY}.")
         return embed
 
+    async def apply_server_progress(self, guild_id: int, points: int) -> list[str]:
+        if int(points or 0) <= 0:
+            return []
+        state = await self._refresh_guild_state(guild_id)
+        server_state = get_server_progress_state(state)
+        new_points = int(server_state["points"]) + int(points)
+        unlocked_levels = set(server_state.get("unlocked_levels", set()))
+        new_unlocks: list[dict[str, Any]] = []
+        for milestone in EASTER_SERVER_PROGRESS_MILESTONES:
+            level = int(milestone["level"])
+            if level in unlocked_levels:
+                continue
+            if new_points >= int(milestone["points"]):
+                unlocked_levels.add(level)
+                new_unlocks.append(milestone)
+        await self._save_guild_state(
+            guild_id,
+            {
+                "server_progress_points": new_points,
+                "server_progress_level": max(unlocked_levels) if unlocked_levels else 0,
+                "server_progress_unlocked": sorted(unlocked_levels),
+            },
+        )
+        lines = [f"🌐 Сервер получил **+{int(points)}** очков пасхального прогресса."]
+        for milestone in new_unlocks:
+            lines.append(f"✨ Открыт этап **{milestone['name']}** — {milestone['description']}")
+        return lines
+
+    async def claim_chapter2_reward(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            if not claim_chapter2_reward(user):
+                return "Глава 2 ещё не завершена или награда уже забрана."
+            await db.update_user(user_id, guild_id, {"gems": user.get("gems", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            return "Глава 2 закрыта. Получены: **50 гемов**, трофей **Карта кроличьих следов** и подсказки в `/eggcollection`."
+
+    async def claim_secret_collection_reward(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            if not claim_secret_collection(user):
+                return "Secret-коллекция ещё не готова или награда уже забрана."
+            await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            return "Secret-коллекция закрыта. Получены: титул **Хранитель пасхальных тайн**, тема **moon_hare** и трофей **Запечатанное яйцо 2026**."
+
+    async def claim_final_secret_reward(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            guild_state = await self._refresh_guild_state(guild_id)
+            if not claim_final_easter_reward(user, guild_state):
+                return "Финальная hidden-награда пока недоступна."
+            await db.update_user(user_id, guild_id, {"gems": user.get("gems", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
+            return "Получена hidden-награда за 100% Easter: **200 гемов**, титул **Архивариус весны** и трофей **Реликвия Золотого кролика**."
+
+    async def build_eggcollection_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return discord.Embed(title="🥚 /eggcollection", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            easter_state = ensure_easter_state(user)
+            guild_state = await self._refresh_guild_state(guild_id)
+
+        progress = get_secret_collection_progress(user)
+        hints_enabled = secret_hints_unlocked(user)
+        lines: list[str] = []
+        for code in EASTER_SECRET_EGG_CODES:
+            meta = EASTER_SECRET_EGG_META[code]
+            if progress.get(code):
+                lines.append(f"{meta['emoji']} **{meta['name']}** — найдено")
+            else:
+                hint_line = f"\nПодсказка: {meta['hint']}" if hints_enabled else ""
+                lines.append(f"❔ **Неизвестное яйцо**{hint_line}")
+
+        embed = discord.Embed(
+            title="🥚 /eggcollection",
+            description="Скрытая коллекция Part 2. Тут живут только редкие пасхальные яйца и финальные награды.",
+            color=COLORS["easter"],
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Secret-яйца", value="\n\n".join(lines), inline=False)
+        embed.add_field(name="Награда за collection", value="Титул **Хранитель пасхальных тайн**\nТема **moon_hare**\nТрофей **Запечатанное яйцо 2026**", inline=False)
+        embed.add_field(name="Финал 100%", value="Обычная коллекция + Глава 2 + `/eggcollection` + все серверные этапы.\nНаграда: **200 гемов**, титул **Архивариус весны**, трофей **Реликвия Золотого кролика**.", inline=False)
+        embed.add_field(
+            name="Статус",
+            value=(
+                f"Secret reward: **{'забрана' if easter_state.get('secret_collection_reward_claimed') else 'не забрана'}**\n"
+                f"Final reward: **{'забрана' if easter_state.get('final_reward_claimed') else 'не забрана'}**\n"
+                f"Найдено: **{sum(1 for value in progress.values() if value)}/{len(progress)}**\n"
+                f"Серверный этап: **{get_server_progress_state(guild_state)['level']}/4**"
+            ),
+            inline=False,
+        )
+        return embed
+
     async def buy_shop_item(self, user_id: int, guild_id: int, item_code: str) -> str:
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
                 return "Не удалось загрузить профиль."
-            ok, message = buy_easter_shop_item(user, item_code)
+            guild_state = await self._refresh_guild_state(guild_id)
+            ok, message = buy_easter_shop_item_v2(user, item_code, guild_state=guild_state)
             if not ok:
                 return message
             await db.update_user(
@@ -862,7 +1113,7 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             user = await db.get_user(user_id, guild_id)
             if not user:
                 return "Не удалось загрузить профиль."
-            ok, message = upgrade_egg_currency(user, tier)
+            ok, message = upgrade_egg_currency_v2(user, tier)
             if not ok:
                 return message
             await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
@@ -915,13 +1166,35 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             user = await db.get_user(user_id, guild_id)
             if not user:
                 return "Не удалось загрузить профиль."
-            ok, payload = collect_easter_businesses(user)
+            guild_state = await self._refresh_guild_state(guild_id)
+            ok, payload = collect_easter_businesses_v2(user, guild_state=guild_state)
             if not ok:
                 return str(payload["message"])
             await db.update_user(user_id, guild_id, {"balance": user.get("balance", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
             extra = f"\n🎨 Расписных яиц: **+{payload['painted']}**" if int(payload["painted"]) > 0 else ""
             return (
-                "\n".join(payload["lines"])
+                "\n".join(payload["lines"] + progress_lines)
+                + f"\n\n💰 Деньги: **+{format_money(payload['money'])}**\n🥚 Обычных яиц: **+{payload['common']}**{extra}"
+            )
+
+    async def collect_business_rewards(self, user_id: int, guild_id: int) -> str:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return "Не удалось загрузить профиль."
+            guild_state = await self._refresh_guild_state(guild_id)
+            ok, payload = collect_easter_businesses_v2(user, guild_state=guild_state)
+            if not ok:
+                return str(payload["message"])
+            await db.update_user(
+                user_id,
+                guild_id,
+                {"balance": user.get("balance", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})},
+            )
+            progress_lines = await self.apply_server_progress(guild_id, int(payload.get("server_points", 0) or 0))
+            extra = f"\n🎨 Расписных яиц: **+{payload['painted']}**" if int(payload["painted"]) > 0 else ""
+            return (
+                "\n".join(payload["lines"] + progress_lines)
                 + f"\n\n💰 Деньги: **+{format_money(payload['money'])}**\n🥚 Обычных яиц: **+{payload['common']}**{extra}"
             )
 
@@ -1004,6 +1277,19 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             return
         view = EasterView(self, interaction.user.id, interaction.guild_id, section="hub")
         embed = await self.build_embed(interaction.user.id, interaction.guild_id, section="hub")
+        if not await safe_edit_original_response(interaction, embed=embed, view=view):
+            return
+        view.message = await interaction.original_response()
+
+    @app_commands.command(name="eggcollection", description="Открыть secret-коллекцию пасхальных яиц")
+    async def eggcollection(self, interaction: discord.Interaction):
+        if not await check_channel(interaction):
+            await send_wrong_channel_message(interaction)
+            return
+        if not await safe_defer(interaction):
+            return
+        view = EggCollectionView(self, interaction.user.id, interaction.guild_id)
+        embed = await self.build_eggcollection_embed(interaction.user.id, interaction.guild_id)
         if not await safe_edit_original_response(interaction, embed=embed, view=view):
             return
         view.message = await interaction.original_response()

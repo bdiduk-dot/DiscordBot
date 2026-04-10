@@ -1557,9 +1557,8 @@ class SettingsView(discord.ui.View):
         self.profile_target_id = profile_target_id or user_id
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
-        self.notification_type_select.row = 1
         if self.profile_cog is not None:
-            back_button = discord.ui.Button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=2)
+            back_button = discord.ui.Button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=3)
             back_button.callback = self._go_back_to_profile
             self.add_item(back_button)
 
@@ -1642,6 +1641,7 @@ class SettingsView(discord.ui.View):
         placeholder="Переключить конкретное уведомление",
         min_values=1,
         max_values=1,
+        row=1,
         options=[
             discord.SelectOption(label="Депозит", value="notify_deposit", emoji="🏦"),
             discord.SelectOption(label="Аренда", value="notify_rent", emoji="🏠"),
@@ -1663,7 +1663,7 @@ class SettingsView(discord.ui.View):
                 ephemeral=True,
             )
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):

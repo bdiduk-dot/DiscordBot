@@ -638,6 +638,9 @@ class Database:
             "rabbit_active_until": payload.get("rabbit_active_until"),
             "rabbit_last_spawn_at": payload.get("rabbit_last_spawn_at"),
             "rabbit_last_announce_message_id": payload.get("rabbit_last_announce_message_id"),
+            "server_progress_points": int(payload.get("server_progress_points", 0) or 0),
+            "server_progress_level": int(payload.get("server_progress_level", 0) or 0),
+            "server_progress_unlocked": payload.get("server_progress_unlocked") if isinstance(payload.get("server_progress_unlocked"), list) else [],
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         try:

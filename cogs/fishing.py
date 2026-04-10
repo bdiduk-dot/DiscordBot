@@ -30,7 +30,9 @@ from easter_event import (
     EASTER_FURNITURE_BUFFS,
     EASTER_POND_PASS_CODE,
     EASTER_POND_ZONE_KEY,
+    advance_chapter2_progress,
     archive_summary_lines,
+    get_server_progress_bonuses,
     get_easter_phase,
     easter_pond_available,
     grant_easter_drops,
@@ -2218,9 +2220,13 @@ class FishingCog(commands.Cog, name="Fishing"):
                 else:
                     result_lines.append("Пруд золотого кролика уже был открыт ранее.")
             elif item_type == "event_chest":
-                rewards = open_easter_chest(user)
+                easter_cog = self.bot.get_cog("EasterEvent")
+                guild_state = easter_cog.get_cached_guild_state(guild_id) if easter_cog else None
+                rewards = open_easter_chest(user, guild_state=guild_state)
                 result_lines.append("Пасхальный сундук открыт:")
                 result_lines.extend(rewards["lines"])
+                if easter_cog and int(rewards.get("server_points", 0) or 0) > 0:
+                    result_lines.extend(await easter_cog.apply_server_progress(guild_id, int(rewards.get("server_points", 0) or 0)))
             elif item_type == "home_furniture":
                 furniture_key = str(consumed.get("code") or "")
                 house_state = _house_state(user)
@@ -2304,18 +2310,25 @@ class FishingCog(commands.Cog, name="Fishing"):
             rarity_name = _display_rarity_name(fish_data.get("rarity"))
             easter_cog = self.bot.get_cog("EasterEvent")
             guild_state = easter_cog.get_cached_guild_state(guild_id) if easter_cog else None
-            easter_lines = grant_easter_drops(user, "fish", guild_state=guild_state)
-            pond_lines: list[str] = []
+            easter_payload = grant_easter_drops(user, "fish", guild_state=guild_state)
+            easter_lines = list(easter_payload["lines"])
+            pond_payload = {"lines": [], "server_points": 0}
             if zone_key == EASTER_POND_ZONE_KEY and easter_pond_available(now):
-                pond_lines = grant_pond_bonus_loot(user, guild_state=guild_state)
+                pond_payload = grant_pond_bonus_loot(user, guild_state=guild_state)
                 easter_state = ensure_easter_state(user)
                 easter_state["rabbit_pond_catches"] = int(easter_state.get("rabbit_pond_catches", 0) or 0) + 1
+                advance_chapter2_progress(user, "pond_catch", 1)
+            pond_lines = list(pond_payload["lines"])
+            server_progress_points = int(easter_payload.get("server_points", 0) or 0) + int(pond_payload.get("server_points", 0) or 0)
 
             if bait_key and bait is not None and int(bait_stock.get(bait_key, 0) or 0) > 0:
                 bait_stock[bait_key] = int(bait_stock.get(bait_key, 0) or 0) - 1
                 if bait_stock[bait_key] <= 0:
                     fishing["equipped_bait"] = None
 
+            server_bonuses = get_server_progress_bonuses(guild_state)
+            if zone_key == EASTER_POND_ZONE_KEY and float(server_bonuses.get("pond_value_bonus", 0.0) or 0.0) > 0:
+                fish_data["price"] = int(round(int(fish_data["price"]) * (1.0 + float(server_bonuses["pond_value_bonus"]))))
             if fish_multiplier > 1:
                 fish_data["price"] = int(fish_data["price"] * fish_multiplier)
 
@@ -2336,6 +2349,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                             "game_stats": user.get("game_stats", {}),
                         },
                     )
+                    progress_lines = await easter_cog.apply_server_progress(guild_id, server_progress_points) if easter_cog else []
+                    pond_lines = [*pond_lines, *progress_lines]
                     chest_embed = discord.Embed(
                         title="🪙 Затонувший сундук",
                         description=(
@@ -2346,7 +2361,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                         color=COLORS["success"],
                     )
                     chest_embed.set_footer(text="Редкий улов! Шанс сундука всего 0.5%.")
-                    if easter_lines or pond_lines:
+                    if easter_lines or pond_lines or progress_lines:
                         chest_embed.add_field(name="Пасха 2026", value="\n".join([*easter_lines, *pond_lines]), inline=False)
                     await check_quest_progress(user_id, guild_id, "fish", 1)
                     await check_quest_progress(user_id, guild_id, "earn", cash_reward)
@@ -2370,6 +2385,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                             "game_stats": user.get("game_stats", {}),
                         },
                     )
+                    progress_lines = await easter_cog.apply_server_progress(guild_id, server_progress_points) if easter_cog else []
+                    pond_lines = [*pond_lines, *progress_lines]
                     chest_embed = discord.Embed(
                         title="💠 Затонувший сундук",
                         description=(
@@ -2411,6 +2428,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                         "game_stats": user.get("game_stats", {}),
                     },
                 )
+                progress_lines = await easter_cog.apply_server_progress(guild_id, server_progress_points) if easter_cog else []
+                pond_lines = [*pond_lines, *progress_lines]
                 chest_embed = discord.Embed(
                     title="💠 Затонувший сундук",
                     description=(
@@ -2461,6 +2480,8 @@ class FishingCog(commands.Cog, name="Fishing"):
                     "game_stats": user.get("game_stats", {}),
                 },
             )
+            progress_lines = await easter_cog.apply_server_progress(guild_id, server_progress_points) if easter_cog else []
+            pond_lines = [*pond_lines, *progress_lines]
 
         await check_quest_progress(user_id, guild_id, "fish", 1)
         if fish_data["rarity"] == "legendary" or fish_data["boss"]:

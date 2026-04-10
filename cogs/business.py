@@ -1243,15 +1243,18 @@ class BusinessCog(commands.Cog, name="Business"):
             from easter_event import grant_easter_drops
 
             easter_cog = self.bot.get_cog("EasterEvent")
-            easter_lines = grant_easter_drops(
+            easter_payload = grant_easter_drops(
                 user,
                 "business_collect",
                 guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
             )
+            easter_lines = list(easter_payload["lines"])
             user.setdefault("quest_progress", {})
             user["quest_progress"]["collect_business"] = user["quest_progress"].get("collect_business", 0) + collected_instances
             await db.update_user(user_id, guild_id, user)
             await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
         asyncio.create_task(check_quest_progress(user_id, guild_id, "collect_business", collected_instances))
         asyncio.create_task(

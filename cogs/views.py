@@ -425,12 +425,15 @@ class BlackjackView(discord.ui.View):
                 from easter_event import grant_easter_drops
 
                 easter_cog = interaction.client.get_cog("EasterEvent")
-                easter_lines = grant_easter_drops(
+                easter_payload = grant_easter_drops(
                     user,
                     "blackjack_win",
                     guild_state=easter_cog.get_cached_guild_state(self.game.guild_id) if easter_cog else None,
                     natural_blackjack=any_natural_blackjack,
                 )
+                easter_lines = list(easter_payload["lines"])
+                if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                    easter_lines.extend(await easter_cog.apply_server_progress(self.game.guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
             await db.update_user(
                 self.game.user_id,
