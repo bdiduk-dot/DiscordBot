@@ -38,6 +38,13 @@ class CasinoBot(commands.Bot):
         self.add_view(GamesMenuView())
         self._views_registered = True
 
+    async def sync_guild_commands(self, guild: discord.Guild):
+        self.tree.clear_commands(guild=guild)
+        self.tree.copy_global_to(guild=guild)
+        for command_name in LEGACY_COMMANDS:
+            self.tree.remove_command(command_name, guild=guild)
+        await self.tree.sync(guild=guild)
+
     async def setup_hook(self):
         cogs = [
             "cogs.core",
@@ -98,11 +105,7 @@ async def on_ready():
             print(f"Local commands before sync: {', '.join(global_commands)}")
             synced_guilds = 0
             for guild in bot.guilds:
-                bot.tree.clear_commands(guild=guild)
-                bot.tree.copy_global_to(guild=guild)
-                for command_name in LEGACY_COMMANDS:
-                    bot.tree.remove_command(command_name, guild=guild)
-                await bot.tree.sync(guild=guild)
+                await bot.sync_guild_commands(guild)
                 guild_commands = sorted(command.name for command in bot.tree.get_commands(guild=guild))
                 print(f"Synced {guild.name} ({guild.id}): {', '.join(guild_commands)}")
                 synced_guilds += 1
@@ -122,6 +125,17 @@ async def on_ready():
             await updates_cog.ensure_startup_post()
         except Exception as exc:
             print(f"Updates startup hook error: {exc}")
+
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    try:
+        await bot.wait_until_ready()
+        await bot.sync_guild_commands(guild)
+        guild_commands = sorted(command.name for command in bot.tree.get_commands(guild=guild))
+        print(f"Joined {guild.name} ({guild.id}) and synced: {', '.join(guild_commands)}")
+    except Exception as exc:
+        print(f"Guild join sync error for {guild.id}: {exc}")
 
 
 if __name__ == "__main__":

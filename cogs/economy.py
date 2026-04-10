@@ -104,6 +104,7 @@ class ProfileView(discord.ui.View):
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
         self.customize_btn.disabled = user_id != target_id
+        self.settings_btn.disabled = user_id != target_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -135,6 +136,23 @@ class ProfileView(discord.ui.View):
                 return
             view = ProfileCustomizeView(self.cog, self.user_id, self.guild_id, self.target_id)
             embed = await self.cog.build_profile_customize_embed(member, self.guild_id)
+            await interaction.response.edit_message(embed=embed, view=view)
+            await view._remember_message(interaction)
+
+    @discord.ui.button(label="Настройки", style=discord.ButtonStyle.secondary, row=0)
+    async def settings_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            user_cog = self.cog.bot.get_cog("User")
+            if user_cog is None:
+                await interaction.response.send_message("Настройки сейчас недоступны.", ephemeral=True)
+                return
+            embed = await user_cog.build_settings_embed(interaction.user, self.guild_id)
+            view = user_cog.make_settings_view(
+                user_id=self.user_id,
+                guild_id=self.guild_id,
+                profile_cog=self.cog,
+                profile_target_id=self.target_id,
+            )
             await interaction.response.edit_message(embed=embed, view=view)
             await view._remember_message(interaction)
 

@@ -5,9 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from config import (
-    ALLOWED_CHANNEL_ID,
     BUSINESSES,
-    CASINO_ROLE_ID,
     COLORS,
     CRYPTO_TYPES,
     DAILY_QUESTS_POOL,
@@ -163,6 +161,70 @@ def notification_type_enabled(user: Dict[str, Any], key: str) -> bool:
 def auto_casino_role_enabled(user: Dict[str, Any]) -> bool:
     return bool(get_user_preferences(user).get("auto_casino_role", True))
 
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+async def get_guild_runtime_settings(guild_id: int | None) -> Dict[str, Any]:
+    if guild_id is None:
+        return {"allowed_channel_id": None, "activity_role_id": None}
+    return await db.get_guild_settings(guild_id)
+
+
+async def resolve_allowed_channel_id(guild: discord.Guild | None, guild_id: int | None) -> int | None:
+    settings = await get_guild_runtime_settings(guild_id)
+    configured_id = _optional_int(settings.get("allowed_channel_id"))
+    if configured_id is not None:
+        if guild is None:
+            return configured_id
+        channel = guild.get_channel(configured_id)
+        return configured_id if isinstance(channel, discord.TextChannel) else None
+    return None
+
+
+async def resolve_activity_role_id(guild: discord.Guild | None, guild_id: int | None) -> int | None:
+    settings = await get_guild_runtime_settings(guild_id)
+    configured_id = _optional_int(settings.get("activity_role_id"))
+    if configured_id is not None:
+        if guild is None:
+            return configured_id
+        role = guild.get_role(configured_id)
+        return configured_id if role is not None else None
+    return None
+
+
+async def get_preferred_guild_text_channel(bot: discord.Client, guild_id: int | None) -> discord.TextChannel | None:
+    if guild_id is None:
+        return None
+
+    guild = bot.get_guild(guild_id)
+    if guild is None:
+        return None
+
+    allowed_channel_id = await resolve_allowed_channel_id(guild, guild_id)
+    if allowed_channel_id is not None:
+        allowed_channel = guild.get_channel(allowed_channel_id)
+        if isinstance(allowed_channel, discord.TextChannel):
+            return allowed_channel
+
+    me = guild.me
+    if me is None and bot.user is not None:
+        me = guild.get_member(bot.user.id)
+
+    if isinstance(guild.system_channel, discord.TextChannel):
+        if me is None or guild.system_channel.permissions_for(me).send_messages:
+            return guild.system_channel
+
+    for channel in guild.text_channels:
+        if me is None or channel.permissions_for(me).send_messages:
+            return channel
+    return None
+
 def create_embed(title: str, description: str, color: int = COLORS['info']) -> discord.Embed:
     """Создать красивый embed"""
     embed = discord.Embed(
@@ -175,7 +237,8 @@ def create_embed(title: str, description: str, color: int = COLORS['info']) -> d
 
 async def check_channel(interaction: discord.Interaction) -> bool:
     """Fast channel check that doesn't block the interaction on role assignment."""
-    if interaction.channel_id != ALLOWED_CHANNEL_ID:
+    allowed_channel_id = await resolve_allowed_channel_id(interaction.guild, interaction.guild_id)
+    if allowed_channel_id is not None and interaction.channel_id != allowed_channel_id:
         return False
 
     try:
@@ -183,7 +246,8 @@ async def check_channel(interaction: discord.Interaction) -> bool:
         if interaction.guild_id is not None:
             user_data = await db.get_user(interaction.user.id, interaction.guild_id)
         if interaction.guild:
-            role = interaction.guild.get_role(CASINO_ROLE_ID)
+            activity_role_id = await resolve_activity_role_id(interaction.guild, interaction.guild_id)
+            role = interaction.guild.get_role(activity_role_id) if activity_role_id is not None else None
             if (
                 role
                 and isinstance(interaction.user, discord.Member)
@@ -212,6 +276,25 @@ async def send_wrong_channel_message(interaction: discord.Interaction):
         color=COLORS['error']
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+async def send_wrong_channel_message(interaction: discord.Interaction):
+    """Отправить сообщение о неправильном канале."""
+    allowed_channel_id = await resolve_allowed_channel_id(interaction.guild, interaction.guild_id)
+    description = (
+        f"⚠️ Вы можете играть только в:\n<#{allowed_channel_id}>"
+        if allowed_channel_id is not None
+        else "⚠️ Игровой канал для этого сервера пока не настроен."
+    )
+    embed = discord.Embed(
+        title="❌ НЕПРАВИЛЬНЫЙ КАНАЛ",
+        description=description,
+        color=COLORS["error"],
+    )
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    else:
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def safe_defer(interaction: discord.Interaction, *, ephemeral: bool = False, thinking: bool = False) -> bool:

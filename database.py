@@ -134,6 +134,11 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
 
 
 class Database:
+    GUILD_SETTINGS_DEFAULTS = {
+        "allowed_channel_id": None,
+        "activity_role_id": None,
+    }
+    GUILD_SETTINGS_CACHE: Dict[int, Dict[str, Any]] = {}
     USER_FIELDS = {
         "user_id",
         "guild_id",
@@ -361,6 +366,18 @@ class Database:
             if key in Database.USER_FIELDS and key not in Database.UNSUPPORTED_USER_FIELDS
         }
 
+    @classmethod
+    def _normalize_guild_settings(cls, guild_id: int, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        raw_payload = payload if isinstance(payload, dict) else {}
+        normalized = {
+            "guild_id": guild_id,
+            "settings_present": bool(raw_payload),
+        }
+        for key, default_value in cls.GUILD_SETTINGS_DEFAULTS.items():
+            raw_value = raw_payload.get(key, default_value)
+            normalized[key] = _safe_int(raw_value, 0) or None
+        return normalized
+
     @staticmethod
     async def _safe_user_insert(payload: Dict[str, Any]):
         filtered = Database._filter_user_payload(payload)
@@ -567,6 +584,80 @@ class Database:
             else:
                 print(f"House state sync error: {exc}")
             return False
+
+    @staticmethod
+    async def get_guild_settings(guild_id: int) -> Dict[str, Any]:
+        cached = Database.GUILD_SETTINGS_CACHE.get(guild_id)
+        if isinstance(cached, dict):
+            return dict(cached)
+
+        default_state = Database._normalize_guild_settings(guild_id)
+        if not Database.sync_feature_enabled("guild_settings_access"):
+            Database.GUILD_SETTINGS_CACHE[guild_id] = default_state
+            return dict(default_state)
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("guild_settings").select("*").eq("guild_id", guild_id).limit(1).execute()
+            )
+            state = Database._normalize_guild_settings(guild_id, result.data[0] if result.data else None)
+            Database.GUILD_SETTINGS_CACHE[guild_id] = state
+            return dict(state)
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "guild_settings_access",
+                    "Guild settings sync is disabled for this runtime because public.guild_settings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "guild_settings_access",
+                    "Guild settings sync is disabled for this runtime because Supabase RLS blocks access to public.guild_settings.",
+                )
+            else:
+                print(f"Guild settings fetch error: {exc}")
+            Database.GUILD_SETTINGS_CACHE[guild_id] = default_state
+            return dict(default_state)
+
+    @staticmethod
+    async def upsert_guild_settings(guild_id: int, payload: Dict[str, Any]) -> bool:
+        current = await Database.get_guild_settings(guild_id)
+        merged = {**current, **(payload or {})}
+        state = Database._normalize_guild_settings(guild_id, merged)
+        Database.GUILD_SETTINGS_CACHE[guild_id] = state
+
+        if not Database.sync_feature_enabled("guild_settings_access"):
+            return True
+
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("guild_settings").upsert(
+                    {
+                        "guild_id": guild_id,
+                        "allowed_channel_id": state.get("allowed_channel_id"),
+                        "activity_role_id": state.get("activity_role_id"),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    on_conflict="guild_id",
+                ).execute()
+            )
+            return True
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "guild_settings_access",
+                    "Guild settings sync is disabled for this runtime because public.guild_settings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "guild_settings_access",
+                    "Guild settings sync is disabled for this runtime because Supabase RLS blocks access to public.guild_settings.",
+                )
+            else:
+                print(f"Guild settings upsert error: {exc}")
+            return True
 
     @staticmethod
     async def sync_battle_pass_state(user_id: int, guild_id: int, game_stats: Dict[str, Any]) -> bool:
