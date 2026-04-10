@@ -40,7 +40,6 @@ from utils import (
 )
 
 KYIV_TZ = get_kyiv_timezone()
-EVENT_PING_ROLE_ID = 1486391112330379304
 BLACK_MARKET_OFFER_COUNT = 5
 BLACK_MARKET_ROTATION_HOURS = 12
 MARKET_EVENT_COOLDOWN_HOURS = 2
@@ -1900,8 +1899,6 @@ class SystemsCog(commands.Cog, name="Systems"):
         channel = await get_preferred_guild_text_channel(self.bot, guild.id)
         if not isinstance(channel, discord.TextChannel):
             return
-        ping_role = guild.get_role(EVENT_PING_ROLE_ID)
-        mention = ping_role.mention if ping_role is not None else None
         description = (
             f"{event['description']}\n\n"
             f"Закончится: {format_discord_deadline(event['expires_at'])}."
@@ -1921,10 +1918,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             return
 
         try:
-            if mention:
-                message = await channel.send(mention, embed=embed, allowed_mentions=discord.AllowedMentions(roles=True))
-            else:
-                message = await channel.send(embed=embed)
+            message = await channel.send(embed=embed)
         except Exception:
             return
 

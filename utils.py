@@ -5,9 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from config import (
-    ALLOWED_CHANNEL_ID,
     BUSINESSES,
-    CASINO_ROLE_ID,
     COLORS,
     CRYPTO_TYPES,
     DAILY_QUESTS_POOL,
@@ -181,30 +179,22 @@ async def get_guild_runtime_settings(guild_id: int | None) -> Dict[str, Any]:
 async def resolve_allowed_channel_id(guild: discord.Guild | None, guild_id: int | None) -> int | None:
     settings = await get_guild_runtime_settings(guild_id)
     configured_id = _optional_int(settings.get("allowed_channel_id"))
-    settings_present = bool(settings.get("settings_present"))
     if configured_id is not None:
         if guild is None:
             return configured_id
         channel = guild.get_channel(configured_id)
         return configured_id if isinstance(channel, discord.TextChannel) else None
-
-    if (not settings_present) and guild is not None and isinstance(guild.get_channel(ALLOWED_CHANNEL_ID), discord.TextChannel):
-        return ALLOWED_CHANNEL_ID
     return None
 
 
 async def resolve_activity_role_id(guild: discord.Guild | None, guild_id: int | None) -> int | None:
     settings = await get_guild_runtime_settings(guild_id)
     configured_id = _optional_int(settings.get("activity_role_id"))
-    settings_present = bool(settings.get("settings_present"))
     if configured_id is not None:
         if guild is None:
             return configured_id
         role = guild.get_role(configured_id)
         return configured_id if role is not None else None
-
-    if (not settings_present) and guild is not None and guild.get_role(CASINO_ROLE_ID) is not None:
-        return CASINO_ROLE_ID
     return None
 
 
