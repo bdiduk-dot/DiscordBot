@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import ALLOWED_CHANNEL_ID, COLORS
+from config import COLORS
 from database import db, get_user_lock
 from inventory_system import add_general_item
 from progression import (
@@ -30,6 +30,7 @@ from utils import (
     check_channel,
     check_quest_progress,
     format_discord_deadline,
+    get_preferred_guild_text_channel,
     get_kyiv_timezone,
     get_random_crypto,
     record_player_progress,
@@ -1896,10 +1897,11 @@ class SystemsCog(commands.Cog, name="Systems"):
         return embed
 
     async def _announce_event(self, guild: discord.Guild, event: dict[str, Any]):
-        channel = guild.get_channel(ALLOWED_CHANNEL_ID)
+        channel = await get_preferred_guild_text_channel(self.bot, guild.id)
         if not isinstance(channel, discord.TextChannel):
             return
-        mention = f"<@&{EVENT_PING_ROLE_ID}>"
+        ping_role = guild.get_role(EVENT_PING_ROLE_ID)
+        mention = ping_role.mention if ping_role is not None else None
         description = (
             f"{event['description']}\n\n"
             f"Закончится: {format_discord_deadline(event['expires_at'])}."
@@ -1919,7 +1921,10 @@ class SystemsCog(commands.Cog, name="Systems"):
             return
 
         try:
-            message = await channel.send(mention, embed=embed, allowed_mentions=discord.AllowedMentions(roles=True))
+            if mention:
+                message = await channel.send(mention, embed=embed, allowed_mentions=discord.AllowedMentions(roles=True))
+            else:
+                message = await channel.send(embed=embed)
         except Exception:
             return
 

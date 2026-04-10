@@ -21,7 +21,7 @@ from cogs.fishing_world import (
     roll_catch,
 )
 from cogs.cases import open_case_from_inventory
-from config import ALLOWED_CHANNEL_ID, COLORS, FISH_RARITIES, FISHING_RODS, get_vip_level
+from config import COLORS, FISH_RARITIES, FISHING_RODS, get_vip_level
 from database import db, get_user_lock
 from easter_event import (
     EASTER_ARCHIVE_CATEGORY,
@@ -57,6 +57,7 @@ from utils import (
     check_channel,
     check_quest_progress,
     format_discord_deadline,
+    get_preferred_guild_text_channel,
     get_random_crypto,
     record_player_progress,
     safe_defer,
@@ -895,7 +896,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         return None
 
     async def _announce_world_event_window(self, guild: discord.Guild, event: dict[str, Any], *, ended: bool):
-        channel = guild.get_channel(ALLOWED_CHANNEL_ID)
+        channel = await get_preferred_guild_text_channel(self.bot, guild.id)
         if not isinstance(channel, discord.TextChannel):
             return
 

@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 from cogs.bank import deposit_snapshot
 from cogs.fishing_world import describe_world_lines, get_world_state
 from cogs.house import _refresh_garden_state
-from config import ALLOWED_CHANNEL_ID, BUSINESSES, CASINO_ROLE_ID, COLORS, FISHING_RODS, VIP_LEVELS, get_vip_level
+from config import BUSINESSES, COLORS, FISHING_RODS, VIP_LEVELS, get_vip_level
 from database import db, get_user_lock, supabase
 from inventory_system import get_general_items
 from progression import (
@@ -36,16 +36,19 @@ from progression import (
     unlock_title,
 )
 from utils import (
-    auto_casino_role_enabled,
     check_channel,
     format_discord_deadline,
     get_business_autocollect_state,
+    get_preferred_guild_text_channel,
     get_kyiv_timezone,
+    get_guild_runtime_settings,
     get_user_preferences,
     has_active_shield,
     notification_type_enabled,
     normalize_businesses,
     normalize_datetime,
+    resolve_activity_role_id,
+    resolve_allowed_channel_id,
     safe_defer,
     safe_edit_original_response,
     schedule_message_cleanup,
@@ -1537,14 +1540,28 @@ class ShopView(_BaseShopView):
 
 
 class SettingsView(discord.ui.View):
-    def __init__(self, cog: "UserCog", user_id: int, guild_id: int):
+    def __init__(
+        self,
+        cog: "UserCog",
+        user_id: int,
+        guild_id: int,
+        *,
+        profile_cog: Any | None = None,
+        profile_target_id: int | None = None,
+    ):
         super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
+        self.profile_cog = profile_cog
+        self.profile_target_id = profile_target_id or user_id
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
         self.notification_type_select.row = 1
+        if self.profile_cog is not None:
+            back_button = discord.ui.Button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=2)
+            back_button.callback = self._go_back_to_profile
+            self.add_item(back_button)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -1560,6 +1577,22 @@ class SettingsView(discord.ui.View):
         if not await safe_edit_original_response(interaction, embed=embed, view=self):
             return
         await self._remember_message(interaction)
+
+    async def _go_back_to_profile(self, interaction: discord.Interaction):
+        async with self._view_lock:
+            if self.profile_cog is None:
+                await interaction.response.send_message("Профиль сейчас недоступен.", ephemeral=True)
+                return
+            member = interaction.guild.get_member(self.profile_target_id) if interaction.guild else None
+            if member is None:
+                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+                return
+            from cogs.economy import ProfileView
+
+            view = ProfileView(self.profile_cog, self.user_id, self.guild_id, self.profile_target_id)
+            embed = await self.profile_cog.build_profile_embed(member, self.guild_id)
+            await interaction.response.edit_message(embed=embed, view=view)
+            await view._remember_message(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -1584,19 +1617,23 @@ class SettingsView(discord.ui.View):
                 ephemeral=True,
             )
 
-    @discord.ui.button(label="Авто-роль", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Роль активности", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
             enabled, role_changed = await self.cog.toggle_auto_casino_role(interaction.user, self.guild_id)
             await self._refresh(interaction)
+            guild = interaction.guild
+            role_id = await resolve_activity_role_id(guild, self.guild_id)
             if enabled:
-                message = "Автовыдача роли снова включена."
+                message = "Автовыдача роли активности снова включена."
                 if role_changed:
                     message += " Роль выдана."
+                elif role_id is None:
+                    message += " Админ пока не настроил роль на сервере."
             else:
-                message = "Автовыдача роли отключена."
+                message = "Автовыдача роли активности отключена."
                 if role_changed:
                     message += " Роль снята и больше не будет выдаваться автоматически."
             await interaction.followup.send(message, ephemeral=True)
@@ -1634,6 +1671,154 @@ class SettingsView(discord.ui.View):
             await self._refresh(interaction)
 
 
+class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
+    channel_id = discord.ui.TextInput(
+        label="ID текстового канала",
+        placeholder="Например: 123456789012345678",
+        required=True,
+        max_length=25,
+    )
+
+    def __init__(self, parent_view: "ServerSettingsView"):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_value = str(self.channel_id.value or "").strip()
+        if not raw_value.isdigit():
+            await interaction.response.send_message("Нужен числовой ID текстового канала.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("Эта настройка доступна только на сервере.", ephemeral=True)
+            return
+
+        channel = guild.get_channel(int(raw_value))
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("Канал не найден или это не текстовый канал.", ephemeral=True)
+            return
+
+        await self.parent_view.cog.update_server_settings(guild.id, {"allowed_channel_id": channel.id})
+        embed = await self.parent_view.cog.build_server_settings_embed(guild)
+        if self.parent_view.message is not None:
+            try:
+                await self.parent_view.message.edit(embed=embed, view=self.parent_view)
+            except Exception:
+                pass
+        await interaction.response.send_message(f"Игровой канал установлен: {channel.mention}", ephemeral=True)
+
+
+class ActivityRoleModal(discord.ui.Modal, title="Роль активности"):
+    role_id = discord.ui.TextInput(
+        label="ID роли",
+        placeholder="Например: 123456789012345678",
+        required=True,
+        max_length=25,
+    )
+
+    def __init__(self, parent_view: "ServerSettingsView"):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_value = str(self.role_id.value or "").strip()
+        if not raw_value.isdigit():
+            await interaction.response.send_message("Нужен числовой ID роли.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("Эта настройка доступна только на сервере.", ephemeral=True)
+            return
+
+        role = guild.get_role(int(raw_value))
+        if role is None:
+            await interaction.response.send_message("Роль с таким ID не найдена на этом сервере.", ephemeral=True)
+            return
+
+        await self.parent_view.cog.update_server_settings(guild.id, {"activity_role_id": role.id})
+        embed = await self.parent_view.cog.build_server_settings_embed(guild)
+        if self.parent_view.message is not None:
+            try:
+                await self.parent_view.message.edit(embed=embed, view=self.parent_view)
+            except Exception:
+                pass
+        await interaction.response.send_message(f"Роль активности установлена: {role.mention}", ephemeral=True)
+
+
+class ServerSettingsView(discord.ui.View):
+    def __init__(self, cog: "UserCog", user_id: int, guild_id: int):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню настроек сервера открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        self.message = await _remember_interaction_message(interaction, self.message)
+
+    async def _refresh(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if guild is None:
+            return
+        embed = await self.cog.build_server_settings_embed(guild)
+        if not await safe_edit_original_response(interaction, embed=embed, view=self):
+            return
+        await self._remember_message(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+    @discord.ui.button(label="Задать канал", style=discord.ButtonStyle.primary, row=0)
+    async def set_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ChannelIdModal(self))
+
+    @discord.ui.button(label="Сбросить канал", style=discord.ButtonStyle.secondary, row=0)
+    async def clear_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            await self.cog.update_server_settings(self.guild_id, {"allowed_channel_id": None})
+            await self._refresh(interaction)
+            await interaction.followup.send("Ограничение по игровому каналу снято.", ephemeral=True)
+
+    @discord.ui.button(label="Задать роль", style=discord.ButtonStyle.primary, row=1)
+    async def set_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ActivityRoleModal(self))
+
+    @discord.ui.button(label="Сбросить роль", style=discord.ButtonStyle.secondary, row=1)
+    async def clear_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            await self.cog.update_server_settings(self.guild_id, {"activity_role_id": None})
+            await self._refresh(interaction)
+            await interaction.followup.send("Роль активности отключена для сервера.", ephemeral=True)
+
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            await self._refresh(interaction)
+
+
 class UserCog(commands.Cog, name="User"):
     def __init__(self, bot):
         self.bot = bot
@@ -1642,6 +1827,94 @@ class UserCog(commands.Cog, name="User"):
 
     def cog_unload(self):
         self.smart_notifications_loop.cancel()
+
+    def make_settings_view(
+        self,
+        *,
+        user_id: int,
+        guild_id: int,
+        profile_cog: Any | None = None,
+        profile_target_id: int | None = None,
+    ) -> SettingsView:
+        return SettingsView(
+            self,
+            user_id,
+            guild_id,
+            profile_cog=profile_cog,
+            profile_target_id=profile_target_id,
+        )
+
+    async def update_server_settings(self, guild_id: int, payload: dict[str, Any]) -> bool:
+        return await db.upsert_guild_settings(guild_id, payload)
+
+    async def build_server_settings_embed(self, guild: discord.Guild) -> discord.Embed:
+        settings = await get_guild_runtime_settings(guild.id)
+        settings_present = bool(settings.get("settings_present"))
+        configured_channel_id = settings.get("allowed_channel_id")
+        configured_role_id = settings.get("activity_role_id")
+        active_channel_id = await resolve_allowed_channel_id(guild, guild.id)
+        active_role_id = await resolve_activity_role_id(guild, guild.id)
+
+        channel_text = "Не задан. Команды можно использовать в любом текстовом канале."
+        if active_channel_id is not None:
+            channel_text = f"<#{active_channel_id}>"
+            if not settings_present and configured_channel_id is None:
+                channel_text += "\nСейчас используется старый базовый канал по умолчанию."
+        elif configured_channel_id is not None:
+            channel_text = (
+                f"`{configured_channel_id}` не найден.\n"
+                "Задай новый текстовый канал или сними ограничение."
+            )
+
+        role_text = "Не задана. Бот не будет автоматически выдавать роль за активность."
+        if active_role_id is not None:
+            role = guild.get_role(active_role_id)
+            role_text = role.mention if role is not None else f"`{active_role_id}`"
+            if not settings_present and configured_role_id is None:
+                role_text += "\nСейчас используется старая базовая роль по умолчанию."
+        elif configured_role_id is not None:
+            role_text = (
+                f"`{configured_role_id}` не найдена.\n"
+                "Задай новую роль или отключи автовыдачу роли на сервере."
+            )
+
+        embed = discord.Embed(
+            title="⚙️ Настройки сервера",
+            description="Здесь админ задаёт игровой канал и роль активности для текущего сервера.",
+            color=COLORS["info"],
+            timestamp=datetime.now(timezone.utc),
+        )
+        if guild.icon:
+            embed.set_author(name=guild.name, icon_url=guild.icon.url)
+        else:
+            embed.set_author(name=guild.name)
+        embed.add_field(
+            name="Игровой канал",
+            value=(
+                f"{channel_text}\n"
+                "Если канал указан, все игровые команды работают только там."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Роль активности",
+            value=(
+                f"{role_text}\n"
+                "Выдаётся при активности с ботом, если игрок не отключил это у себя в `/profile`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Как это работает",
+            value=(
+                "• `/setting` — серверные настройки админа\n"
+                "• `/profile` → `Настройки` — личные уведомления и авто-роль\n"
+                "• без настроенного канала бот доступен в любом текстовом канале"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Вводи ID текстового канала и ID роли кнопками ниже.")
+        return embed
 
     @staticmethod
     def _notification_state(user: dict[str, Any]) -> dict[str, Any]:
@@ -1717,19 +1990,21 @@ class UserCog(commands.Cog, name="User"):
             for key, config in SMART_NOTIFICATION_SETTINGS.items()
         ]
 
-        role_text = "Роль недоступна"
+        channel_id = await resolve_allowed_channel_id(member.guild if isinstance(member, discord.Member) else None, guild_id)
+        channel_text = f"<#{channel_id}>" if channel_id is not None else "Любой текстовый канал сервера"
+
+        role_text = "Админ ещё не настроил роль активности."
         if isinstance(member, discord.Member):
-            role = member.guild.get_role(CASINO_ROLE_ID)
-            if role is None:
-                role_text = "Роль не найдена на сервере"
-            else:
+            role_id = await resolve_activity_role_id(member.guild, guild_id)
+            role = member.guild.get_role(role_id) if role_id is not None else None
+            if role is not None:
                 has_role = role in member.roles
                 status = "есть" if has_role else "нет"
                 role_text = f"{role.mention} • сейчас: **{status}**"
 
         embed = discord.Embed(
-            title="⚙️ Настройки",
-            description="Личный центр управления уведомлениями и автоматической ролью.",
+            title="⚙️ Личные настройки",
+            description="Здесь ты управляешь уведомлениями и своей ролью активности.",
             color=COLORS["info"],
             timestamp=datetime.now(timezone.utc),
         )
@@ -1738,7 +2013,7 @@ class UserCog(commands.Cog, name="User"):
             name="Умные уведомления",
             value=(
                 f"Статус: **{'Включены' if notifications else 'Выключены'}**\n"
-                f"Канал: <#{ALLOWED_CHANNEL_ID}>\n"
+                f"Канал: {channel_text}\n"
                 "Следят за депозитом, арендой, бизнесами, урожаем и почти сгорающим daily streak.\n\n"
                 "**Отдельные типы:**\n"
                 + "\n".join(notification_lines)
@@ -1746,7 +2021,7 @@ class UserCog(commands.Cog, name="User"):
             inline=False,
         )
         embed.add_field(
-            name="Авто-роль казино",
+            name="Роль активности",
             value=(
                 f"Статус: **{'Включена' if auto_role else 'Выключена'}**\n"
                 f"Текущая роль: {role_text}\n"
@@ -1754,7 +2029,7 @@ class UserCog(commands.Cog, name="User"):
             ),
             inline=False,
         )
-        embed.set_footer(text="Сверху общий тумблер, ниже можно отключать отдельные типы уведомлений.")
+        embed.set_footer(text="Уведомления и роль можно менять здесь, а серверные параметры задаются через /setting.")
         return embed
 
     async def toggle_smart_notifications(self, user_id: int, guild_id: int) -> bool:
@@ -1796,19 +2071,18 @@ class UserCog(commands.Cog, name="User"):
             preferences = get_user_preferences(user)
             new_value = not bool(preferences.get("auto_casino_role", True))
             preferences["auto_casino_role"] = new_value
-            if not new_value:
-                self._clear_notification_markers_for_user(user)
             await db.update_user(member.id, guild_id, {"game_stats": user.get("game_stats", {})})
 
         if isinstance(member, discord.Member):
-            role = member.guild.get_role(CASINO_ROLE_ID)
+            role_id = await resolve_activity_role_id(member.guild, guild_id)
+            role = member.guild.get_role(role_id) if role_id is not None else None
             if role is not None:
                 try:
                     if new_value and role not in member.roles:
-                        await member.add_roles(role, reason="Игрок включил автовыдачу роли казино")
+                        await member.add_roles(role, reason="Игрок включил автовыдачу роли активности")
                         role_changed = True
                     elif not new_value and role in member.roles:
-                        await member.remove_roles(role, reason="Игрок отключил автовыдачу роли казино")
+                        await member.remove_roles(role, reason="Игрок отключил автовыдачу роли активности")
                         role_changed = True
                 except Exception:
                     pass
@@ -1844,16 +2118,7 @@ class UserCog(commands.Cog, name="User"):
         return None
 
     async def _get_notification_channel(self, guild_id: int) -> discord.TextChannel | None:
-        channel = self.bot.get_channel(ALLOWED_CHANNEL_ID)
-        if isinstance(channel, discord.TextChannel) and channel.guild and channel.guild.id == guild_id:
-            return channel
-
-        guild = self.bot.get_guild(guild_id)
-        if guild is None:
-            return None
-
-        fallback = guild.get_channel(ALLOWED_CHANNEL_ID)
-        return fallback if isinstance(fallback, discord.TextChannel) else None
+        return await get_preferred_guild_text_channel(self.bot, guild_id)
 
     async def _build_smart_notification_lines(
         self,
@@ -1963,7 +2228,7 @@ class UserCog(commands.Cog, name="User"):
                 color=COLORS["info"],
                 timestamp=now,
             )
-            embed.set_footer(text="Эти уведомления можно отключить через /settings.")
+            embed.set_footer(text="Эти уведомления можно отключить через /profile → Настройки.")
             try:
                 await channel.send(
                     f"<@{user_id}>",
@@ -2268,15 +2533,20 @@ class UserCog(commands.Cog, name="User"):
         except Exception:
             pass
 
-    @app_commands.command(name="settings", description="Личные настройки уведомлений и роли")
-    async def settings(self, interaction: discord.Interaction):
-        if not await check_channel(interaction):
-            await send_wrong_channel_message(interaction)
+    @app_commands.command(name="setting", description="Настроить канал и роль активности для сервера")
+    async def setting(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if guild is None or member is None:
+            await interaction.response.send_message("Эта команда доступна только внутри сервера.", ephemeral=True)
+            return
+        if not (member.guild_permissions.manage_guild or member.guild_permissions.administrator):
+            await interaction.response.send_message("Нужны права `Управление сервером`.", ephemeral=True)
             return
 
-        view = SettingsView(self, interaction.user.id, interaction.guild_id)
-        embed = await self.build_settings_embed(interaction.user, interaction.guild_id)
-        await interaction.response.send_message(embed=embed, view=view)
+        view = ServerSettingsView(self, interaction.user.id, guild.id)
+        embed = await self.build_server_settings_embed(guild)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.message = await interaction.original_response()
 
 

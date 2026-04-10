@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import ALLOWED_CHANNEL_ID, COLORS
+from config import COLORS
 from database import db, get_user_lock, supabase
 from easter_event import (
     EASTER_ARCHIVE_CATEGORY,
@@ -45,6 +45,7 @@ from utils import (
     check_channel,
     discord_timestamp,
     format_discord_deadline,
+    get_preferred_guild_text_channel,
     normalize_datetime,
     safe_defer,
     safe_edit_original_response,
@@ -969,7 +970,7 @@ class EasterCog(commands.Cog, name="EasterEvent"):
         if random.random() > RABBIT_SPAWN_CHANCE:
             return
 
-        channel = guild.get_channel(ALLOWED_CHANNEL_ID)
+        channel = await get_preferred_guild_text_channel(self.bot, guild.id)
         announce_message_id = None
         if isinstance(channel, discord.TextChannel):
             try:
