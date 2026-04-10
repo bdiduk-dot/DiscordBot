@@ -1253,10 +1253,13 @@ class EconomyCog(commands.Cog, name="Economy"):
         embed.set_footer(text="Ниже доступны отдельные меню для титула, фона и любимого улова. Для рыбы можно использовать список или ручной ID.")
         return embed
 
-    @app_commands.command(name="profile", description="Показать профиль")
+    @app_commands.command(name="profile", description="Show profile")
     async def profile(self, interaction: discord.Interaction, player: discord.Member = None):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
+            return
+
+        if not await safe_defer(interaction):
             return
 
         target = player or interaction.user
@@ -1264,8 +1267,12 @@ class EconomyCog(commands.Cog, name="Economy"):
         view = ProfileView(self, interaction.user.id, interaction.guild_id, target.id)
         if target.id != interaction.user.id:
             view.customize_btn.disabled = True
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=embed, view=view):
+            return
+        try:
+            view.message = await interaction.original_response()
+        except (discord.NotFound, discord.HTTPException):
+            view.message = interaction.message
         return
 
     @app_commands.command(name="daily", description="Забрать ежедневный бонус")
@@ -1365,14 +1372,16 @@ class EconomyCog(commands.Cog, name="Economy"):
             embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(content=None, embed=embed)
 
-    @app_commands.command(name="work", description="Поработать и заработать деньги")
+    @app_commands.command(name="work", description="Work and earn money")
     async def work(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
+        if not await safe_defer(interaction):
+            return
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         if not user:
-            await interaction.response.send_message("Ошибка загрузки профиля.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Failed to load profile.", embed=None, view=None)
             return
         now = datetime.now(timezone.utc)
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
@@ -1381,7 +1390,12 @@ class EconomyCog(commands.Cog, name="Economy"):
             last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
             if now - last_work < timedelta(minutes=cooldown_minutes):
                 next_work_at = last_work + timedelta(minutes=cooldown_minutes)
-                await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
+                await safe_edit_original_response(
+                    interaction,
+                    content=f"Work will be available again {format_discord_deadline(next_work_at)}.",
+                    embed=None,
+                    view=None,
+                )
                 return
 
         success, payload = await self._run_work_once(
@@ -1390,19 +1404,21 @@ class EconomyCog(commands.Cog, name="Economy"):
             choice=random.choice(WORK_POOL),
         )
         if isinstance(payload, discord.Embed):
-            await interaction.response.send_message(embed=payload, ephemeral=not success)
+            await safe_edit_original_response(interaction, content=None, embed=payload, view=None)
         else:
-            await interaction.response.send_message(str(payload), ephemeral=True)
+            await safe_edit_original_response(interaction, content=str(payload), embed=None, view=None)
 
-    @app_commands.command(name="crime", description="Пойти на преступление ради денег")
-    @app_commands.describe(risk="Сразу выбрать риск 1, 2 или 3 без кнопок")
+    @app_commands.command(name="crime", description="Commit a crime for money")
+    @app_commands.describe(risk="Pick risk 1, 2 or 3 without buttons")
     async def crime(self, interaction: discord.Interaction, risk: app_commands.Range[int, 1, 3] | None = None):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
+        if not await safe_defer(interaction):
+            return
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         if not user:
-            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Failed to load profile.", embed=None, view=None)
             return
         now = datetime.now(timezone.utc)
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
@@ -1411,23 +1427,28 @@ class EconomyCog(commands.Cog, name="Economy"):
             last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
             if now - last_crime < timedelta(minutes=cooldown_minutes):
                 next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
-                await interaction.response.send_message(f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.", ephemeral=True)
+                await safe_edit_original_response(
+                    interaction,
+                    content=f"Crime will be available again {format_discord_deadline(next_crime_at)}.",
+                    embed=None,
+                    view=None,
+                )
                 return
 
         choices = random.sample(CRIME_POOL, k=3)
         embed = discord.Embed(
-            title="🕵️ Преступление",
-            description="Выбери один из трёх рисковых вариантов. На кнопках ниже — только выбор, подробности здесь.",
+            title="Crime",
+            description="Choose one of three risky options. Buttons below only select the option; details are shown here.",
             color=COLORS["error"],
         )
         for index, choice in enumerate(choices, start=1):
             embed.add_field(
-                name=f"Риск {index}",
+                name=f"Risk {index}",
                 value=(
                     f"{choice['summary']}\n"
-                    f"Шанс успеха: **{int(choice['success_rate'] * 100)}%**\n"
-                    f"Куш: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**\n"
-                    f"Штраф: **{format_money(choice['fine_min'])} - {format_money(choice['fine_max'])}**"
+                    f"Success chance: **{int(choice['success_rate'] * 100)}%**\n"
+                    f"Reward: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**\n"
+                    f"Fine: **{format_money(choice['fine_min'])} - {format_money(choice['fine_max'])}**"
                 ),
                 inline=False,
             )
@@ -1436,10 +1457,14 @@ class EconomyCog(commands.Cog, name="Economy"):
             await view._resolve(interaction, int(risk) - 1)
             return
 
-        embed.set_footer(text="Выбор фиксирует попытку и запускает кулдаун. Можно сразу указать `/crime risk:1-3`.")
+        embed.set_footer(text="Selection starts the attempt and cooldown. You can also use /crime risk:1-3.")
         view = CrimeChoiceView(self, interaction.user.id, interaction.guild_id, choices)
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=embed, view=view):
+            return
+        try:
+            view.message = await interaction.original_response()
+        except (discord.NotFound, discord.HTTPException):
+            view.message = interaction.message
 
     @app_commands.command(name="slut", description="Рискованный способ быстро заработать")
     async def slut(self, interaction: discord.Interaction):
