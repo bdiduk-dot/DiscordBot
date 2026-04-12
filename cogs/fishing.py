@@ -27,6 +27,7 @@ from easter_event import (
     EASTER_ARCHIVE_CATEGORY,
     EASTER_CHEST_CODE,
     EASTER_DECOR_TROPHY_PREFIX,
+    EASTER_EVENT_KEY,
     EASTER_FURNITURE_BUFFS,
     EASTER_POND_PASS_CODE,
     EASTER_POND_ZONE_KEY,
@@ -2118,6 +2119,21 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return False, "Buy a house first, then use this furniture item to install it."
             if furniture_key in set(preview_house_state.get("furniture", [])):
                 return False, "This furniture item is already installed in your house."
+
+        preview_code = str(preview_item.get("code") or "")
+        preview_payload = preview_item.get("payload")
+        preview_event_key = str(preview_payload.get("event_key") or "") if isinstance(preview_payload, dict) else ""
+        if (
+            get_easter_phase() == "off"
+            and (
+                preview_code.startswith("easter_")
+                or preview_event_key == EASTER_EVENT_KEY
+            )
+        ):
+            return False, (
+                "Это архивный предмет Easter 2026. Ивент уже завершён: яйца автоматически обменяны, "
+                "памятные трофеи остаются в инвентаре, а оставшиеся пасхальные предметы больше не активируются вручную."
+            )
 
         if item_type not in {
             "bait_bundle",

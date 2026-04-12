@@ -11,8 +11,8 @@ from inventory_system import add_general_item, count_general_items, decrement_ge
 EASTER_EVENT_KEY = "easter_2026"
 EASTER_PHASES = {"off", "active", "exchange"}
 
-_DEFAULT_EVENT_END = "2026-04-20T21:00:00+03:00"
-_DEFAULT_EXCHANGE_END = "2026-04-27T21:00:00+03:00"
+_DEFAULT_EVENT_END = "2026-04-12T00:00:00+03:00"
+_DEFAULT_EXCHANGE_END = "2026-04-12T00:30:00+03:00"
 _PHASE_OVERRIDE = (os.getenv("EASTER_PHASE") or "").strip().lower()
 
 EASTER_EVENT_END_AT_RAW = os.getenv("EASTER_EVENT_END_AT", _DEFAULT_EVENT_END)

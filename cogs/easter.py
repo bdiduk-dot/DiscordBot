@@ -693,12 +693,19 @@ class EasterCog(commands.Cog, name="EasterEvent"):
         rabbit_active = rabbit_is_active(guild_state)
         server_state = get_server_progress_state(guild_state)
         server_bonuses = get_server_progress_bonuses(guild_state)
-        end_target = EASTER_EVENT_END_AT if phase == "active" else EASTER_EXCHANGE_END_AT
-        base_description = (
-            f"Фаза: **{phase}**\n"
-            f"До конца: {format_discord_deadline(end_target)}\n"
-            f"Золотой кролик: **{'активен' if rabbit_active else 'не активен'}**"
-        )
+        if phase == "off":
+            base_description = (
+                "Фаза: **off**\n"
+                "Ивент завершён. Остатки яиц уже должны быть обменяны в финальной Easter-ветке, а постоянные награды и трофеи остаются у игроков.\n"
+                f"Золотой кролик: **{'активен' if rabbit_active else 'не активен'}**"
+            )
+        else:
+            end_target = EASTER_EVENT_END_AT if phase == "active" else EASTER_EXCHANGE_END_AT
+            base_description = (
+                f"Фаза: **{phase}**\n"
+                f"До конца: {format_discord_deadline(end_target)}\n"
+                f"Золотой кролик: **{'активен' if rabbit_active else 'не активен'}**"
+            )
 
         if section == "shop":
             embed = discord.Embed(title="🐰 Пасхальный магазин", description=base_description, color=COLORS["easter"], timestamp=datetime.now(timezone.utc))
