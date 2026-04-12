@@ -212,17 +212,6 @@ async def get_preferred_guild_text_channel(bot: discord.Client, guild_id: int | 
         if isinstance(allowed_channel, discord.TextChannel):
             return allowed_channel
 
-    me = guild.me
-    if me is None and bot.user is not None:
-        me = guild.get_member(bot.user.id)
-
-    if isinstance(guild.system_channel, discord.TextChannel):
-        if me is None or guild.system_channel.permissions_for(me).send_messages:
-            return guild.system_channel
-
-    for channel in guild.text_channels:
-        if me is None or channel.permissions_for(me).send_messages:
-            return channel
     return None
 
 def create_embed(title: str, description: str, color: int = COLORS['info']) -> discord.Embed:
