@@ -10,7 +10,11 @@ UPDATE_CHANNEL_ID = 1486032811809964243
 UPDATE_TITLE = "🐣 Пасхальный ивент 2026 — Part 2"
 FAST_UPDATE_TITLE = "⚡ fastFIX / fastUPD"
 
-LATEST_UPDATE_TEXT = """
+LATEST_UPDATE_TEXT = ""
+
+LATEST_FAST_TEXT = ""
+
+ARCHIVED_UPDATE_TEXT = """
 > Пасхальный ивент получил вторую главу: новые долгие цели, секретную коллекцию и общий прогресс сервера.
 
 ## 📖 Глава 2
@@ -59,7 +63,7 @@ LATEST_UPDATE_TEXT = """
 　— трофей `Реликвия Золотого кролика`
 """
 
-LATEST_FAST_TEXT = """
+ARCHIVED_FAST_TEXT = """
 **fastFIX**
 • `/profile -> Настройки`: исправлен крэш `item would not fit at row ...`. Кнопка `Настройки` снова стабильно открывает личные настройки, а `Назад к профилю` корректно возвращает в тот же профиль.
 • Добавлен `public/guild_settings.sql`, чтобы таблица серверных настроек создавалась сразу и не ломала multi-server режим после рестарта.
