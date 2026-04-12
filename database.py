@@ -46,6 +46,12 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _gpu_entry_id(entry: Any) -> str:
+    if isinstance(entry, dict):
+        return str(entry.get("gpu_id", entry.get("id")) or "")
+    return str(entry or "")
+
+
 def _house_basement_upgrade_spend(house_id: str | None, basement_level: int) -> int:
     base_price = HOUSE_NET_WORTH.get(str(house_id or ""))
     if not base_price or basement_level <= 1:
@@ -77,11 +83,16 @@ def _house_net_worth(game_stats: Any) -> dict[str, int]:
     house_id = str(house.get("owned_house_id") or "")
     basement_level = _safe_int(house.get("basement_level"), 0)
     installed_gpus = house.get("installed_gpus", [])
+    stored_gpus = house.get("stored_gpus", [])
     furniture = house.get("furniture", [])
 
     house_value = HOUSE_NET_WORTH.get(house_id, 0)
     basement_value = _house_basement_upgrade_spend(house_id, basement_level)
-    gpu_value = sum(GPU_NET_WORTH.get(str(gpu_id), 0) for gpu_id in installed_gpus if gpu_id is not None)
+    gpu_value = sum(
+        GPU_NET_WORTH.get(_gpu_entry_id(gpu_entry), 0)
+        for gpu_entry in list(installed_gpus) + list(stored_gpus)
+        if _gpu_entry_id(gpu_entry)
+    )
 
     furniture_value = 0
     for item in furniture if isinstance(furniture, list) else []:
@@ -379,6 +390,132 @@ class Database:
         return normalized
 
     @staticmethod
+    def _filter_user_update_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+        filtered = Database._filter_user_payload(payload)
+        filtered.pop("user_id", None)
+        filtered.pop("guild_id", None)
+        return filtered
+
+    @staticmethod
+    def _count_business_instances(raw_businesses: Any) -> int:
+        if not isinstance(raw_businesses, dict):
+            return 0
+
+        total = 0
+        for raw_entries in raw_businesses.values():
+            if isinstance(raw_entries, list):
+                total += len(raw_entries)
+            elif raw_entries:
+                total += 1
+        return total
+
+    @staticmethod
+    def _inventory_size_score(raw_inventory: Any) -> int:
+        if not isinstance(raw_inventory, dict):
+            return 0
+
+        score = 0
+        fish_items = raw_inventory.get("fish_items")
+        if isinstance(fish_items, list):
+            score += len(fish_items)
+
+        general_items = raw_inventory.get("general_items")
+        if isinstance(general_items, list):
+            for item in general_items:
+                if isinstance(item, dict):
+                    score += max(1, _safe_int(item.get("quantity", 1), 1))
+                else:
+                    score += 1
+        return score
+
+    @staticmethod
+    def _user_total_balance(row: Dict[str, Any]) -> int:
+        return (
+            _safe_int(row.get("balance"), 0)
+            + _safe_int(row.get("bank"), 0)
+            + _safe_int(row.get("deposit_amount"), 0)
+        )
+
+    @classmethod
+    async def _fetch_user_rows(cls, user_id: int) -> List[Dict[str, Any]]:
+        result = await asyncio.to_thread(lambda: supabase.table("users").select("*").eq("user_id", user_id).execute())
+        return list(result.data or [])
+
+    @classmethod
+    def _user_priority_score(cls, row: Dict[str, Any], preferred_guild_id: int | None = None) -> tuple:
+        weekly = extract_weekly_snapshot(row)
+        return (
+            _safe_int(row.get("level"), 0),
+            _safe_int(row.get("xp"), 0),
+            cls._user_total_balance(row),
+            _safe_int(row.get("games_played"), 0),
+            _safe_int(row.get("vip_level"), 0),
+            cls._count_business_instances(row.get("businesses")),
+            cls._inventory_size_score(row.get("inventory")),
+            _safe_int(weekly.get("money_earned"), 0) + _safe_int(weekly.get("gems_earned"), 0),
+            int((_safe_int(row.get("guild_id"), 0)) == (preferred_guild_id or 0)),
+        )
+
+    @classmethod
+    def _pick_primary_user_row(
+        cls,
+        user_rows: List[Dict[str, Any]],
+        preferred_guild_id: int | None = None,
+    ) -> Dict[str, Any] | None:
+        if not user_rows:
+            return None
+        return deepcopy(max(user_rows, key=lambda row: cls._user_priority_score(row, preferred_guild_id)))
+
+    @classmethod
+    def _normalize_loaded_user(cls, user_data: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        normalized = deepcopy(user_data)
+        updates: Dict[str, Any] = {}
+        original_inventory = deepcopy(normalized.get("inventory"))
+        original_game_stats = deepcopy(normalized.get("game_stats"))
+
+        for field, default_value in cls.USER_DEFAULTS.items():
+            if field not in normalized or normalized[field] is None:
+                normalized[field] = deepcopy(default_value)
+                if cls.user_field_supported(field):
+                    updates[field] = deepcopy(default_value)
+
+        normalized_inventory = ensure_inventory_state(normalized)
+        if cls.user_field_supported("inventory") and original_inventory != normalized_inventory:
+            updates["inventory"] = normalized_inventory
+        if normalized.get("game_stats") != original_game_stats:
+            updates["game_stats"] = normalized.get("game_stats", {})
+
+        return normalized, updates
+
+    @classmethod
+    def _user_rows_need_sync(cls, user_rows: List[Dict[str, Any]], canonical_row: Dict[str, Any]) -> bool:
+        tracked_fields = [field for field in cls.USER_FIELDS if field not in {"user_id", "guild_id"}]
+        for row in user_rows:
+            for field in tracked_fields:
+                if row.get(field) != canonical_row.get(field):
+                    return True
+        return False
+
+    @classmethod
+    def _dedupe_user_rows(cls, user_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        grouped: Dict[int, List[Dict[str, Any]]] = {}
+        for row in user_rows:
+            raw_user_id = row.get("user_id")
+            if raw_user_id is None:
+                continue
+            user_id = _safe_int(raw_user_id, 0)
+            if user_id <= 0:
+                continue
+            grouped.setdefault(user_id, []).append(row)
+
+        deduped: List[Dict[str, Any]] = []
+        for rows in grouped.values():
+            primary = cls._pick_primary_user_row(rows)
+            if primary is not None:
+                deduped.append(primary)
+        return deduped
+
+    @staticmethod
     async def _safe_user_insert(payload: Dict[str, Any]):
         filtered = Database._filter_user_payload(payload)
         if not filtered:
@@ -406,13 +543,13 @@ class Database:
 
     @staticmethod
     async def _safe_user_update(user_id: int, guild_id: int, payload: Dict[str, Any]) -> bool:
-        filtered = Database._filter_user_payload(payload)
+        filtered = Database._filter_user_update_payload(payload)
         if not filtered:
             return True
 
         try:
             await asyncio.to_thread(
-                lambda: supabase.table("users").update(filtered).eq("user_id", user_id).eq("guild_id", guild_id).execute()
+                lambda: supabase.table("users").update(filtered).eq("user_id", user_id).execute()
             )
             return True
         except Exception as update_error:
@@ -430,7 +567,6 @@ class Database:
                                 lambda: supabase.table("users")
                                 .update(filtered)
                                 .eq("user_id", user_id)
-                                .eq("guild_id", guild_id)
                                 .execute()
                             )
                         return True
@@ -440,38 +576,38 @@ class Database:
     @staticmethod
     async def get_user(user_id: int, guild_id: int) -> Dict[str, Any] | None:
         try:
-            result = await asyncio.to_thread(
-                lambda: supabase.table("users").select("*").eq("user_id", user_id).eq("guild_id", guild_id).execute()
-            )
-            if result.data:
-                user_data = result.data[0]
-                updates = {}
-                original_inventory = deepcopy(user_data.get("inventory"))
-                original_game_stats = deepcopy(user_data.get("game_stats"))
-                for field, default_value in Database.USER_DEFAULTS.items():
-                    if field not in user_data or user_data[field] is None:
-                        user_data[field] = default_value
-                        if Database.user_field_supported(field):
-                            updates[field] = default_value
+            user_rows = await Database._fetch_user_rows(user_id)
+            if user_rows:
+                user_data = Database._pick_primary_user_row(user_rows, guild_id)
+                if user_data is None:
+                    return None
 
-                normalized_inventory = ensure_inventory_state(user_data)
-                if Database.user_field_supported("inventory") and original_inventory != normalized_inventory:
-                    updates["inventory"] = normalized_inventory
-                if user_data.get("game_stats") != original_game_stats:
-                    updates["game_stats"] = user_data.get("game_stats", {})
+                normalized_user, updates = Database._normalize_loaded_user(user_data)
+                normalized_user["user_id"] = user_id
+                normalized_user["guild_id"] = guild_id
 
-                if updates:
-                    await Database.update_user(user_id, guild_id, updates)
-                return user_data
+                if updates or Database._user_rows_need_sync(user_rows, normalized_user):
+                    sync_payload = {
+                        field: deepcopy(normalized_user.get(field))
+                        for field in Database.USER_FIELDS
+                        if field not in {"user_id", "guild_id"} and field in normalized_user
+                    }
+                    await Database.update_user(user_id, guild_id, sync_payload)
+                return normalized_user
 
             new_user = {
                 "user_id": user_id,
                 "guild_id": guild_id,
-                **Database.NEW_USER_TEMPLATE,
+                **deepcopy(Database.NEW_USER_TEMPLATE),
             }
             created = await Database._safe_user_insert(new_user)
             await Database.sync_global_leaderboard(user_id)
-            return created or new_user
+            normalized_user, updates = Database._normalize_loaded_user(created or new_user)
+            normalized_user["user_id"] = user_id
+            normalized_user["guild_id"] = guild_id
+            if updates:
+                await Database.update_user(user_id, guild_id, updates)
+            return normalized_user
         except Exception as exc:
             print(f"Database error: {exc}")
             return None
@@ -500,7 +636,16 @@ class Database:
     @staticmethod
     async def update_user(user_id: int, guild_id: int, data: Dict[str, Any]):
         try:
-            success = await Database._safe_user_update(user_id, guild_id, data)
+            existing_rows = await Database._fetch_user_rows(user_id)
+            success = False
+            if existing_rows:
+                success = await Database._safe_user_update(user_id, guild_id, data)
+            else:
+                base_payload = deepcopy(Database.NEW_USER_TEMPLATE)
+                base_payload.update(Database._filter_user_update_payload(data))
+                base_payload["user_id"] = user_id
+                base_payload["guild_id"] = guild_id
+                success = (await Database._safe_user_insert(base_payload)) is not None
             if success:
                 game_stats = data.get("game_stats")
                 if isinstance(game_stats, dict):
@@ -542,6 +687,7 @@ class Database:
             "crypto_wallet": house.get("crypto_wallet", {}),
             "furniture": house.get("furniture", []),
             "legacy_mining_wallet": int(house.get("legacy_mining_wallet", 0) or 0),
+            "stored_gpus": house.get("stored_gpus", []),
         }
 
         try:
@@ -560,6 +706,7 @@ class Database:
                     "crypto_wallet",
                     "furniture",
                     "legacy_mining_wallet",
+                    "stored_gpus",
                 )
             ):
                 try:
@@ -583,6 +730,132 @@ class Database:
                 )
             else:
                 print(f"House state sync error: {exc}")
+            return False
+
+    @staticmethod
+    async def get_easter_guild_state(guild_id: int) -> Dict[str, Any]:
+        if not Database.sync_feature_enabled("easter_guild_states_access"):
+            return {"guild_id": guild_id}
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("easter_guild_states").select("*").eq("guild_id", guild_id).limit(1).execute()
+            )
+            if result.data:
+                return result.data[0]
+            return {"guild_id": guild_id}
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "easter_guild_states_access",
+                    "Easter guild state sync is disabled for this runtime because public.easter_guild_states is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "easter_guild_states_access",
+                    "Easter guild state sync is disabled for this runtime because Supabase RLS blocks access to public.easter_guild_states.",
+                )
+            else:
+                print(f"Easter guild state fetch error: {exc}")
+            return {"guild_id": guild_id}
+
+    @staticmethod
+    async def upsert_easter_guild_state(guild_id: int, payload: Dict[str, Any]) -> bool:
+        if not Database.sync_feature_enabled("easter_guild_states_access"):
+            return False
+
+        data = {
+            "guild_id": guild_id,
+            "phase": payload.get("phase"),
+            "active_rabbit_event_id": payload.get("active_rabbit_event_id"),
+            "rabbit_active_until": payload.get("rabbit_active_until"),
+            "rabbit_last_spawn_at": payload.get("rabbit_last_spawn_at"),
+            "rabbit_last_announce_message_id": payload.get("rabbit_last_announce_message_id"),
+            "server_progress_points": int(payload.get("server_progress_points", 0) or 0),
+            "server_progress_level": int(payload.get("server_progress_level", 0) or 0),
+            "server_progress_unlocked": payload.get("server_progress_unlocked") if isinstance(payload.get("server_progress_unlocked"), list) else [],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("easter_guild_states").upsert(data, on_conflict="guild_id").execute()
+            )
+            return True
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "easter_guild_states_access",
+                    "Easter guild state sync is disabled for this runtime because public.easter_guild_states is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "easter_guild_states_access",
+                    "Easter guild state sync is disabled for this runtime because Supabase RLS blocks access to public.easter_guild_states.",
+                )
+            else:
+                print(f"Easter guild state upsert error: {exc}")
+            return False
+
+    @staticmethod
+    async def get_market_guild_state(guild_id: int) -> Dict[str, Any]:
+        if not Database.sync_feature_enabled("market_guild_states_access"):
+            return {"guild_id": guild_id}
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("market_guild_states").select("*").eq("guild_id", guild_id).limit(1).execute()
+            )
+            if result.data:
+                return result.data[0]
+            return {"guild_id": guild_id}
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because public.market_guild_states is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because Supabase RLS blocks access to public.market_guild_states.",
+                )
+            else:
+                print(f"Market guild state fetch error: {exc}")
+            return {"guild_id": guild_id}
+
+    @staticmethod
+    async def upsert_market_guild_state(guild_id: int, payload: Dict[str, Any]) -> bool:
+        if not Database.sync_feature_enabled("market_guild_states_access"):
+            return False
+
+        data = {
+            "guild_id": guild_id,
+            "active_event": payload.get("active_event"),
+            "next_event_after": payload.get("next_event_after"),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("market_guild_states").upsert(data, on_conflict="guild_id").execute()
+            )
+            return True
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because public.market_guild_states is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "market_guild_states_access",
+                    "Market guild state sync is disabled for this runtime because Supabase RLS blocks access to public.market_guild_states.",
+                )
+            else:
+                print(f"Market guild state upsert error: {exc}")
             return False
 
     @staticmethod
@@ -771,12 +1044,11 @@ class Database:
             return False
 
         try:
-            users_result = await asyncio.to_thread(
-                lambda: supabase.table("users").select("*").eq("user_id", user_id).execute()
-            )
-            user_rows = users_result.data or []
-            if not user_rows:
+            user_rows = await Database._fetch_user_rows(user_id)
+            primary_row = Database._pick_primary_user_row(user_rows)
+            if primary_row is None:
                 return False
+            row, _ = Database._normalize_loaded_user(primary_row)
 
             existing_result = await asyncio.to_thread(
                 lambda: supabase.table("global_leaderboard").select("username").eq("user_id", user_id).limit(1).execute()
@@ -785,41 +1057,31 @@ class Database:
             if existing_result.data:
                 existing_username = existing_result.data[0].get("username")
 
-            total_balance = 0
-            gems_balance = 0
-            vip_level = 0
-            total_games_played = 0
+            from utils import count_owned_businesses
+
+            total_balance = Database._user_total_balance(row)
+            gems_balance = _safe_int(row.get("gems"), 0)
+            vip_level = _safe_int(row.get("vip_level"), 0)
+            total_games_played = _safe_int(row.get("games_played"), 0)
+            businesses_owned = count_owned_businesses(row.get("businesses", {}))
+            clan_id = row.get("clan_id")
             total_wins = 0
             fishing_caught = 0
             mining_blocks = 0
-            businesses_owned = 0
-            clan_id = None
 
-            from utils import count_owned_businesses
-
-            for row in user_rows:
-                total_balance += int(row.get("balance", 0) or 0)
-                total_balance += int(row.get("bank", 0) or 0)
-                total_balance += int(row.get("deposit_amount", 0) or 0)
-                gems_balance += int(row.get("gems", 0) or 0)
-                vip_level = max(vip_level, int(row.get("vip_level", 0) or 0))
-                total_games_played += int(row.get("games_played", 0) or 0)
-                businesses_owned += count_owned_businesses(row.get("businesses", {}))
-                clan_id = clan_id or row.get("clan_id")
-
-                game_stats = row.get("game_stats") or {}
-                if isinstance(game_stats, dict):
-                    for stats in game_stats.values():
-                        if isinstance(stats, dict):
-                            total_wins += int(stats.get("won", 0) or 0)
-                    systems = game_stats.get("_systems") or {}
-                    if isinstance(systems, dict):
-                        fishing = systems.get("fishing") or {}
-                        if isinstance(fishing, dict):
-                            fishing_caught += int(fishing.get("total_catches", 0) or 0)
-                        house = systems.get("house") or {}
-                        if isinstance(house, dict):
-                            mining_blocks += int(house.get("mining_runs", 0) or 0)
+            game_stats = row.get("game_stats") or {}
+            if isinstance(game_stats, dict):
+                for stats in game_stats.values():
+                    if isinstance(stats, dict):
+                        total_wins += _safe_int(stats.get("won"), 0)
+                systems = game_stats.get("_systems") or {}
+                if isinstance(systems, dict):
+                    fishing = systems.get("fishing") or {}
+                    if isinstance(fishing, dict):
+                        fishing_caught += _safe_int(fishing.get("total_catches"), 0)
+                    house = systems.get("house") or {}
+                    if isinstance(house, dict):
+                        mining_blocks += _safe_int(house.get("mining_runs"), 0)
 
             payload = {
                 "user_id": user_id,
@@ -895,51 +1157,34 @@ class Database:
         except Exception:
             pass
 
-        aggregated: Dict[int, Dict[str, Any]] = {}
-        for row in user_rows:
+        entries: List[Dict[str, Any]] = []
+        for row in Database._dedupe_user_rows(user_rows):
             raw_user_id = row.get("user_id")
             if raw_user_id is None:
                 continue
 
             user_id = int(raw_user_id)
-            entry = aggregated.setdefault(
-                user_id,
-                {
-                    "user_id": user_id,
-                    "username": username_map.get(user_id, str(row.get("username") or f"User {user_id}")),
-                    "net_worth": 0,
-                    "balance_value": 0,
-                    "house_value": 0,
-                    "basement_value": 0,
-                    "gpu_value": 0,
-                    "furniture_value": 0,
-                    "business_value": 0,
-                    "business_upgrade_value": 0,
-                },
-            )
-
-            liquid_value = (
-                int(row.get("balance", 0) or 0)
-                + int(row.get("bank", 0) or 0)
-                + int(row.get("deposit_amount", 0) or 0)
-            )
+            liquid_value = Database._user_total_balance(row)
             house_values = _house_net_worth(row.get("game_stats"))
             business_values = _business_net_worth(row.get("businesses"))
             row_total = liquid_value + sum(house_values.values()) + sum(business_values.values())
 
-            entry["balance_value"] += liquid_value
-            entry["house_value"] += house_values["house_value"]
-            entry["basement_value"] += house_values["basement_value"]
-            entry["gpu_value"] += house_values["gpu_value"]
-            entry["furniture_value"] += house_values["furniture_value"]
-            entry["business_value"] += business_values["business_value"]
-            entry["business_upgrade_value"] += business_values["business_upgrade_value"]
-            entry["net_worth"] += row_total
+            entries.append(
+                {
+                    "user_id": user_id,
+                    "username": username_map.get(user_id, str(row.get("username") or f"User {user_id}")),
+                    "net_worth": row_total,
+                    "balance_value": liquid_value,
+                    "house_value": house_values["house_value"],
+                    "basement_value": house_values["basement_value"],
+                    "gpu_value": house_values["gpu_value"],
+                    "furniture_value": house_values["furniture_value"],
+                    "business_value": business_values["business_value"],
+                    "business_upgrade_value": business_values["business_upgrade_value"],
+                }
+            )
 
-            if user_id in username_map:
-                entry["username"] = username_map[user_id]
-
-        entries = sorted(aggregated.values(), key=lambda item: int(item.get("net_worth", 0) or 0), reverse=True)
+        entries = sorted(entries, key=lambda item: int(item.get("net_worth", 0) or 0), reverse=True)
         for index, entry in enumerate(entries[: max(1, limit)], start=1):
             entry["rank"] = index
         return entries[: max(1, limit)]
@@ -953,54 +1198,42 @@ class Database:
     ) -> List[Dict[str, Any]]:
         from utils import count_owned_businesses
 
-        aggregated: Dict[int, Dict[str, Any]] = {}
-        for row in user_rows:
+        rows: List[Dict[str, Any]] = []
+        for row in Database._dedupe_user_rows(user_rows):
             raw_user_id = row.get("user_id")
             if raw_user_id is None:
                 continue
 
             user_id = int(raw_user_id)
-            entry = aggregated.setdefault(
-                user_id,
-                {
-                    "user_id": user_id,
-                    "username": str(row.get("username") or f"User {user_id}"),
-                    "total_balance": 0,
-                    "gems_balance": 0,
-                    "vip_level": 0,
-                    "total_games_played": 0,
-                    "total_wins": 0,
-                    "businesses_owned": 0,
-                    "weekly_money": 0,
-                    "weekly_gems": 0,
-                    "weekly_games": 0,
-                    "weekly_wins": 0,
-                    "weekly_businesses": 0,
-                },
-            )
-
-            entry["total_balance"] += int(row.get("balance", 0) or 0)
-            entry["total_balance"] += int(row.get("bank", 0) or 0)
-            entry["total_balance"] += int(row.get("deposit_amount", 0) or 0)
-            entry["gems_balance"] += int(row.get("gems", 0) or 0)
-            entry["vip_level"] = max(entry["vip_level"], int(row.get("vip_level", 0) or 0))
-            entry["total_games_played"] += int(row.get("games_played", 0) or 0)
-            entry["businesses_owned"] += count_owned_businesses(row.get("businesses", {}))
+            entry = {
+                "user_id": user_id,
+                "username": str(row.get("username") or f"User {user_id}"),
+                "total_balance": Database._user_total_balance(row),
+                "gems_balance": _safe_int(row.get("gems"), 0),
+                "vip_level": _safe_int(row.get("vip_level"), 0),
+                "total_games_played": _safe_int(row.get("games_played"), 0),
+                "total_wins": 0,
+                "businesses_owned": count_owned_businesses(row.get("businesses", {})),
+                "weekly_money": 0,
+                "weekly_gems": 0,
+                "weekly_games": 0,
+                "weekly_wins": 0,
+                "weekly_businesses": 0,
+            }
 
             game_stats = row.get("game_stats") or {}
             if isinstance(game_stats, dict):
                 for stats in game_stats.values():
                     if isinstance(stats, dict):
-                        entry["total_wins"] += int(stats.get("won", 0) or 0)
+                        entry["total_wins"] += _safe_int(stats.get("won"), 0)
 
             weekly = extract_weekly_snapshot(row)
-            entry["weekly_money"] += int(weekly.get("money_earned", 0) or 0)
-            entry["weekly_gems"] += int(weekly.get("gems_earned", 0) or 0)
-            entry["weekly_games"] += int(weekly.get("games_played", 0) or 0)
-            entry["weekly_wins"] += int(weekly.get("games_won", 0) or 0)
-            entry["weekly_businesses"] += int(weekly.get("business_cycles", 0) or 0)
-
-        rows = list(aggregated.values())
+            entry["weekly_money"] = _safe_int(weekly.get("money_earned"), 0)
+            entry["weekly_gems"] = _safe_int(weekly.get("gems_earned"), 0)
+            entry["weekly_games"] = _safe_int(weekly.get("games_played"), 0)
+            entry["weekly_wins"] = _safe_int(weekly.get("games_won"), 0)
+            entry["weekly_businesses"] = _safe_int(weekly.get("business_cycles"), 0)
+            rows.append(entry)
 
         if scope == "weekly":
             if metric == "gems":

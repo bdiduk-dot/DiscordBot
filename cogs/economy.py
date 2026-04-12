@@ -11,7 +11,9 @@ from discord.ext import commands
 from economy_events import CRIME_POOL, SLUT_POOL, WORK_POOL
 from config import ADMIN_IDS, BUSINESSES, COLORS, get_rank, get_vip_level
 from database import db, get_user_lock
+from inventory_system import find_fish_item, get_fish_items
 from progression import (
+    PROFILE_THEMES,
     PROFILE_TITLES,
     SEASON_NAME,
     battle_pass_progress_to_next,
@@ -19,10 +21,12 @@ from progression import (
     ensure_battle_pass_state,
     get_profile_state,
     get_profile_theme_color,
+    get_profile_theme_image,
     get_profile_title_text,
     get_reputation,
     reputation_crime_bonus,
     reputation_label,
+    set_active_theme,
     set_active_title,
     set_favorite_catch,
 )
@@ -35,6 +39,7 @@ from utils import (
     has_active_shield,
     record_player_progress,
     safe_defer,
+    safe_edit_original_response,
     schedule_message_cleanup,
     send_wrong_channel_message,
 )
@@ -134,8 +139,12 @@ class ProfileView(discord.ui.View):
             if member is None:
                 await interaction.response.send_message("Игрок не найден.", ephemeral=True)
                 return
-            view = ProfileCustomizeView(self.cog, self.user_id, self.guild_id, self.target_id)
-            embed = await self.cog.build_profile_customize_embed(member, self.guild_id)
+            user = await db.get_user(self.target_id, self.guild_id)
+            if not user:
+                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                return
+            view = ProfileCustomizeView(self.cog, self.user_id, self.guild_id, self.target_id, user)
+            embed = await self.cog.build_profile_customize_embed(member, self.guild_id, user=user)
             await interaction.response.edit_message(embed=embed, view=view)
             await view._remember_message(interaction)
 
@@ -166,6 +175,23 @@ class ProfileView(discord.ui.View):
             embed = await self.cog.build_profile_embed(member, self.guild_id)
             await interaction.response.edit_message(embed=embed, view=self)
             await self._remember_message(interaction)
+
+    @discord.ui.button(label="Настройки", style=discord.ButtonStyle.secondary, row=0)
+    async def settings_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            user_cog = self.cog.bot.get_cog("User")
+            if user_cog is None:
+                await interaction.response.send_message("Система настроек сейчас недоступна.", ephemeral=True)
+                return
+            embed = await user_cog.build_settings_embed(interaction.user, self.guild_id)
+            view = user_cog.make_settings_view(
+                user_id=self.user_id,
+                guild_id=self.guild_id,
+                profile_cog=self.cog,
+                profile_target_id=self.target_id,
+            )
+            await interaction.response.edit_message(embed=embed, view=view)
+            await view._remember_message(interaction)
 
 
     async def on_timeout(self):
@@ -234,44 +260,14 @@ class WorkChoiceView(discord.ui.View):
         if index >= len(self.choices):
             await interaction.response.send_message("Этот вариант сейчас недоступен.", ephemeral=True)
             return
-        choice = self.choices[index]
-        async with get_user_lock(self.user_id):
-            user = await db.get_user(self.user_id, self.guild_id)
-            if not user:
-                await interaction.response.send_message("Ошибка загрузки профиля.", ephemeral=True)
-                return
-            now = datetime.now(timezone.utc)
-            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
-            cooldown_minutes = int(10 * (1 - vip["cooldown_reduction"]))
-            if user.get("last_work"):
-                last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
-                if now - last_work < timedelta(minutes=cooldown_minutes):
-                    next_work_at = last_work + timedelta(minutes=cooldown_minutes)
-                    await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
-                    return
-            salary = random.randint(int(choice["reward_min"]), int(choice["reward_max"]))
-            if vip["daily_bonus"] > 1:
-                salary = int(salary * vip["daily_bonus"])
-            event_multiplier, active_event = self.cog._market_multiplier(self.guild_id, "economy")
-            if event_multiplier > 1:
-                salary = int(salary * event_multiplier)
-            user["balance"] = int(user.get("balance", 0) or 0) + salary
-            user["last_work"] = now.isoformat()
-            await db.update_user(self.user_id, self.guild_id, user)
-
-        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "work", 1))
-        asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "earn", salary))
-        asyncio.create_task(self.cog._progress_contracts(self.user_id, self.guild_id, "work", 1))
-        asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="work", amount=1, money=salary))
-
-        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
-        embed = create_embed(
-            "💼 РАБОТА ВЫПОЛНЕНА",
-            f"{choice['summary']}\n\n✅ Получено: `{format_money(salary)}`\n💰 Баланс: `{format_money(user['balance'])}`{event_note}",
-            COLORS["success"],
-        )
-        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
+        success, payload = await self.cog._run_work_once(self.user_id, self.guild_id, choice=self.choices[index])
+        if not success:
+            if isinstance(payload, discord.Embed):
+                await interaction.response.send_message(embed=payload, ephemeral=True)
+            else:
+                await interaction.response.send_message(str(payload), ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=payload, view=None)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)
 
@@ -314,15 +310,26 @@ class CrimeChoiceView(discord.ui.View):
                 pass
             schedule_message_cleanup(self.message, delay_seconds=0)
 
+    async def _remember_message(self, interaction: discord.Interaction) -> None:
+        self.message = interaction.message or self.message
+        if self.message is not None:
+            return
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = None
+
     async def _resolve(self, interaction: discord.Interaction, index: int):
+        if not await safe_defer(interaction):
+            return
         if index >= len(self.choices):
-            await interaction.response.send_message("Этот вариант сейчас недоступен.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Этот вариант сейчас недоступен.", embed=None, view=None)
             return
         choice = self.choices[index]
         async with get_user_lock(self.user_id):
             user = await db.get_user(self.user_id, self.guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                await safe_edit_original_response(interaction, content="Не удалось загрузить профиль.", embed=None, view=None)
                 return
             now = datetime.now(timezone.utc)
             vip = get_vip_level(int(user.get("vip_level", 0) or 0))
@@ -331,7 +338,12 @@ class CrimeChoiceView(discord.ui.View):
                 last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
                 if now - last_crime < timedelta(minutes=cooldown_minutes):
                     next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
-                    await interaction.response.send_message(f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.", ephemeral=True)
+                    await safe_edit_original_response(
+                        interaction,
+                        content=f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.",
+                        embed=None,
+                        view=None,
+                    )
                     return
             reputation = get_reputation(user)
             success_rate = max(0.15, min(0.92, float(choice["success_rate"]) + reputation_crime_bonus(reputation)))
@@ -375,8 +387,19 @@ class CrimeChoiceView(discord.ui.View):
                     )
                     color = COLORS["error"]
                     asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-6, crime_runs=1))
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.cog.bot.get_cog("EasterEvent")
+            easter_payload = grant_easter_drops(
+                user,
+                "crime",
+                guild_state=easter_cog.get_cached_guild_state(self.guild_id) if easter_cog else None,
+            )
+            easter_lines = list(easter_payload["lines"])
             user["last_crime"] = now.isoformat()
             await db.update_user(self.user_id, self.guild_id, user)
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(self.guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
         asyncio.create_task(check_quest_progress(self.user_id, self.guild_id, "crime", 1))
         asyncio.create_task(self.cog._progress_contracts(self.user_id, self.guild_id, "crime", 1))
@@ -384,8 +407,10 @@ class CrimeChoiceView(discord.ui.View):
         event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
         embed = create_embed("🕵️ ПРЕСТУПЛЕНИЕ", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
-        self.message = interaction.message or self.message
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
+        await safe_edit_original_response(interaction, content=None, embed=embed, view=None)
+        await self._remember_message(interaction)
         schedule_message_cleanup(self.message)
 
     @discord.ui.button(label="Риск 1", style=discord.ButtonStyle.danger, row=0)
@@ -402,7 +427,14 @@ class CrimeChoiceView(discord.ui.View):
 
 
 class ProfileCustomizeView(discord.ui.View):
-    def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int):
+    def __init__(
+        self,
+        cog: "EconomyCog",
+        user_id: int,
+        guild_id: int,
+        target_id: int,
+        user_snapshot: dict[str, Any],
+    ):
         super().__init__(timeout=120)
         self.cog = cog
         self.user_id = user_id
@@ -410,7 +442,13 @@ class ProfileCustomizeView(discord.ui.View):
         self.target_id = target_id
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
-        self.remove_item(self.theme_btn)
+        self.profile = get_profile_state(user_snapshot)
+        self.fish_items = sorted(
+            get_fish_items(user_snapshot),
+            key=lambda item: int(item.get("id", 0) or 0),
+            reverse=True,
+        )
+        self._build_dynamic_items()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -424,107 +462,180 @@ class ProfileCustomizeView(discord.ui.View):
         except Exception:
             self.message = interaction.message or self.message
 
-    async def refresh_message(self):
-        if self.message is None:
-            return
-        member = self.message.guild.get_member(self.target_id) if self.message.guild else None
-        if member is None:
-            return
-        embed = await self.cog.build_profile_customize_embed(member, self.guild_id)
-        await self.message.edit(embed=embed, view=self)
-
-    async def _cycle_profile_value(self, interaction: discord.Interaction, *, mode: str):
-        async with self._view_lock:
-            async with get_user_lock(self.user_id):
-                user = await db.get_user(self.user_id, self.guild_id)
-                if not user:
-                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-                    return
-
-                profile = get_profile_state(user)
-                if mode == "title":
-                    owned = list(profile.get("owned_titles", []))
-                    current = str(profile.get("active_title", owned[0] if owned else "rookie"))
-                    if not owned:
-                        await interaction.response.send_message("У тебя пока нет титулов.", ephemeral=True)
-                        return
-                    next_key = owned[(owned.index(current) + 1) % len(owned)]
-                    set_active_title(user, next_key)
-                    message = f"Активный титул: **{PROFILE_TITLES[next_key]['name']}**"
-                else:
-                    message = "Новые титулы теперь покупаются через `/shop` во вкладке `Кастомизация`."
-
-                await db.update_user(self.user_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
-
-            member = interaction.guild.get_member(self.target_id) if interaction.guild else None
-            if member is None:
-                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
-                return
-            embed = await self.cog.build_profile_customize_embed(member, self.guild_id)
-            await interaction.response.edit_message(embed=embed, view=self)
-            await self._remember_message(interaction)
-            await interaction.followup.send(message, ephemeral=True)
-
-    @discord.ui.button(label="Сменить титул", style=discord.ButtonStyle.primary, row=0)
-    async def title_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._cycle_profile_value(interaction, mode="title")
-
-    @discord.ui.button(label="Где купить титулы", style=discord.ButtonStyle.secondary, row=0)
-    async def theme_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Новые титулы покупаются через `/shop` во вкладке `Кастомизация`.", ephemeral=True)
-
-    @discord.ui.button(label="Выбрать улов", style=discord.ButtonStyle.success, row=1)
-    async def catch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._view_lock:
-            async with get_user_lock(self.user_id):
-                user = await db.get_user(self.user_id, self.guild_id)
-                if not user:
-                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-                    return
-                fishing = (((user.get("game_stats") or {}).get("_systems") or {}).get("fishing") or {})
-                last_catch = fishing.get("last_catch")
-                if not isinstance(last_catch, dict) or not last_catch.get("name"):
-                    await interaction.response.send_message(
-                        "Сначала поймай рыбу через `/fish`, потом можно поставить последний улов в профиль.",
-                        ephemeral=True,
-                    )
-                    return
-                set_favorite_catch(user, last_catch)
-                await db.update_user(self.user_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
-
-            member = interaction.guild.get_member(self.target_id) if interaction.guild else None
-            if member is None:
-                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
-                return
-            embed = await self.cog.build_profile_customize_embed(member, self.guild_id)
-            await interaction.response.edit_message(embed=embed, view=self)
-            await self._remember_message(interaction)
-            await interaction.followup.send(
-                f"Любимый улов обновлён: **{last_catch.get('emoji', '')} {last_catch.get('name', 'Улов')}**.",
-                ephemeral=True,
+    def _build_dynamic_items(self) -> None:
+        title_options = [
+            discord.SelectOption(
+                label=PROFILE_TITLES[key]["name"][:100],
+                value=key,
+                description=(str(PROFILE_TITLES[key].get("display") or "") or "Базовый титул")[:100],
+                default=key == str(self.profile.get("active_title", "rookie")),
             )
+            for key in self.profile.get("owned_titles", [])
+            if key in PROFILE_TITLES
+        ]
+        if not title_options:
+            title_options = [discord.SelectOption(label="Нет доступных титулов", value="rookie", default=True)]
+        self.title_select = discord.ui.Select(
+            placeholder="Выбери активный титул",
+            options=title_options[:25],
+            row=0,
+            disabled=not bool(self.profile.get("owned_titles")),
+        )
+        self.title_select.callback = self._on_title_select
+        self.add_item(self.title_select)
 
-    @discord.ui.button(label="Сбросить улов", style=discord.ButtonStyle.secondary, row=1)
-    async def reset_catch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        theme_options = [
+            discord.SelectOption(
+                label=PROFILE_THEMES[key]["name"][:100],
+                value=key,
+                description=f"{PROFILE_THEMES[key]['name']} • ключ: {key}"[:100],
+                default=key == str(self.profile.get("active_theme", "classic")),
+            )
+            for key in self.profile.get("owned_themes", [])
+            if key in PROFILE_THEMES
+        ]
+        if not theme_options:
+            theme_options = [discord.SelectOption(label="Нет доступных фонов", value="classic", default=True)]
+        self.theme_select = discord.ui.Select(
+            placeholder="Выбери активный фон",
+            options=theme_options[:25],
+            row=1,
+            disabled=not bool(self.profile.get("owned_themes")),
+        )
+        self.theme_select.callback = self._on_theme_select
+        self.add_item(self.theme_select)
+
+        catch_options: list[discord.SelectOption] = []
+        for item in self.fish_items[:25]:
+            description = f"{item.get('rarity_name', 'Обычная')} • {format_money(item.get('price', 0))}"
+            catch_options.append(
+                discord.SelectOption(
+                    label=f"#{int(item.get('id', 0) or 0)} {str(item.get('name', 'Улов'))}"[:100],
+                    value=str(int(item.get("id", 0) or 0)),
+                    description=description[:100],
+                    emoji=str(item.get("emoji")) if item.get("emoji") else None,
+                )
+            )
+        if not catch_options:
+            catch_options = [discord.SelectOption(label="Улова в инвентаре пока нет", value="0", default=True)]
+        self.catch_select = discord.ui.Select(
+            placeholder="Выбери любимый улов из инвентаря",
+            options=catch_options,
+            row=2,
+            disabled=not bool(self.fish_items),
+        )
+        self.catch_select.callback = self._on_catch_select
+        self.add_item(self.catch_select)
+
+        self.catch_id_btn = discord.ui.Button(label="Выбрать по ID", style=discord.ButtonStyle.primary, row=3)
+        self.catch_id_btn.callback = self._open_catch_id_modal
+        self.add_item(self.catch_id_btn)
+
+        self.reset_catch_btn = discord.ui.Button(label="Сбросить улов", style=discord.ButtonStyle.secondary, row=3)
+        self.reset_catch_btn.callback = self._reset_catch
+        self.add_item(self.reset_catch_btn)
+
+        self.back_btn = discord.ui.Button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=4)
+        self.back_btn.callback = self._go_back
+        self.add_item(self.back_btn)
+
+    async def _rerender(self, interaction: discord.Interaction, *, notice: str | None = None) -> None:
+        member = interaction.guild.get_member(self.target_id) if interaction.guild else None
+        if member is None:
+            await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+            return
+        user = await db.get_user(self.target_id, self.guild_id)
+        if not user:
+            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            return
+        view = ProfileCustomizeView(self.cog, self.user_id, self.guild_id, self.target_id, user)
+        embed = await self.cog.build_profile_customize_embed(member, self.guild_id, user=user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        await view._remember_message(interaction)
+        if notice:
+            await interaction.followup.send(notice, ephemeral=True)
+
+    async def _refresh_from_modal(self, interaction: discord.Interaction, *, notice: str) -> None:
+        member = interaction.guild.get_member(self.target_id) if interaction.guild else None
+        if member is None:
+            await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+            return
+        user = await db.get_user(self.target_id, self.guild_id)
+        if not user:
+            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            return
+        view = ProfileCustomizeView(self.cog, self.user_id, self.guild_id, self.target_id, user)
+        embed = await self.cog.build_profile_customize_embed(member, self.guild_id, user=user)
+        if self.message is not None:
+            await self.message.edit(embed=embed, view=view)
+            view.message = self.message
+        await interaction.response.send_message(notice, ephemeral=True)
+
+    async def _on_title_select(self, interaction: discord.Interaction) -> None:
         async with self._view_lock:
-            async with get_user_lock(self.user_id):
-                user = await db.get_user(self.user_id, self.guild_id)
+            selected_key = self.title_select.values[0] if self.title_select.values else ""
+            async with get_user_lock(self.target_id):
+                user = await db.get_user(self.target_id, self.guild_id)
+                if not user:
+                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if not set_active_title(user, selected_key):
+                    await interaction.response.send_message("Этот титул пока недоступен.", ephemeral=True)
+                    return
+                await db.update_user(self.target_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
+            title_name = PROFILE_TITLES.get(selected_key, {}).get("name", selected_key)
+            await self._rerender(interaction, notice=f"Активный титул: **{title_name}**")
+
+    async def _on_theme_select(self, interaction: discord.Interaction) -> None:
+        async with self._view_lock:
+            selected_key = self.theme_select.values[0] if self.theme_select.values else ""
+            async with get_user_lock(self.target_id):
+                user = await db.get_user(self.target_id, self.guild_id)
+                if not user:
+                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if not set_active_theme(user, selected_key):
+                    await interaction.response.send_message("Этот фон пока недоступен.", ephemeral=True)
+                    return
+                await db.update_user(self.target_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
+            theme_name = PROFILE_THEMES.get(selected_key, {}).get("name", selected_key)
+            await self._rerender(interaction, notice=f"Активный фон: **{theme_name}**")
+
+    async def _on_catch_select(self, interaction: discord.Interaction) -> None:
+        async with self._view_lock:
+            selected_raw = self.catch_select.values[0] if self.catch_select.values else "0"
+            if not str(selected_raw).isdigit() or int(selected_raw) <= 0:
+                await interaction.response.send_message("Выбери рыбу из списка или укажи её ID вручную.", ephemeral=True)
+                return
+            fish_id = int(selected_raw)
+            async with get_user_lock(self.target_id):
+                user = await db.get_user(self.target_id, self.guild_id)
+                if not user:
+                    await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                fish_item = find_fish_item(user, fish_id)
+                if fish_item is None:
+                    await interaction.response.send_message("Рыба с таким ID не найдена в инвентаре.", ephemeral=True)
+                    return
+                set_favorite_catch(user, fish_item)
+                await db.update_user(self.target_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
+            await self._rerender(interaction, notice=f"Любимый улов обновлён: **{fish_item.get('emoji', '')} {fish_item.get('name', 'Улов')}**.")
+
+    async def _open_catch_id_modal(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(FavoriteCatchIdModal(self))
+
+    async def _reset_catch(self, interaction: discord.Interaction) -> None:
+        async with self._view_lock:
+            async with get_user_lock(self.target_id):
+                user = await db.get_user(self.target_id, self.guild_id)
                 if not user:
                     await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
                     return
                 set_favorite_catch(user, None)
-                await db.update_user(self.user_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
+                await db.update_user(self.target_id, self.guild_id, {"game_stats": user.get("game_stats", {})})
+            await self._rerender(interaction, notice="Любимый улов сброшен.")
 
-            member = interaction.guild.get_member(self.target_id) if interaction.guild else None
-            if member is None:
-                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
-                return
-            embed = await self.cog.build_profile_customize_embed(member, self.guild_id)
-            await interaction.response.edit_message(embed=embed, view=self)
-            await self._remember_message(interaction)
-
-    @discord.ui.button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=2)
-    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def _go_back(self, interaction: discord.Interaction) -> None:
         async with self._view_lock:
             member = interaction.guild.get_member(self.target_id) if interaction.guild else None
             if member is None:
@@ -534,7 +645,6 @@ class ProfileCustomizeView(discord.ui.View):
             embed = await self.cog.build_profile_embed(member, self.guild_id)
             await interaction.response.edit_message(embed=embed, view=view)
             await view._remember_message(interaction)
-
 
     async def on_timeout(self):
         for child in self.children:
@@ -547,6 +657,42 @@ class ProfileCustomizeView(discord.ui.View):
                 pass
             schedule_message_cleanup(self.message, delay_seconds=0)
 
+
+class FavoriteCatchIdModal(discord.ui.Modal):
+    fish_id = discord.ui.TextInput(
+        label="ID рыбы",
+        placeholder="Например: 555",
+        required=True,
+        max_length=12,
+    )
+
+    def __init__(self, parent_view):
+        super().__init__(title="Выбор улова по ID")
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw_value = str(self.fish_id.value or "").strip().lstrip("#")
+        if not raw_value.isdigit():
+            await interaction.response.send_message("Нужен числовой ID рыбы.", ephemeral=True)
+            return
+
+        fish_id = int(raw_value)
+        async with get_user_lock(self.parent_view.target_id):
+            user = await db.get_user(self.parent_view.target_id, self.parent_view.guild_id)
+            if not user:
+                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                return
+            fish_item = find_fish_item(user, fish_id)
+            if fish_item is None:
+                await interaction.response.send_message("Рыба с таким ID не найдена в инвентаре.", ephemeral=True)
+                return
+            set_favorite_catch(user, fish_item)
+            await db.update_user(self.parent_view.target_id, self.parent_view.guild_id, {"game_stats": user.get("game_stats", {})})
+
+        await self.parent_view._refresh_from_modal(
+            interaction,
+            notice=f"Любимый улов обновлён: **{fish_item.get('emoji', '')} {fish_item.get('name', 'Улов')}**.",
+        )
 
 class ProfileInfoView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int, *, section: str):
@@ -609,6 +755,80 @@ class EconomyCog(commands.Cog, name="Economy"):
         systems_cog = self.bot.get_cog("Systems")
         if systems_cog is not None:
             await systems_cog.progress_contracts(user_id, guild_id, code, amount)
+
+    @staticmethod
+    def _work_cooldown_minutes(user: dict[str, Any]) -> int:
+        vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+        return int(10 * (1 - vip["cooldown_reduction"]))
+
+    async def _run_work_once(
+        self,
+        user_id: int,
+        guild_id: int,
+        *,
+        choice: dict[str, Any] | None = None,
+    ) -> tuple[bool, discord.Embed | str]:
+        selected_choice = choice or random.choice(WORK_POOL)
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Ошибка загрузки профиля."
+
+            now = datetime.now(timezone.utc)
+            vip = get_vip_level(int(user.get("vip_level", 0) or 0))
+            cooldown_minutes = self._work_cooldown_minutes(user)
+            if user.get("last_work"):
+                try:
+                    last_work = datetime.fromisoformat(str(user["last_work"]))
+                except ValueError:
+                    last_work = now - timedelta(minutes=cooldown_minutes)
+                if last_work.tzinfo is None:
+                    last_work = last_work.replace(tzinfo=timezone.utc)
+                else:
+                    last_work = last_work.astimezone(timezone.utc)
+                if now - last_work < timedelta(minutes=cooldown_minutes):
+                    next_work_at = last_work + timedelta(minutes=cooldown_minutes)
+                    return False, f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}."
+
+            salary = random.randint(int(selected_choice["reward_min"]), int(selected_choice["reward_max"]))
+            if vip["daily_bonus"] > 1:
+                salary = int(salary * vip["daily_bonus"])
+
+            event_multiplier, active_event = self._market_multiplier(guild_id, "economy")
+            if event_multiplier > 1:
+                salary = int(salary * event_multiplier)
+
+            from easter_event import grant_easter_drops, maybe_apply_easter_work_bonus
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            salary = maybe_apply_easter_work_bonus(user, salary)
+            user["balance"] = int(user.get("balance", 0) or 0) + salary
+            easter_payload = grant_easter_drops(
+                user,
+                "work",
+                guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
+            )
+            easter_lines = list(easter_payload["lines"])
+            user["last_work"] = now.isoformat()
+            await db.update_user(user_id, guild_id, user)
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(guild_id, int(easter_payload.get("server_points", 0) or 0)))
+
+        asyncio.create_task(check_quest_progress(user_id, guild_id, "work", 1))
+        asyncio.create_task(check_quest_progress(user_id, guild_id, "earn", salary))
+        asyncio.create_task(self._progress_contracts(user_id, guild_id, "work", 1))
+        asyncio.create_task(record_player_progress(user_id, guild_id, action="work", amount=1, money=salary))
+
+        event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
+        embed = create_embed(
+            "💼 РАБОТА ВЫПОЛНЕНА",
+            f"{selected_choice['summary']}\n\n✅ Получено: `{format_money(salary)}`\n💰 Баланс: `{format_money(user['balance'])}`{event_note}",
+            COLORS["success"],
+        )
+        embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
+        return True, embed
 
     async def build_profile_embed(self, target: discord.Member, guild_id: int) -> discord.Embed:
         user = await db.get_user(target.id, guild_id)
@@ -676,6 +896,9 @@ class EconomyCog(commands.Cog, name="Economy"):
         )
         embed.set_author(name=f"{admin_badge}{target.display_name}", icon_url=target.display_avatar.url)
         embed.set_thumbnail(url=target.display_avatar.url)
+        theme_image = get_profile_theme_image(user)
+        if theme_image:
+            embed.set_image(url=theme_image)
         embed.add_field(
             name="💳 Кошелёк",
             value=(
@@ -925,8 +1148,9 @@ class EconomyCog(commands.Cog, name="Economy"):
         vip_name = VIP_NAMES.get(vip["name"], vip["name"])
         vip_display = f"{vip['emoji']} {vip_name}".strip() if vip.get("emoji") else vip_name
 
+        header = f"{admin_badge}{target.display_name}" if not title_text else f"{admin_badge}{title_text} {target.display_name}"
         embed = discord.Embed(
-            title=f"{admin_badge}{title_text} {target.display_name}",
+            title=header.strip(),
             description=(
                 f"**Ранг:** {rank_name}\n"
                 f"**VIP:** {vip_display}\n"
@@ -977,27 +1201,52 @@ class EconomyCog(commands.Cog, name="Economy"):
         embed.set_footer(text=f"ID игрока: {target.id}")
         return embed
 
-    async def build_profile_customize_embed(self, target: discord.Member, guild_id: int) -> discord.Embed:
-        user = await db.get_user(target.id, guild_id)
+    async def build_profile_customize_embed(self, target: discord.Member, guild_id: int, *, user: dict[str, Any] | None = None) -> discord.Embed:
+        user = user or await db.get_user(target.id, guild_id)
         if not user:
             return discord.Embed(title="Кастомизация", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
         profile = get_profile_state(user)
         active_title = str(profile.get("active_title", "rookie"))
+        active_theme = str(profile.get("active_theme", "classic"))
         favorite_catch = profile.get("favorite_catch")
+        fish_items = sorted(get_fish_items(user), key=lambda item: int(item.get("id", 0) or 0), reverse=True)
 
         title_lines = [
             f"{'•' if key != active_title else '▶'} {PROFILE_TITLES[key]['name']}"
             for key in profile.get("owned_titles", [])
             if key in PROFILE_TITLES
         ] or ["Нет доступных титулов."]
+        theme_lines = [
+            f"{'•' if key != active_theme else '▶'} {PROFILE_THEMES[key]['name']} • `{key}`"
+            for key in profile.get("owned_themes", [])
+            if key in PROFILE_THEMES
+        ] or ["Нет доступных фонов."]
+        rarity_rank = {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4}
+        best_inventory_catch = (
+            max(
+                fish_items,
+                key=lambda item: (
+                    rarity_rank.get(str(item.get("rarity") or "common"), 0),
+                    int(item.get("price", 0) or 0),
+                    float(item.get("weight_kg", 0.0) or 0.0),
+                    int(item.get("id", 0) or 0),
+                ),
+            )
+            if fish_items
+            else None
+        )
 
         embed = discord.Embed(
             title="Профиль: кастомизация",
-            description="Меняй титул и выставляй любимый улов.",
+            description="Меняй титул, фон профиля и выставляй любимый улов через меню или по ID.",
             color=get_profile_theme_color(user, COLORS["info"]),
         )
+        theme_image = get_profile_theme_image(user)
         embed.add_field(name="Титулы", value="\n".join(title_lines[:10]), inline=False)
+        embed.add_field(name="Фоны", value="\n".join(theme_lines[:10]), inline=False)
+        if theme_image:
+            embed.set_image(url=theme_image)
         if favorite_catch:
             catch_text = (
                 f"{favorite_catch.get('emoji', '')} **{favorite_catch.get('name', 'Улов')}**\n"
@@ -1005,15 +1254,29 @@ class EconomyCog(commands.Cog, name="Economy"):
                 f"Цена: **{format_money(favorite_catch.get('price', 0))}**"
             )
         else:
-            catch_text = "Любимый улов не выбран. Нажми кнопку, чтобы поставить последний улов из `/fish`."
+            catch_text = "Любимый улов не выбран. Выбери рыбу в меню ниже или укажи её ID вручную."
         embed.add_field(name="Выбранный улов", value=catch_text, inline=False)
-        embed.set_footer(text="Кнопками ниже можно менять титул и ставить последний улов из `/fish`.")
+
+        if best_inventory_catch:
+            best_catch_text = (
+                f"`#{int(best_inventory_catch.get('id', 0) or 0)}` {best_inventory_catch.get('emoji', '')} **{best_inventory_catch.get('name', 'Улов')}**\n"
+                f"Редкость: **{best_inventory_catch.get('rarity_name', 'Обычная')}**\n"
+                f"Цена: **{format_money(best_inventory_catch.get('price', 0))}**"
+            )
+            embed.add_field(name="Один из лучших уловов", value=best_catch_text, inline=False)
+        else:
+            embed.add_field(name="Один из лучших уловов", value="Пока нет рыб для трофея. Сначала поймай их через `/fish`.", inline=False)
+
+        embed.set_footer(text="Ниже доступны отдельные меню для титула, фона и любимого улова. Для рыбы можно использовать список или ручной ID.")
         return embed
 
-    @app_commands.command(name="profile", description="Показать профиль")
+    @app_commands.command(name="profile", description="Show profile")
     async def profile(self, interaction: discord.Interaction, player: discord.Member = None):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
+            return
+
+        if not await safe_defer(interaction):
             return
 
         target = player or interaction.user
@@ -1021,8 +1284,12 @@ class EconomyCog(commands.Cog, name="Economy"):
         view = ProfileView(self, interaction.user.id, interaction.guild_id, target.id)
         if target.id != interaction.user.id:
             view.customize_btn.disabled = True
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=embed, view=view):
+            return
+        try:
+            view.message = await interaction.original_response()
+        except (discord.NotFound, discord.HTTPException):
+            view.message = interaction.message
         return
 
     @app_commands.command(name="daily", description="Забрать ежедневный бонус")
@@ -1077,10 +1344,21 @@ class EconomyCog(commands.Cog, name="Economy"):
                 streak_multiplier = 2
 
             final_bonus = int(bonus * streak_multiplier)
+            from easter_event import grant_easter_drops
+
             user["balance"] += final_bonus
             user["gems"] += gems
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_payload = grant_easter_drops(
+                user,
+                "daily",
+                guild_state=easter_cog.get_cached_guild_state(interaction.guild_id) if easter_cog else None,
+            )
+            easter_lines = list(easter_payload["lines"])
             user["last_daily"] = now.isoformat()
             await db.update_user(interaction.user.id, interaction.guild_id, user)
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(interaction.guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
         asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "earn", final_bonus))
         asyncio.create_task(
@@ -1107,16 +1385,20 @@ class EconomyCog(commands.Cog, name="Economy"):
         if active_event:
             embed.add_field(name="Событие", value=f"`{active_event['name']}`", inline=False)
         embed.add_field(name="Новый баланс", value=f"**{format_money(user['balance'])}**", inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(content=None, embed=embed)
 
-    @app_commands.command(name="work", description="Поработать и заработать деньги")
+    @app_commands.command(name="work", description="Work and earn money")
     async def work(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
+        if not await safe_defer(interaction):
+            return
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         if not user:
-            await interaction.response.send_message("Ошибка загрузки профиля.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Failed to load profile.", embed=None, view=None)
             return
         now = datetime.now(timezone.utc)
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
@@ -1125,34 +1407,35 @@ class EconomyCog(commands.Cog, name="Economy"):
             last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
             if now - last_work < timedelta(minutes=cooldown_minutes):
                 next_work_at = last_work + timedelta(minutes=cooldown_minutes)
-                await interaction.response.send_message(f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}.", ephemeral=True)
+                await safe_edit_original_response(
+                    interaction,
+                    content=f"Work will be available again {format_discord_deadline(next_work_at)}.",
+                    embed=None,
+                    view=None,
+                )
                 return
 
-        choices = random.sample(WORK_POOL, k=3)
-        embed = discord.Embed(
-            title="💼 Работа",
-            description="Выбери одну из трёх безопасных подработок. Успех всегда 100%.",
-            color=COLORS["success"],
+        success, payload = await self._run_work_once(
+            interaction.user.id,
+            interaction.guild_id,
+            choice=random.choice(WORK_POOL),
         )
-        for index, choice in enumerate(choices, start=1):
-            embed.add_field(
-                name=f"Вариант {index}",
-                value=f"{choice['summary']}\nОплата: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**",
-                inline=False,
-            )
-        embed.set_footer(text="После выбора награда сразу зачислится на баланс.")
-        view = WorkChoiceView(self, interaction.user.id, interaction.guild_id, choices)
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if isinstance(payload, discord.Embed):
+            await safe_edit_original_response(interaction, content=None, embed=payload, view=None)
+        else:
+            await safe_edit_original_response(interaction, content=str(payload), embed=None, view=None)
 
-    @app_commands.command(name="crime", description="Пойти на преступление ради денег")
-    async def crime(self, interaction: discord.Interaction):
+    @app_commands.command(name="crime", description="Commit a crime for money")
+    @app_commands.describe(risk="Pick risk 1, 2 or 3 without buttons")
+    async def crime(self, interaction: discord.Interaction, risk: app_commands.Range[int, 1, 3] | None = None):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
+        if not await safe_defer(interaction):
+            return
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         if not user:
-            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Failed to load profile.", embed=None, view=None)
             return
         now = datetime.now(timezone.utc)
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
@@ -1161,30 +1444,44 @@ class EconomyCog(commands.Cog, name="Economy"):
             last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
             if now - last_crime < timedelta(minutes=cooldown_minutes):
                 next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
-                await interaction.response.send_message(f"Следующая попытка будет доступна {format_discord_deadline(next_crime_at)}.", ephemeral=True)
+                await safe_edit_original_response(
+                    interaction,
+                    content=f"Crime will be available again {format_discord_deadline(next_crime_at)}.",
+                    embed=None,
+                    view=None,
+                )
                 return
 
         choices = random.sample(CRIME_POOL, k=3)
         embed = discord.Embed(
-            title="🕵️ Преступление",
-            description="Выбери один из трёх рисковых вариантов. На кнопках ниже — только выбор, подробности здесь.",
+            title="Crime",
+            description="Choose one of three risky options. Buttons below only select the option; details are shown here.",
             color=COLORS["error"],
         )
         for index, choice in enumerate(choices, start=1):
             embed.add_field(
-                name=f"Риск {index}",
+                name=f"Risk {index}",
                 value=(
                     f"{choice['summary']}\n"
-                    f"Шанс успеха: **{int(choice['success_rate'] * 100)}%**\n"
-                    f"Куш: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**\n"
-                    f"Штраф: **{format_money(choice['fine_min'])} - {format_money(choice['fine_max'])}**"
+                    f"Success chance: **{int(choice['success_rate'] * 100)}%**\n"
+                    f"Reward: **{format_money(choice['reward_min'])} - {format_money(choice['reward_max'])}**\n"
+                    f"Fine: **{format_money(choice['fine_min'])} - {format_money(choice['fine_max'])}**"
                 ),
                 inline=False,
             )
-        embed.set_footer(text="Выбор фиксирует попытку и запускает кулдаун.")
+        if risk is not None:
+            view = CrimeChoiceView(self, interaction.user.id, interaction.guild_id, choices)
+            await view._resolve(interaction, int(risk) - 1)
+            return
+
+        embed.set_footer(text="Selection starts the attempt and cooldown. You can also use /crime risk:1-3.")
         view = CrimeChoiceView(self, interaction.user.id, interaction.guild_id, choices)
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=embed, view=view):
+            return
+        try:
+            view.message = await interaction.original_response()
+        except (discord.NotFound, discord.HTTPException):
+            view.message = interaction.message
 
     @app_commands.command(name="slut", description="Рискованный способ быстро заработать")
     async def slut(self, interaction: discord.Interaction):
@@ -1247,8 +1544,19 @@ class EconomyCog(commands.Cog, name="Economy"):
                     )
                     color = COLORS["error"]
 
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_payload = grant_easter_drops(
+                user,
+                "slut",
+                guild_state=easter_cog.get_cached_guild_state(interaction.guild_id) if easter_cog else None,
+            )
+            easter_lines = list(easter_payload["lines"])
             user["last_slut"] = now.isoformat()
             await db.update_user(interaction.user.id, interaction.guild_id, user)
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(interaction.guild_id, int(easter_payload.get("server_points", 0) or 0)))
             asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "slut", 1))
             asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "slut", 1))
             if color == COLORS["success"]:
@@ -1267,6 +1575,8 @@ class EconomyCog(commands.Cog, name="Economy"):
         event_note = f"\n🔥 Событие: `{active_event['name']}`" if active_event else ""
         embed = create_embed("🔥 РИСКОВАННАЯ РАБОТА", f"{message}\n\n💰 Баланс: `{format_money(user['balance'])}`{event_note}", color)
         embed.add_field(name="Снова доступно", value=format_discord_deadline(now + timedelta(minutes=cooldown_minutes)), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(content=None, embed=embed)
         try:
             schedule_message_cleanup(await interaction.original_response())

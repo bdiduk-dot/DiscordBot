@@ -7,6 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.fishing import InventoryView as LegacyInventoryView
+from easter_event import EASTER_POND_ZONE_KEY, easter_pond_available
 from config import COLORS
 from utils import check_channel, safe_defer, safe_edit_original_response, send_wrong_channel_message
 
@@ -19,7 +20,7 @@ class InventoryV2View(LegacyInventoryView):
         self.fish_btn.label = "🐟 Рыба"
         self.gear_btn.label = "🎣 Снаряжение"
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.inventory_cog.build_inventory_embed(self.user_id, self.guild_id, self.active_tab, self.page)
         user, _, _, fish_items, general_items = await self.cog._inventory_snapshot(self.user_id, self.guild_id)
         self.sync_buttons(user, fish_items, general_items)
@@ -52,11 +53,15 @@ class InventoryCommandsCog(commands.Cog, name="InventoryUI"):
             return embed
 
         last_catch = fishing.get("last_catch") if isinstance(fishing.get("last_catch"), dict) else None
+        selected_zone = str(fishing.get('selected_zone', 'river_bank') or 'river_bank')
+        if selected_zone == EASTER_POND_ZONE_KEY and not easter_pond_available():
+            selected_zone = "river_bank"
+
         summary_lines = [
             f"Удочка: **{fishing_cog.display_rod_name(str(user.get('fishing_rod', 'none') or 'none'))}**",
             f"Снасть: **{fishing_cog.display_tackle_name(str(fishing.get('equipped_tackle', 'starter') or 'starter'))}**",
             f"Наживка: **{fishing_cog.display_bait_name(fishing.get('equipped_bait'))}**",
-            f"Зона: **{fishing_cog.display_zone_name(str(fishing.get('selected_zone', 'river_bank') or 'river_bank'))}**",
+            f"Зона: **{fishing_cog.display_zone_name(selected_zone)}**",
         ]
         if last_catch:
             summary_lines.append(

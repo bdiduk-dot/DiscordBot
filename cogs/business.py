@@ -739,7 +739,7 @@ class BusinessCog(commands.Cog, name="Business"):
                 guild_id = row.get("guild_id")
                 if not state["owned"] or not state["enabled"] or user_id is None or guild_id is None:
                     continue
-                await process_business_autocollect(int(user_id), int(guild_id))
+                await process_business_autocollect(int(user_id), int(guild_id), bot=self.bot)
         except Exception as exc:
             error_msg = str(exc)
             if "business_autocollect" in error_msg and ("does not exist" in error_msg or "schema cache" in error_msg):
@@ -1240,10 +1240,21 @@ class BusinessCog(commands.Cog, name="Business"):
 
             user["businesses"] = normalized_businesses
             user["balance"] += total_collected
+            from easter_event import grant_easter_drops
+
+            easter_cog = self.bot.get_cog("EasterEvent")
+            easter_payload = grant_easter_drops(
+                user,
+                "business_collect",
+                guild_state=easter_cog.get_cached_guild_state(guild_id) if easter_cog else None,
+            )
+            easter_lines = list(easter_payload["lines"])
             user.setdefault("quest_progress", {})
             user["quest_progress"]["collect_business"] = user["quest_progress"].get("collect_business", 0) + collected_instances
             await db.update_user(user_id, guild_id, user)
             await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
+            if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                easter_lines.extend(await easter_cog.apply_server_progress(guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
         asyncio.create_task(check_quest_progress(user_id, guild_id, "collect_business", collected_instances))
         asyncio.create_task(
@@ -1286,6 +1297,8 @@ class BusinessCog(commands.Cog, name="Business"):
             )
         embed.add_field(name="Разбивка", value="\n".join(summary_lines), inline=False)
         embed.add_field(name="Новый баланс", value=f"**{format_money(user['balance'])}**", inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         return True, embed
 
     @app_commands.command(name="businesses", description="Посмотреть бизнесы для покупки")

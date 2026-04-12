@@ -24,7 +24,7 @@ DEFAULT_TITLE = "rookie"
 DEFAULT_THEME = "classic"
 
 PROFILE_TITLES: dict[str, dict[str, Any]] = {
-    "rookie": {"name": "Новичок", "display": "[ROOKIE]"},
+    "rookie": {"name": "Новичок", "display": ""},
     "neon_runner": {"name": "Неоновый бегун", "display": "< NEON RUNNER >"},
     "shadow_broker": {"name": "Теневой брокер", "display": "{ SHADOW BROKER }"},
     "tideborn": {"name": "Дитя прилива", "display": "~ TIDEBORN ~"},
@@ -39,14 +39,54 @@ PROFILE_TITLES: dict[str, dict[str, Any]] = {
     "fish_psychic": {"name": "Рыбный телепат", "display": "<< FISH PSYCHIC >>"},
     "panic_investor": {"name": "Паник-инвестор", "display": "[ PANIC INVESTOR ]"},
     "sofa_tycoon": {"name": "Диванный магнат", "display": "< SOFA TYCOON >"},
+    "easter_hunter": {"name": "Охотник за яйцами", "display": "{ EASTER HUNTER }"},
+    "spring_chronicler": {"name": "Летописец весны", "display": "[ SPRING CHRONICLER ]"},
+    "easter_secret_keeper": {"name": "Хранитель пасхальных тайн", "display": "{ EASTER KEEPER }"},
+    "spring_archivist": {"name": "Архивариус весны", "display": "<< SPRING ARCHIVIST >>"},
 }
 
 PROFILE_THEMES: dict[str, dict[str, Any]] = {
     "classic": {"name": "Классика", "color": 0x3498DB},
-    "neon": {"name": "Неон", "color": 0x00D1B2},
-    "ember": {"name": "Янтарь", "color": 0xE67E22},
-    "royal": {"name": "Королевская", "color": 0xD4AF37},
-    "abyss": {"name": "Бездна", "color": 0x5B6CFF},
+    "neon": {
+        "name": "Frost",
+        "color": 0xCFEAFF,
+        "image_url": "https://i.pinimg.com/originals/fa/ae/65/faae656df5906380cdd8323b4b42145a.gif",
+    },
+    "ember": {
+        "name": "Bloom",
+        "color": 0xF3A7D6,
+        "image_url": "https://i.pinimg.com/originals/28/c4/1f/28c41f4bffc8cb5f711d2474006ca5bb.gif",
+    },
+    "royal": {
+        "name": "Mist",
+        "color": 0x9BE3DC,
+        "image_url": "https://i.pinimg.com/originals/fc/20/f7/fc20f7d47033b4f56538842a0a350ddd.gif",
+    },
+    "abyss": {
+        "name": "Abyss",
+        "color": 0x26305F,
+        "image_url": "https://i.pinimg.com/736x/df/75/6f/df756fd3fe216c16dcf4a183e55dc840.jpg",
+    },
+    "void": {
+        "name": "Void",
+        "color": 0x2E1A47,
+        "image_url": "https://i.pinimg.com/originals/dd/3d/40/dd3d40b02db42630c4952fe1c6b819ba.gif",
+    },
+    "mint_bunny": {
+        "name": "Mint Bunny",
+        "color": 0xA8E6CF,
+        "image_url": "https://i.pinimg.com/originals/7d/b3/89/7db389786b7754560cb38796784295b4.gif",
+    },
+    "moon_hare": {
+        "name": "Moon Hare",
+        "color": 0xC7C3FF,
+        "image_url": "https://i.pinimg.com/originals/44/16/b0/4416b0ca2b067c5a4fa5dc1d1cfa17cf.gif",
+    },
+    "sakura": {
+        "name": "Sakura",
+        "color": 0xFFB6C1,
+        "image_url": "https://i.pinimg.com/736x/e3/d9/a9/e3d9a9830de5dce351cfeeeec52b7b46.jpg",
+    },
 }
 
 SEASON_FREE_REWARDS: list[dict[str, Any]] = [
@@ -487,13 +527,25 @@ def set_favorite_catch(user: dict[str, Any], fish_item: dict[str, Any] | None):
 def get_profile_title_text(user: dict[str, Any]) -> str:
     profile = get_profile_state(user)
     title_key = str(profile.get("active_title", DEFAULT_TITLE) or DEFAULT_TITLE)
-    return PROFILE_TITLES.get(title_key, PROFILE_TITLES[DEFAULT_TITLE])["display"]
+    if title_key == DEFAULT_TITLE:
+        return ""
+    return str(PROFILE_TITLES.get(title_key, PROFILE_TITLES[DEFAULT_TITLE]).get("display") or "").strip()
 
 
 def get_profile_theme_color(user: dict[str, Any], fallback: int) -> int:
     profile = get_profile_state(user)
     theme_key = str(profile.get("active_theme", DEFAULT_THEME) or DEFAULT_THEME)
     return int(PROFILE_THEMES.get(theme_key, PROFILE_THEMES[DEFAULT_THEME])["color"] or fallback)
+
+
+def get_profile_theme_image(user: dict[str, Any]) -> str | None:
+    profile = get_profile_state(user)
+    theme_key = str(profile.get("active_theme", DEFAULT_THEME) or DEFAULT_THEME)
+    theme = PROFILE_THEMES.get(theme_key, PROFILE_THEMES[DEFAULT_THEME])
+    image_url = theme.get("image_url")
+    if not image_url:
+        return None
+    return str(image_url)
 
 
 def reward_text(reward: dict[str, Any]) -> str:

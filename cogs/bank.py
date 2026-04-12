@@ -10,7 +10,14 @@ from discord.ext import commands
 
 from config import COLORS
 from database import db, get_user_lock
-from utils import check_channel, format_discord_deadline, schedule_message_cleanup, send_wrong_channel_message
+from utils import (
+    check_channel,
+    format_discord_deadline,
+    safe_defer,
+    safe_edit_original_response,
+    schedule_message_cleanup,
+    send_wrong_channel_message,
+)
 
 DEPOSIT_TERMS: dict[str, dict[str, Any]] = {
     "1d": {"days": 1, "rate": 0.02, "label": "1 день"},
@@ -556,20 +563,28 @@ class BankCog(commands.Cog, name="Bank"):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
             return
+        if not await safe_defer(interaction):
+            return
 
         target = player or interaction.user
         user = await db.get_user(target.id, interaction.guild_id)
         if not user:
-            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Не удалось загрузить профиль.", embed=None, view=None)
             return
 
         if target.id != interaction.user.id:
-            await interaction.response.send_message(embed=build_bank_embed(user, member=target, read_only=True))
+            await safe_edit_original_response(
+                interaction,
+                content=None,
+                embed=build_bank_embed(user, member=target, read_only=True),
+                view=None,
+            )
             return
 
         view = BankView(interaction.user.id, interaction.guild_id, user)
-        await interaction.response.send_message(embed=view.build_embed(), view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=view.build_embed(), view=view):
+            return
+        view.message = await remember_interaction_message(interaction, view.message)
 
     @app_commands.command(name="transfer", description="Перевести деньги другому игроку")
     async def transfer(self, interaction: discord.Interaction, recipient: discord.Member, amount: int):

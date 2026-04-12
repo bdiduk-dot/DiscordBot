@@ -39,6 +39,7 @@ FISHING_BAITS: dict[str, dict[str, Any]] = {
     "worms": {"name": "Черви", "price": 1200, "gems": 0, "bundle": 5, "rarity_bonus": {"uncommon": 1.06, "rare": 1.04}, "chance_bonus": {"uncommon": 1.06, "rare": 1.04}, "value_bonus": 1.01, "weight_bonus": 1.01, "description": "Дешёвая наживка без долгого кд."},
     "shrimp": {"name": "Креветка", "price": 5200, "gems": 0, "bundle": 4, "rarity_bonus": {"rare": 1.10, "epic": 1.08}, "chance_bonus": {"rare": 1.10, "epic": 1.08}, "value_bonus": 1.05, "weight_bonus": 1.03, "description": "Средний вариант для дорогой рыбы."},
     "glow": {"name": "Светящаяся приманка", "price": 17500, "gems": 8, "bundle": 3, "rarity_bonus": {"epic": 1.16, "legendary": 1.18}, "chance_bonus": {"epic": 1.16, "legendary": 1.18}, "value_bonus": 1.10, "weight_bonus": 1.06, "description": "Топовая наживка для ночи и событий."},
+    "festive": {"name": "Праздничная приманка", "price": 0, "gems": 0, "bundle": 2, "rarity_bonus": {"epic": 1.16, "legendary": 1.20}, "chance_bonus": {"epic": 1.18, "legendary": 1.22}, "value_bonus": 1.10, "weight_bonus": 1.06, "description": "Ивентовая пасхальная наживка для пруда и редкого улова.", "event_only": True, "rotation_weight": 0.0},
 }
 
 FISHING_ZONES: dict[str, dict[str, Any]] = {
@@ -76,6 +77,7 @@ FISHING_BAITS = {
     "worms": {"name": "Черви", "price": 1200, "gems": 0, "bundle": 5, "rarity_bonus": {"uncommon": 1.10, "rare": 1.08}, "chance_bonus": {"uncommon": 1.12, "rare": 1.10}, "value_bonus": 1.03, "weight_bonus": 1.02, "boss_bonus": 1.0, "description": "Дешёвая наживка, но теперь заметно помогает по редкости улова."},
     "shrimp": {"name": "Креветка", "price": 5200, "gems": 0, "bundle": 4, "rarity_bonus": {"rare": 1.16, "epic": 1.12}, "chance_bonus": {"rare": 1.18, "epic": 1.14, "legendary": 1.04}, "value_bonus": 1.08, "weight_bonus": 1.05, "boss_bonus": 1.06, "description": "Сильнее тянет редкую и эпическую рыбу."},
     "glow": {"name": "Светящаяся приманка", "price": 17500, "gems": 8, "bundle": 3, "rarity_bonus": {"rare": 1.10, "epic": 1.24, "legendary": 1.28}, "chance_bonus": {"rare": 1.12, "epic": 1.26, "legendary": 1.34}, "value_bonus": 1.14, "weight_bonus": 1.08, "boss_bonus": 1.14, "description": "Топовая наживка для ночи, ивентов и легендарного улова."},
+    "festive": {"name": "Праздничная приманка", "price": 0, "gems": 0, "bundle": 2, "rarity_bonus": {"rare": 1.10, "epic": 1.24, "legendary": 1.28}, "chance_bonus": {"rare": 1.12, "epic": 1.26, "legendary": 1.34}, "value_bonus": 1.14, "weight_bonus": 1.08, "boss_bonus": 1.14, "description": "Ивентовая пасхальная наживка для пруда и редкого улова.", "event_only": True, "rotation_weight": 0.0},
 }
 
 FISHING_ZONES = {
@@ -434,12 +436,21 @@ _GENERATED_ZONE_PRICE_FACTOR = {
 }
 
 _GENERATED_EVENT_FLAVORS = {
-    "mist_bloom": ("Туманный", ["плеск", "карп", "лист", "ловец"]),
-    "sun_flash": ("Солнечный", ["резак", "луциан", "луч", "бриз"]),
-    "ember_tide": ("Угольный", ["клык", "жарник", "скат", "хищник"]),
-    "moon_hunt": ("Лунный", ["охотник", "призрак", "страж", "венец"]),
-    "crystal_echo": ("Кристальный", ["эхолист", "оракул", "блик", "шёпот"]),
-    "deep_alarm": ("Бездонный", ["зов", "разлом", "титан", "предвестник"]),
+    "mist_bloom": ("Туманный", ["плеск", "карп", "лист", "ловец", "венчик", "дымник", "ирис", "шёпот", "тростник"]),
+    "sun_flash": ("Солнечный", ["резак", "луциан", "луч", "бриз", "парусник", "зарник", "прибой", "солнечник", "сверк"]),
+    "ember_tide": ("Угольный", ["клык", "жарник", "скат", "хищник", "угорь", "пепел", "лавник", "копьё", "накат"]),
+    "moon_hunt": ("Лунный", ["охотник", "призрак", "страж", "венец", "сомнамбул", "коготь", "химероид", "след", "волкорыб"]),
+    "crystal_echo": ("Кристальный", ["эхолист", "оракул", "блик", "шёпот", "призма", "осколок", "стеклохвост", "хранитель", "отзвук"]),
+    "deep_alarm": ("Бездонный", ["зов", "разлом", "титан", "предвестник", "левиафан", "сумрак", "глашатай", "безмолвник", "страж"]),
+}
+
+_GENERATED_EVENT_VARIANTS = {
+    "mist_bloom": ["рассвета", "топей", "ивы", "серебряной дымки"],
+    "sun_flash": ["прилива", "полдня", "солнечной кромки", "жаркого бриза"],
+    "ember_tide": ["углей", "багровой волны", "искры", "пепельной ночи"],
+    "moon_hunt": ["полуночи", "тихой охоты", "лунной тени", "сумеречной тропы"],
+    "crystal_echo": ["эха", "грани", "светового излома", "преломления"],
+    "deep_alarm": ["разлома", "безмолвной бездны", "тревоги", "чёрной волны"],
 }
 
 
@@ -489,21 +500,23 @@ def _build_generated_event_species() -> list[dict[str, Any]]:
     zones_by_tag: dict[str, list[str]] = {}
     for zone_key, zone in FISHING_ZONES.items():
         zones_by_tag.setdefault(str(zone.get("tag")), []).append(zone_key)
-    rarity_cycle = ("uncommon", "rare", "epic", "legendary")
+    rarity_cycle = ("common", "uncommon", "rare", "epic", "legendary") * 4
     weight_ranges = {
+        "common": (0.32, 1.55, 1.04),
         "uncommon": (0.9, 3.4, 1.12),
         "rare": (1.6, 6.8, 1.18),
         "epic": (5.5, 18.5, 1.24),
         "legendary": (18.0, 70.0, 1.30),
     }
-    rarity_emoji = {"uncommon": "✨", "rare": "✨", "epic": "✨", "legendary": "✨"}
+    rarity_emoji = {"common": "🐟", "uncommon": "🐠", "rare": "🐡", "epic": "🦑", "legendary": "🐋"}
     for template in EVENT_TEMPLATES:
         prefix, nouns = _GENERATED_EVENT_FLAVORS[template["key"]]
+        variants = _GENERATED_EVENT_VARIANTS.get(template["key"], [""])
         template_zones: list[str] = []
         for tag in template.get("bonus_zone_tags", set()):
             template_zones.extend(zones_by_tag.get(str(tag), []))
         template_zones = list(dict.fromkeys(template_zones)) or ["river_bank"]
-        for index in range(4):
+        for index in range(len(rarity_cycle)):
             rarity = rarity_cycle[index]
             min_weight, max_weight, price_mult = weight_ranges[rarity]
             species_id = f"event_{template['key']}_{index + 1}"
@@ -513,7 +526,7 @@ def _build_generated_event_species() -> list[dict[str, Any]]:
             generated.append(
                 {
                     "id": species_id,
-                    "name": f"{prefix} {nouns[index % len(nouns)]}",
+                    "name": _generated_name(prefix, nouns[index % len(nouns)], variants[(index // len(nouns)) % len(variants)]),
                     "emoji": rarity_emoji[rarity],
                     "rarity": rarity,
                     "zones": [zone_key],

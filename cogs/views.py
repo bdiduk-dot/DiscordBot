@@ -12,6 +12,25 @@ def format_money(value: int) -> str:
     return f"${int(value):,}"
 
 
+def _game_user_update_payload(user: dict, *, include_inventory: bool = False) -> dict:
+    payload = {
+        "balance": user.get("balance", 0),
+        "gems": user.get("gems", 0),
+        "game_stats": user.get("game_stats", {}),
+        "games_played": user.get("games_played", 0),
+        "total_wagered": user.get("total_wagered", 0),
+        "last_game": user.get("last_game"),
+        "last_bet": user.get("last_bet", 0),
+        "total_won": user.get("total_won", 0),
+        "total_lost": user.get("total_lost", 0),
+        "win_streak": user.get("win_streak", 0),
+        "best_streak": user.get("best_streak", 0),
+    }
+    if include_inventory:
+        payload["inventory"] = user.get("inventory")
+    return payload
+
+
 class BlackjackGame:
     CARD_EMOJI = {
         "A": "<:Ace_Card:1486059838403383429>",
@@ -297,12 +316,14 @@ class BlackjackView(discord.ui.View):
         payout_amount = 0
         total_losses = 0
         hand_summaries: list[str] = []
+        any_natural_blackjack = False
 
         for index, hand in enumerate(self.game.player_hands, start=1):
             hand_cards = hand["cards"]
             hand_bet = int(hand["bet"])
             hand_value = self.game.hand_value(hand_cards)
             player_blackjack = self.game.is_natural_blackjack(hand_cards) and not bool(hand.get("split_from_pair"))
+            any_natural_blackjack = any_natural_blackjack or player_blackjack
 
             if hand_value > 21:
                 hand_result = "перебор"
@@ -366,6 +387,7 @@ class BlackjackView(discord.ui.View):
             result_text = "Поражение"
             color = COLORS["error"]
 
+        easter_lines: list[str] = []
         async with get_user_lock(self.game.user_id):
             user = await db.get_user(self.game.user_id, self.game.guild_id)
             if not user:
@@ -399,7 +421,28 @@ class BlackjackView(discord.ui.View):
             elif net_result < 0:
                 user["win_streak"] = 0
 
-            await db.update_user(self.game.user_id, self.game.guild_id, user)
+            if net_result > 0:
+                from easter_event import grant_easter_drops
+
+                easter_cog = interaction.client.get_cog("EasterEvent")
+                easter_payload = grant_easter_drops(
+                    user,
+                    "blackjack_win",
+                    guild_state=easter_cog.get_cached_guild_state(self.game.guild_id) if easter_cog else None,
+                    natural_blackjack=any_natural_blackjack,
+                )
+                easter_lines = list(easter_payload["lines"])
+                if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
+                    easter_lines.extend(await easter_cog.apply_server_progress(self.game.guild_id, int(easter_payload.get("server_points", 0) or 0)))
+
+            await db.update_user(
+                self.game.user_id,
+                self.game.guild_id,
+                _game_user_update_payload(user, include_inventory=True),
+            )
+            fresh_user = await db.get_user(self.game.user_id, self.game.guild_id)
+            if fresh_user:
+                user = fresh_user
 
         asyncio.create_task(
             record_player_progress(
@@ -427,6 +470,8 @@ class BlackjackView(discord.ui.View):
             f"Баланс: **{format_money(int(user.get('balance', 0)))}**"
         )
         embed.add_field(name="Результат по рукам", value="\n".join(hand_summaries), inline=False)
+        if easter_lines:
+            embed.add_field(name="Пасха 2026", value="\n".join(easter_lines), inline=False)
         await interaction.edit_original_response(embed=embed, view=self)
         self.message = interaction.message or self.message
         schedule_message_cleanup(self.message)
@@ -724,8 +769,8 @@ class BlackjackPvpInviteView(discord.ui.View):
 
                 challenger_user["balance"] -= self.bet
                 opponent_user["balance"] -= self.bet
-                await db.update_user(self.challenger.id, self.guild_id, challenger_user)
-                await db.update_user(self.opponent.id, self.guild_id, opponent_user)
+                await db.update_user(self.challenger.id, self.guild_id, {"balance": challenger_user["balance"]})
+                await db.update_user(self.opponent.id, self.guild_id, {"balance": opponent_user["balance"]})
 
         game = BlackjackPvpGame(self.challenger, self.opponent, self.guild_id, self.bet)
         view = BlackjackPvpView(game)
@@ -812,7 +857,11 @@ class BlackjackPvpView(discord.ui.View):
                     if not user:
                         continue
                     user["balance"] += self.game.bet
-                    await db.update_user(player["id"], self.game.guild_id, user)
+                    await db.update_user(
+                        player["id"],
+                        self.game.guild_id,
+                        {"balance": user["balance"]},
+                    )
 
         self.game.finished = True
         self._disable_buttons()
@@ -852,7 +901,7 @@ class BlackjackPvpView(discord.ui.View):
                     for player_id, user in users.items():
                         user["balance"] += self.game.bet
                         self._update_player_stats(user, "blackjack_pvp", self.game.bet, draw=True)
-                        await db.update_user(player_id, self.game.guild_id, user)
+                        await db.update_user(player_id, self.game.guild_id, _game_user_update_payload(user))
                         asyncio.create_task(
                             record_player_progress(
                                 player_id,
@@ -881,8 +930,8 @@ class BlackjackPvpView(discord.ui.View):
                     self._update_player_stats(winner_user, "blackjack_pvp", self.game.bet, won=True)
                     self._update_player_stats(loser_user, "blackjack_pvp", self.game.bet, won=False)
 
-                    await db.update_user(winner["id"], self.game.guild_id, winner_user)
-                    await db.update_user(loser["id"], self.game.guild_id, loser_user)
+                    await db.update_user(winner["id"], self.game.guild_id, _game_user_update_payload(winner_user))
+                    await db.update_user(loser["id"], self.game.guild_id, _game_user_update_payload(loser_user))
                     asyncio.create_task(
                         record_player_progress(
                             winner["id"],

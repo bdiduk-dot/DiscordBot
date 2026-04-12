@@ -8,7 +8,7 @@ from discord.ext import commands
 from config import COLORS
 from database import db
 from game_logic import games
-from utils import add_xp, check_channel, create_embed, send_wrong_channel_message, update_game_stats
+from utils import add_xp, check_channel, create_embed, safe_defer, safe_edit_original_response, send_wrong_channel_message, update_game_stats
 
 from cogs.views import BlackjackGame, BlackjackPvpInviteView, BlackjackView
 
@@ -16,6 +16,13 @@ from cogs.views import BlackjackGame, BlackjackPvpInviteView, BlackjackView
 class GamesCoreCog(commands.Cog, name="GamesCore"):
     def __init__(self, bot):
         self.bot = bot
+
+    @staticmethod
+    async def _remember_interaction_message(interaction: discord.Interaction) -> discord.Message | None:
+        try:
+            return await interaction.original_response()
+        except Exception:
+            return interaction.message
 
     async def _progress_contracts(self, user_id: int, guild_id: int, code: str, amount: int = 1):
         systems_cog = self.bot.get_cog("Systems")
@@ -41,45 +48,58 @@ class GamesCoreCog(commands.Cog, name="GamesCore"):
     async def _start_blackjack(self, interaction: discord.Interaction, bet_input: str | int):
         if not await check_channel(interaction):
             return await send_wrong_channel_message(interaction)
+        if not await safe_defer(interaction):
+            return
 
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         if not user:
-            return await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Не удалось загрузить профиль.", embed=None, view=None)
+            return
 
         bet, error = self._parse_blackjack_bet(int(user.get("balance", 0) or 0), bet_input)
         if error:
-            return await interaction.response.send_message(error, ephemeral=True)
+            await safe_edit_original_response(interaction, content=error, embed=None, view=None)
+            return
 
         user["balance"] = int(user.get("balance", 0) or 0) - bet
-        await db.update_user(interaction.user.id, interaction.guild_id, user)
+        await db.update_user(interaction.user.id, interaction.guild_id, {"balance": user["balance"]})
 
         game = BlackjackGame(interaction.user.id, interaction.guild_id, bet)
         view = BlackjackView(game)
-        await interaction.response.send_message(embed=game.get_game_embed(), view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=game.get_game_embed(), view=view):
+            return
+        view.message = await self._remember_interaction_message(interaction)
         asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "play", 1))
 
     async def _start_blackjack_pvp(self, interaction: discord.Interaction, opponent: discord.Member, bet_input: str | int):
         if not await check_channel(interaction):
             return await send_wrong_channel_message(interaction)
+        if not await safe_defer(interaction):
+            return
 
         if opponent.bot or opponent.id == interaction.user.id:
-            return await interaction.response.send_message("Выбери другого реального игрока.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Выбери другого реального игрока.", embed=None, view=None)
+            return
 
         challenger_user = await db.get_user(interaction.user.id, interaction.guild_id)
         opponent_user = await db.get_user(opponent.id, interaction.guild_id)
         if not challenger_user or not opponent_user:
-            return await interaction.response.send_message("Не удалось загрузить профили игроков.", ephemeral=True)
+            await safe_edit_original_response(interaction, content="Не удалось загрузить профили игроков.", embed=None, view=None)
+            return
 
         bet, error = self._parse_blackjack_bet(int(challenger_user.get("balance", 0) or 0), bet_input)
         if error:
-            return await interaction.response.send_message(error, ephemeral=True)
+            await safe_edit_original_response(interaction, content=error, embed=None, view=None)
+            return
 
         if int(opponent_user.get("balance", 0) or 0) < bet:
-            return await interaction.response.send_message(
-                f"У игрока {opponent.mention} недостаточно денег для ставки **${bet:,}**.",
-                ephemeral=True,
+            await safe_edit_original_response(
+                interaction,
+                content=f"У игрока {opponent.mention} недостаточно денег для ставки **${bet:,}**.",
+                embed=None,
+                view=None,
             )
+            return
 
         embed = discord.Embed(
             title="🃏 ВЫЗОВ НА МУЛЬТИПЛЕЕР-БЛЭКДЖЕК",
@@ -95,8 +115,9 @@ class GamesCoreCog(commands.Cog, name="GamesCore"):
         embed.set_footer(text="После принятия ставки списываются у обоих игроков.")
 
         view = BlackjackPvpInviteView(interaction.user, opponent, interaction.guild_id, bet)
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        if not await safe_edit_original_response(interaction, content=None, embed=embed, view=view):
+            return
+        view.message = await self._remember_interaction_message(interaction)
         asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "play", 1))
 
     @app_commands.command(name="blackjack", description="Сыграть в блэкджек")

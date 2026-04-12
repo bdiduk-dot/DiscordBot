@@ -565,7 +565,7 @@ class ContractsView(discord.ui.View):
         except Exception:
             self.message = interaction.message or self.message
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.cog.build_contracts_embed(self.user_id, self.guild_id)
         self._sync_buttons(await self.cog.get_contracts(self.user_id, self.guild_id))
         await interaction.edit_original_response(embed=embed, view=self)
@@ -589,7 +589,7 @@ class ContractsView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.claim_contract_reward(self.user_id, self.guild_id, slot)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -612,7 +612,7 @@ class ContractsView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -647,7 +647,7 @@ class ContractsViewV2(discord.ui.View):
         except Exception:
             self.message = interaction.message or self.message
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.cog.build_contracts_embed(self.user_id, self.guild_id)
         self._sync_buttons(await self.cog.get_contracts(self.user_id, self.guild_id))
         await interaction.edit_original_response(embed=embed, view=self)
@@ -676,7 +676,7 @@ class ContractsViewV2(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.claim_contract_reward(self.user_id, self.guild_id, slot)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -708,7 +708,7 @@ class ContractsViewV2(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.reroll_contracts(self.user_id, self.guild_id)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -719,7 +719,7 @@ class ContractsViewV2(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -760,13 +760,29 @@ class BlackMarketView(discord.ui.View):
             if index >= len(offers):
                 button.disabled = True
                 button.label = "Нет лота"
+                button.style = discord.ButtonStyle.secondary
+                button.emoji = None
                 continue
             offer = offers[index]
             already = offer["code"] in purchased
             button.disabled = already
-            button.label = "Куплено" if already else f"Купить #{index + 1}"
+            button.label = "Куплено" if already else f"Лот #{index + 1}"
+            if already:
+                button.style = discord.ButtonStyle.secondary
+            elif offer.get("legendary"):
+                button.style = discord.ButtonStyle.danger
+            elif str(offer.get("currency") or "").lower() == "gems":
+                button.style = discord.ButtonStyle.success
+            else:
+                button.style = discord.ButtonStyle.primary
+            if offer.get("legendary"):
+                button.emoji = "🕶️"
+            elif str(offer.get("currency") or "").lower() == "gems":
+                button.emoji = "💎"
+            else:
+                button.emoji = "💵"
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         offers, purchased = await self.cog.get_black_market_offers(self.user_id, self.guild_id)
         self._sync_buttons(offers, purchased)
         embed = await self.cog.build_black_market_embed(self.user_id, self.guild_id)
@@ -778,7 +794,7 @@ class BlackMarketView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.buy_black_market_offer(self.user_id, self.guild_id, slot)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -809,7 +825,7 @@ class BlackMarketView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -844,6 +860,95 @@ class SystemsCog(commands.Cog, name="Systems"):
             "multipliers": dict(template["multipliers"]),
             "expires_at": now + timedelta(hours=int(template["duration_hours"])),
         }
+
+    @staticmethod
+    def _normalize_market_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if not value:
+            return None
+        try:
+            text = str(value).strip()
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(text)
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+
+    @classmethod
+    def _serialize_market_event(cls, event: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(event, dict):
+            return None
+        expires_at = cls._normalize_market_datetime(event.get("expires_at"))
+        if expires_at is None:
+            return None
+        return {
+            "key": str(event.get("key") or ""),
+            "name": str(event.get("name") or ""),
+            "description": str(event.get("description") or ""),
+            "color": int(event.get("color") or COLORS["info"]),
+            "multipliers": dict(event.get("multipliers") or {}),
+            "expires_at": expires_at.isoformat(),
+        }
+
+    @classmethod
+    def _deserialize_market_event(cls, payload: Any) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+        expires_at = cls._normalize_market_datetime(payload.get("expires_at"))
+        if expires_at is None:
+            return None
+        return {
+            "key": str(payload.get("key") or ""),
+            "name": str(payload.get("name") or ""),
+            "description": str(payload.get("description") or ""),
+            "color": int(payload.get("color") or COLORS["info"]),
+            "multipliers": dict(payload.get("multipliers") or {}),
+            "expires_at": expires_at,
+        }
+
+    async def _persist_market_state(self, guild_id: int) -> None:
+        guild_key = int(guild_id)
+        active_event = self.active_events.get(guild_key)
+        next_event_after = self.next_event_after.get(guild_key)
+        await db.upsert_market_guild_state(
+            guild_key,
+            {
+                "active_event": self._serialize_market_event(active_event),
+                "next_event_after": next_event_after.isoformat() if isinstance(next_event_after, datetime) else None,
+            },
+        )
+
+    async def _restore_market_states(self) -> None:
+        now = datetime.now(timezone.utc)
+        for guild in self.bot.guilds:
+            state = await db.get_market_guild_state(guild.id)
+            restored_event = self._deserialize_market_event(state.get("active_event"))
+            next_event_after = self._normalize_market_datetime(state.get("next_event_after"))
+            changed = False
+
+            if restored_event is not None and now >= restored_event["expires_at"]:
+                cooldown_until = restored_event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
+                if next_event_after is None or cooldown_until > next_event_after:
+                    next_event_after = cooldown_until
+                restored_event = None
+                changed = True
+
+            if restored_event is not None:
+                self.active_events[guild.id] = restored_event
+            else:
+                self.active_events.pop(guild.id, None)
+
+            if next_event_after is not None and next_event_after > now:
+                self.next_event_after[guild.id] = next_event_after
+            else:
+                if next_event_after is not None:
+                    changed = True
+                self.next_event_after.pop(guild.id, None)
+
+            if changed:
+                await self._persist_market_state(guild.id)
 
     def _pick_scheduled_event(self, guild_id: int, now: datetime) -> dict[str, Any] | None:
         kyiv_now = now.astimezone(KYIV_TZ)
@@ -945,6 +1050,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             existing = self.next_event_after.get(int(guild_id))
             if existing is None or cooldown_until > existing:
                 self.next_event_after[int(guild_id)] = cooldown_until
+            asyncio.create_task(self._persist_market_state(int(guild_id)))
             return None
         return event
 
@@ -1726,13 +1832,13 @@ class SystemsCog(commands.Cog, name="Systems"):
         embed = discord.Embed(
             title="🕶️ Чёрный рынок",
             description=(
-                "Персональные предложения на 12 часов.\n"
-                f"Следующая ротация: {format_discord_deadline(reset_at)}."
+                "Персональная витрина редких и полезных лотов.\n"
+                f"Ротация обновится {format_discord_deadline(reset_at)}."
             ),
             color=COLORS["warning"],
         )
         embed.add_field(
-            name="Кошелёк",
+            name="Баланс сделки",
             value=(
                 f"Наличные: **{format_money(user.get('balance', 0))}**\n"
                 f"Гемы: **{int(user.get('gems', 0) or 0):,}**"
@@ -1740,7 +1846,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             inline=True,
         )
         embed.add_field(
-            name="Репутация",
+            name="Репутация и скидка",
             value=(
                 f"Счёт: **{reputation}** ({reputation_label(reputation)})\n"
                 f"Скидка: **x{rep_discount:.2f}**"
@@ -1748,8 +1854,12 @@ class SystemsCog(commands.Cog, name="Systems"):
             inline=True,
         )
         embed.add_field(
-            name="Особенность",
-            value="У каждого игрока свой набор лотов. Все покупки сначала отправляются в `/inventory`.",
+            name="Как работает",
+            value=(
+                "У каждого игрока свой набор лотов.\n"
+                "Любая покупка сначала уходит в `/inventory`.\n"
+                "Кнопки ниже соответствуют номерам лотов в карточках."
+            ),
             inline=False,
         )
 
@@ -1757,23 +1867,32 @@ class SystemsCog(commands.Cog, name="Systems"):
             price, _, event_multiplier, active_event = self._market_offer_price(user, guild_id, offer)
             status = "Куплено" if offer["code"] in purchased else "Доступно"
             price_text = format_money(price) if offer["currency"] == "money" else f"{price} гем."
-            title_prefix = "ЛЕГЕНДАРНЫЙ " if offer.get("legendary") else ""
-            extra_line = ""
+            currency_label = "💵 Наличные" if str(offer.get("currency") or "").lower() == "money" else "💎 Гемы"
+            rarity_label = "Легендарный слот" if offer.get("legendary") else "Стандартный слот"
+            extra_lines: list[str] = []
             if active_event is not None and event_multiplier != 1.0:
-                extra_line = f"\nСобытие: **{active_event['name']}**"
+                extra_lines.append(f"Событие цены: **{active_event['name']}**")
             embed.add_field(
-                name=f"{index}. {title_prefix}{offer['name']}",
+                name=f"#{index} • {offer['name']}",
                 value=(
                     f"{offer['description']}\n"
+                    f"Тип: **{rarity_label}**\n"
+                    f"Оплата: **{currency_label}**\n"
                     f"Цена: **{price_text}**\n"
-                    "Куда уйдёт: **в инвентарь**\n"
+                    "Выдача: **в инвентарь**\n"
                     f"Статус: **{status}**"
-                    f"{extra_line}"
+                    + (f"\n" + "\n".join(extra_lines) if extra_lines else "")
                 ),
                 inline=False,
             )
 
-        embed.set_footer(text="Рынок обновляется раз в 12 часов. Покупай здесь, используй предметы позже через /inventory.")
+        legendary_present = any(bool(offer.get("legendary")) for offer in offers)
+        embed.add_field(
+            name="Сегодня на рынке",
+            value="Есть легендарный слот." if legendary_present else "Открыта только обычная витрина.",
+            inline=False,
+        )
+        embed.set_footer(text="Покупай лоты по номеру кнопками ниже. После сделки предмет лежит в `/inventory`, пока ты сам его не активируешь.")
         return embed
 
     async def _announce_event(self, guild: discord.Guild, event: dict[str, Any]):
@@ -1819,6 +1938,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             existing = self.next_event_after.get(guild_id)
             if existing is None or cooldown_until > existing:
                 self.next_event_after[guild_id] = cooldown_until
+            await self._persist_market_state(guild_id)
 
         for guild in self.bot.guilds:
             if guild.id in self.active_events:
@@ -1831,6 +1951,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             if scheduled_event is not None:
                 self.active_events[guild.id] = scheduled_event
                 self.next_event_after[guild.id] = scheduled_event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
+                await self._persist_market_state(guild.id)
                 await self._announce_event(guild, scheduled_event)
                 continue
 
@@ -1842,11 +1963,13 @@ class SystemsCog(commands.Cog, name="Systems"):
             event = self._build_event_payload(event_key, template, now)
             self.active_events[guild.id] = event
             self.next_event_after[guild.id] = event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
+            await self._persist_market_state(guild.id)
             await self._announce_event(guild, event)
 
     @market_events_loop.before_loop
     async def before_market_events_loop(self):
         await self.bot.wait_until_ready()
+        await self._restore_market_states()
 
     @app_commands.command(name="contracts", description="Посмотреть ежедневные контракты")
     async def contracts(self, interaction: discord.Interaction):

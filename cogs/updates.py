@@ -9,6 +9,7 @@ from discord.ext import commands
 from update_notes import (
     UPDATE_CHANNEL_ID,
     UPDATE_PING_ROLE_ID,
+    build_fast_update_embeds,
     build_update_embeds,
 )
 from utils import check_channel, send_wrong_channel_message
@@ -49,8 +50,9 @@ class UpdatesCog(commands.Cog, name="Updates"):
     async def _remove_old_update_messages(
         self,
         channel: discord.TextChannel,
-        keep_message_id: int | None = None,
+        keep_message_ids: set[int] | None = None,
     ) -> None:
+        keep_message_ids = keep_message_ids or set()
         seen_ids: set[int] = set()
 
         try:
@@ -62,7 +64,7 @@ class UpdatesCog(commands.Cog, name="Updates"):
             if message.id in seen_ids:
                 continue
             seen_ids.add(message.id)
-            if message.id != keep_message_id and self._is_update_message(message):
+            if message.id not in keep_message_ids and self._is_update_message(message):
                 try:
                     await message.delete()
                 except Exception:
@@ -73,7 +75,7 @@ class UpdatesCog(commands.Cog, name="Updates"):
 
         try:
             async for message in channel.history(limit=50):
-                if message.id in seen_ids or message.id == keep_message_id:
+                if message.id in seen_ids or message.id in keep_message_ids:
                     continue
                 seen_ids.add(message.id)
                 if not self._is_update_message(message):
@@ -91,21 +93,35 @@ class UpdatesCog(commands.Cog, name="Updates"):
             print("Updates startup: channel not found or unavailable")
             return False
 
-        desired_content = f"<@&{UPDATE_PING_ROLE_ID}>"
-        desired_embeds = build_update_embeds()
+        main_embeds = build_update_embeds()
+        fast_embeds = build_fast_update_embeds()
+        post_queue: list[tuple[str | None, list[discord.Embed]]] = []
+        if main_embeds:
+            post_queue.append((f"<@&{UPDATE_PING_ROLE_ID}>", main_embeds))
+        if fast_embeds:
+            post_queue.append((None, fast_embeds))
 
-        try:
-            message = await channel.send(
-                desired_content,
-                embeds=desired_embeds,
-                allowed_mentions=discord.AllowedMentions(roles=True),
-            )
-        except Exception as exc:
-            print(f"Updates startup: failed to send update post: {exc}")
-            return False
+        if not post_queue:
+            await self._remove_old_update_messages(channel)
+            print("Updates startup: skipped because update notes are empty")
+            return True
 
-        await self._remove_old_update_messages(channel, keep_message_id=message.id)
-        await self._pin_message(message)
+        posted_messages: list[discord.Message] = []
+        for content, embeds in post_queue:
+            try:
+                message = await channel.send(
+                    content,
+                    embeds=embeds,
+                    allowed_mentions=discord.AllowedMentions(roles=True),
+                )
+            except Exception as exc:
+                print(f"Updates startup: failed to send update post: {exc}")
+                return False
+            posted_messages.append(message)
+
+        await self._remove_old_update_messages(channel, keep_message_ids={message.id for message in posted_messages})
+        for message in posted_messages:
+            await self._pin_message(message)
         return True
 
     async def ensure_startup_post(self) -> bool:
@@ -151,7 +167,18 @@ class UpdatesCog(commands.Cog, name="Updates"):
             await send_wrong_channel_message(interaction)
             return
 
-        await interaction.response.send_message(embeds=build_update_embeds())
+        main_embeds = build_update_embeds()
+        fast_embeds = build_fast_update_embeds()
+        if not main_embeds and not fast_embeds:
+            await interaction.response.send_message(
+                "Сейчас нет опубликованного текста обновления.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(embeds=main_embeds or fast_embeds)
+        if main_embeds and fast_embeds:
+            await interaction.followup.send(embeds=fast_embeds)
 
 
 async def setup(bot):
