@@ -57,10 +57,10 @@ from utils import (
 )
 
 AUTO_COLLECT_UPGRADE = {
-    "name": "Автосбор бизнесов",
+    "name": "РђРІС‚РѕСЃР±РѕСЂ Р±РёР·РЅРµСЃРѕРІ",
     "price": 250,
     "currency": "gems",
-    "description": "Автоматически собирает готовый доход с бизнесов по выбранному интервалу.",
+    "description": "РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё СЃРѕР±РёСЂР°РµС‚ РіРѕС‚РѕРІС‹Р№ РґРѕС…РѕРґ СЃ Р±РёР·РЅРµСЃРѕРІ РїРѕ РІС‹Р±СЂР°РЅРЅРѕРјСѓ РёРЅС‚РµСЂРІР°Р»Сѓ.",
 }
 
 SERVER_ITEMS_PER_PAGE = 3
@@ -68,10 +68,10 @@ VIP_LEVELS_PER_PAGE = 3
 TITLE_ITEMS_PER_PAGE = 3
 KYIV_TZ = get_kyiv_timezone()
 SMART_NOTIFICATION_SETTINGS: dict[str, dict[str, str]] = {
-    "notify_deposit": {"label": "Депозит", "marker": "deposit_ready"},
-    "notify_rent": {"label": "Аренда", "marker": "rent_ready"},
-    "notify_business": {"label": "Бизнес", "marker": "business_ready"},
-    "notify_harvest": {"label": "Урожай", "marker": "harvest_ready"},
+    "notify_deposit": {"label": "Р”РµРїРѕР·РёС‚", "marker": "deposit_ready"},
+    "notify_rent": {"label": "РђСЂРµРЅРґР°", "marker": "rent_ready"},
+    "notify_business": {"label": "Р‘РёР·РЅРµСЃ", "marker": "business_ready"},
+    "notify_harvest": {"label": "РЈСЂРѕР¶Р°Р№", "marker": "harvest_ready"},
     "notify_daily_streak": {"label": "Daily streak", "marker": "daily_warning"},
 }
 
@@ -88,45 +88,45 @@ async def _remember_interaction_message(
 TITLE_SHOP_ITEMS: list[dict[str, Any]] = [
     {
         "key": "wallet_destroyer",
-        "name": "Убийца зарплат",
+        "name": "РЈР±РёР№С†Р° Р·Р°СЂРїР»Р°С‚",
         "price": 45_000,
         "currency": "money",
-        "description": "Для тех, кто тратит быстрее, чем считает.",
+        "description": "Р”Р»СЏ С‚РµС…, РєС‚Рѕ С‚СЂР°С‚РёС‚ Р±С‹СЃС‚СЂРµРµ, С‡РµРј СЃС‡РёС‚Р°РµС‚.",
     },
     {
         "key": "lord_of_memes",
-        "name": "Лорд мемов",
+        "name": "Р›РѕСЂРґ РјРµРјРѕРІ",
         "price": 60_000,
         "currency": "money",
-        "description": "Немного пафоса, немного абсурда и максимум самоуважения.",
+        "description": "РќРµРјРЅРѕРіРѕ РїР°С„РѕСЃР°, РЅРµРјРЅРѕРіРѕ Р°Р±СЃСѓСЂРґР° Рё РјР°РєСЃРёРјСѓРј СЃР°РјРѕСѓРІР°Р¶РµРЅРёСЏ.",
     },
     {
         "key": "pro_afk",
-        "name": "Профессиональный АФК",
+        "name": "РџСЂРѕС„РµСЃСЃРёРѕРЅР°Р»СЊРЅС‹Р№ РђР¤Рљ",
         "price": 75_000,
         "currency": "money",
-        "description": "На минуту отошел, а вернулся уже легендой.",
+        "description": "РќР° РјРёРЅСѓС‚Сѓ РѕС‚РѕС€РµР», Р° РІРµСЂРЅСѓР»СЃСЏ СѓР¶Рµ Р»РµРіРµРЅРґРѕР№.",
     },
     {
         "key": "fish_psychic",
-        "name": "Рыбный телепат",
+        "name": "Р С‹Р±РЅС‹Р№ С‚РµР»РµРїР°С‚",
         "price": 90_000,
         "currency": "money",
-        "description": "Чувствует поклевку раньше, чем дернется поплавок.",
+        "description": "Р§СѓРІСЃС‚РІСѓРµС‚ РїРѕРєР»РµРІРєСѓ СЂР°РЅСЊС€Рµ, С‡РµРј РґРµСЂРЅРµС‚СЃСЏ РїРѕРїР»Р°РІРѕРє.",
     },
     {
         "key": "panic_investor",
-        "name": "Паник-инвестор",
+        "name": "РџР°РЅРёРє-РёРЅРІРµСЃС‚РѕСЂ",
         "price": 110_000,
         "currency": "money",
-        "description": "Покупает на хаях, продает на нервах, но делает это красиво.",
+        "description": "РџРѕРєСѓРїР°РµС‚ РЅР° С…Р°СЏС…, РїСЂРѕРґР°РµС‚ РЅР° РЅРµСЂРІР°С…, РЅРѕ РґРµР»Р°РµС‚ СЌС‚Рѕ РєСЂР°СЃРёРІРѕ.",
     },
     {
         "key": "sofa_tycoon",
-        "name": "Диванный магнат",
+        "name": "Р”РёРІР°РЅРЅС‹Р№ РјР°РіРЅР°С‚",
         "price": 135_000,
         "currency": "money",
-        "description": "Строит империю, не вставая с дивана.",
+        "description": "РЎС‚СЂРѕРёС‚ РёРјРїРµСЂРёСЋ, РЅРµ РІСЃС‚Р°РІР°СЏ СЃ РґРёРІР°РЅР°.",
     },
 ]
 
@@ -137,7 +137,7 @@ THEME_SHOP_ITEMS: list[dict[str, Any]] = [
         "name": "Sakura",
         "price": 125_000,
         "currency": "money",
-        "description": "Нежный пасхальный фон профиля с большим баннером и мягкой розовой темой.",
+        "description": "РќРµР¶РЅС‹Р№ РїР°СЃС…Р°Р»СЊРЅС‹Р№ С„РѕРЅ РїСЂРѕС„РёР»СЏ СЃ Р±РѕР»СЊС€РёРј Р±Р°РЅРЅРµСЂРѕРј Рё РјСЏРіРєРѕР№ СЂРѕР·РѕРІРѕР№ С‚РµРјРѕР№.",
         "preview_url": str(PROFILE_THEMES.get("sakura", {}).get("image_url") or ""),
     },
     {
@@ -146,7 +146,7 @@ THEME_SHOP_ITEMS: list[dict[str, Any]] = [
         "name": "Void",
         "price": 165_000,
         "currency": "money",
-        "description": "Темная космическая тема профиля с анимированным баннером и холодным глубоким вайбом.",
+        "description": "РўРµРјРЅР°СЏ РєРѕСЃРјРёС‡РµСЃРєР°СЏ С‚РµРјР° РїСЂРѕС„РёР»СЏ СЃ Р°РЅРёРјРёСЂРѕРІР°РЅРЅС‹Рј Р±Р°РЅРЅРµСЂРѕРј Рё С…РѕР»РѕРґРЅС‹Рј РіР»СѓР±РѕРєРёРј РІР°Р№Р±РѕРј.",
         "preview_url": str(PROFILE_THEMES.get("void", {}).get("image_url") or ""),
     },
 ]
@@ -165,13 +165,13 @@ def format_money(value: int | float) -> str:
 
 
 def format_price(value: int | float, currency: str) -> str:
-    return f"{int(value):,} гем." if str(currency).lower() == "gems" else format_money(value)
+    return f"{int(value):,} РіРµРј." if str(currency).lower() == "gems" else format_money(value)
 
 
 def clamp_text(value: str | None, limit: int = 150) -> str:
     text = (value or "").strip()
     if not text:
-        return "Без описания."
+        return "Р‘РµР· РѕРїРёСЃР°РЅРёСЏ."
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."
@@ -179,21 +179,21 @@ def clamp_text(value: str | None, limit: int = 150) -> str:
 
 def format_vip_name(level: int) -> str:
     names = {
-        0: "Без VIP",
-        1: "Бронзовый VIP",
-        2: "Серебряный VIP",
-        3: "Золотой VIP",
-        4: "Алмазный VIP",
+        0: "Р‘РµР· VIP",
+        1: "Р‘СЂРѕРЅР·РѕРІС‹Р№ VIP",
+        2: "РЎРµСЂРµР±СЂСЏРЅС‹Р№ VIP",
+        3: "Р—РѕР»РѕС‚РѕР№ VIP",
+        4: "РђР»РјР°Р·РЅС‹Р№ VIP",
     }
     return names.get(level, f"VIP {level}")
 
 
 def vip_status_label(current_level: int, level: int) -> str:
     if current_level == level:
-        return "Текущий"
+        return "РўРµРєСѓС‰РёР№"
     if current_level > level:
-        return "Уже куплен"
-    return "Доступен"
+        return "РЈР¶Рµ РєСѓРїР»РµРЅ"
+    return "Р”РѕСЃС‚СѓРїРµРЅ"
 
 
 def general_item_quantity(user: dict[str, Any], item_type: str, code: str) -> int:
@@ -211,58 +211,58 @@ class ExchangeModal(discord.ui.Modal):
     def __init__(self, view: "ShopView", direction: str):
         self.shop_view = view
         self.direction = direction
-        title = "Обмен денег на гемы" if direction == "to_gems" else "Обмен гемов на деньги"
+        title = "РћР±РјРµРЅ РґРµРЅРµРі РЅР° РіРµРјС‹" if direction == "to_gems" else "РћР±РјРµРЅ РіРµРјРѕРІ РЅР° РґРµРЅСЊРіРё"
         super().__init__(title=title)
-        placeholder = "Сколько гемов купить" if direction == "to_gems" else "Сколько гемов продать"
-        self.amount = discord.ui.TextInput(label="Количество", placeholder=placeholder, max_length=10)
+        placeholder = "РЎРєРѕР»СЊРєРѕ РіРµРјРѕРІ РєСѓРїРёС‚СЊ" if direction == "to_gems" else "РЎРєРѕР»СЊРєРѕ РіРµРјРѕРІ РїСЂРѕРґР°С‚СЊ"
+        self.amount = discord.ui.TextInput(label="РљРѕР»РёС‡РµСЃС‚РІРѕ", placeholder=placeholder, max_length=10)
         self.add_item(self.amount)
 
     async def on_submit(self, interaction: discord.Interaction):
         raw_value = str(self.amount.value).strip().replace(",", "")
         if not raw_value.isdigit() or int(raw_value) <= 0:
-            await interaction.response.send_message("Введи положительное число.", ephemeral=True)
+            await interaction.response.send_message("Р’РІРµРґРё РїРѕР»РѕР¶РёС‚РµР»СЊРЅРѕРµ С‡РёСЃР»Рѕ.", ephemeral=True)
             return
 
         amount = int(raw_value)
         async with get_user_lock(self.shop_view.user_id):
             user = await db.get_user(self.shop_view.user_id, self.shop_view.guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+                await interaction.response.send_message("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", ephemeral=True)
                 return
 
             if self.direction == "to_gems":
                 cost = amount * 1000
                 if int(user.get("balance", 0) or 0) < cost:
                     await interaction.response.send_message(
-                        f"Не хватает денег. Нужно: **{format_money(cost)}**.",
+                        f"РќРµ С…РІР°С‚Р°РµС‚ РґРµРЅРµРі. РќСѓР¶РЅРѕ: **{format_money(cost)}**.",
                         ephemeral=True,
                     )
                     return
                 user["balance"] = int(user.get("balance", 0) or 0) - cost
                 user["gems"] = int(user.get("gems", 0) or 0) + amount
-                title = "Обмен выполнен"
+                title = "РћР±РјРµРЅ РІС‹РїРѕР»РЅРµРЅ"
                 description = (
-                    f"Потрачено: **{format_money(cost)}**\n"
-                    f"Получено: **{amount} гем.**\n"
-                    f"Баланс: **{format_money(user['balance'])}**\n"
-                    f"Гемы: **{int(user['gems']):,}**"
+                    f"РџРѕС‚СЂР°С‡РµРЅРѕ: **{format_money(cost)}**\n"
+                    f"РџРѕР»СѓС‡РµРЅРѕ: **{amount} РіРµРј.**\n"
+                    f"Р‘Р°Р»Р°РЅСЃ: **{format_money(user['balance'])}**\n"
+                    f"Р“РµРјС‹: **{int(user['gems']):,}**"
                 )
             else:
                 payout = amount * 900
                 if int(user.get("gems", 0) or 0) < amount:
                     await interaction.response.send_message(
-                        f"Не хватает гемов. Нужно: **{amount}**.",
+                        f"РќРµ С…РІР°С‚Р°РµС‚ РіРµРјРѕРІ. РќСѓР¶РЅРѕ: **{amount}**.",
                         ephemeral=True,
                     )
                     return
                 user["gems"] = int(user.get("gems", 0) or 0) - amount
                 user["balance"] = int(user.get("balance", 0) or 0) + payout
-                title = "Обмен выполнен"
+                title = "РћР±РјРµРЅ РІС‹РїРѕР»РЅРµРЅ"
                 description = (
-                    f"Потрачено: **{amount} гем.**\n"
-                    f"Получено: **{format_money(payout)}**\n"
-                    f"Баланс: **{format_money(user['balance'])}**\n"
-                    f"Гемы: **{int(user['gems']):,}**"
+                    f"РџРѕС‚СЂР°С‡РµРЅРѕ: **{amount} РіРµРј.**\n"
+                    f"РџРѕР»СѓС‡РµРЅРѕ: **{format_money(payout)}**\n"
+                    f"Р‘Р°Р»Р°РЅСЃ: **{format_money(user['balance'])}**\n"
+                    f"Р“РµРјС‹: **{int(user['gems']):,}**"
                 )
 
             await db.update_user(self.shop_view.user_id, self.shop_view.guild_id, user)
@@ -308,7 +308,7 @@ class _BaseShopView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Это меню магазина открыто не тобой.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Рѕ РјРµРЅСЋ РјР°РіР°Р·РёРЅР° РѕС‚РєСЂС‹С‚Рѕ РЅРµ С‚РѕР±РѕР№.", ephemeral=True)
             return False
         return True
 
@@ -324,9 +324,9 @@ class _BaseShopView(discord.ui.View):
 
     def _server_item_kind(self, item: dict[str, Any]) -> str:
         if self._is_role_item(item):
-            return "Discord-роль"
+            return "Discord-СЂРѕР»СЊ"
         item_type = str(item.get("item_type") or item.get("type") or "").strip()
-        return item_type or "Предмет"
+        return item_type or "РџСЂРµРґРјРµС‚"
 
     def _get_vip_levels(self) -> list[tuple[int, dict[str, Any]]]:
         return [(level, data) for level, data in VIP_LEVELS.items() if level > 0]
@@ -379,24 +379,24 @@ class _BaseShopView(discord.ui.View):
         for action_button in (self.action_btn_1, self.action_btn_2, self.action_btn_3):
             action_button.disabled = True
             action_button.style = discord.ButtonStyle.secondary
-            action_button.label = "Недоступно"
+            action_button.label = "РќРµРґРѕСЃС‚СѓРїРЅРѕ"
             action_button.emoji = None
 
         if self.active_page == "overview":
             premium_open = bool(ensure_battle_pass_state(self.user_data).get("premium_unlocked"))
             self.action_btn_1.disabled = premium_open
             self.action_btn_1.style = discord.ButtonStyle.success if not premium_open else discord.ButtonStyle.secondary
-            self.action_btn_1.label = "Купить пропуск" if not premium_open else "Пропуск куплен"
+            self.action_btn_1.label = "РљСѓРїРёС‚СЊ РїСЂРѕРїСѓСЃРє" if not premium_open else "РџСЂРѕРїСѓСЃРє РєСѓРїР»РµРЅ"
             self.action_btn_1.emoji = "???"
 
             self.action_btn_2.disabled = True
             self.action_btn_2.style = discord.ButtonStyle.secondary
-            self.action_btn_2.label = "Выбери вкладку"
+            self.action_btn_2.label = "Р’С‹Р±РµСЂРё РІРєР»Р°РґРєСѓ"
             self.action_btn_2.emoji = None
 
             self.action_btn_3.disabled = True
             self.action_btn_3.style = discord.ButtonStyle.secondary
-            self.action_btn_3.label = "Выбери вкладку"
+            self.action_btn_3.label = "Р’С‹Р±РµСЂРё РІРєР»Р°РґРєСѓ"
             self.action_btn_3.emoji = None
             return
 
@@ -405,8 +405,8 @@ class _BaseShopView(discord.ui.View):
             current_level = int(self.user_data.get("vip_level", 0) or 0)
             self.prev_btn.disabled = self.page_index == 0
             self.next_btn.disabled = self.page_index >= self._max_vip_page()
-            self.prev_btn.label = "Назад"
-            self.next_btn.label = "Дальше"
+            self.prev_btn.label = "РќР°Р·Р°Рґ"
+            self.next_btn.label = "Р”Р°Р»СЊС€Рµ"
 
             for index, button in enumerate((self.action_btn_1, self.action_btn_2, self.action_btn_3)):
                 if index >= len(visible_levels):
@@ -421,15 +421,15 @@ class _BaseShopView(discord.ui.View):
         if self.active_page == "exchange":
             self.action_btn_1.disabled = False
             self.action_btn_1.style = discord.ButtonStyle.success
-            self.action_btn_1.label = "Гемы -> деньги"
+            self.action_btn_1.label = "Р“РµРјС‹ -> РґРµРЅСЊРіРё"
 
             self.action_btn_2.disabled = False
             self.action_btn_2.style = discord.ButtonStyle.success
-            self.action_btn_2.label = "Деньги -> гемы"
+            self.action_btn_2.label = "Р”РµРЅСЊРіРё -> РіРµРјС‹"
 
             self.action_btn_3.disabled = True
             self.action_btn_3.style = discord.ButtonStyle.secondary
-            self.action_btn_3.label = "Недоступно"
+            self.action_btn_3.label = "РќРµРґРѕСЃС‚СѓРїРЅРѕ"
             return
 
         if self.active_page == "upgrades":
@@ -440,28 +440,28 @@ class _BaseShopView(discord.ui.View):
                 discord.ButtonStyle.success if autocollect_available and not auto_state["owned"] else discord.ButtonStyle.secondary
             )
             self.action_btn_1.label = (
-                "Купить автосбор"
+                "РљСѓРїРёС‚СЊ Р°РІС‚РѕСЃР±РѕСЂ"
                 if autocollect_available and not auto_state["owned"]
-                else "Недоступно"
+                else "РќРµРґРѕСЃС‚СѓРїРЅРѕ"
                 if not autocollect_available
-                else "Уже куплено"
+                else "РЈР¶Рµ РєСѓРїР»РµРЅРѕ"
             )
 
             self.action_btn_2.disabled = False
             self.action_btn_2.style = discord.ButtonStyle.primary
-            self.action_btn_2.label = "Как работает"
+            self.action_btn_2.label = "РљР°Рє СЂР°Р±РѕС‚Р°РµС‚"
 
             self.action_btn_3.disabled = False
             self.action_btn_3.style = discord.ButtonStyle.primary
-            self.action_btn_3.label = "Открыть бизнесы"
+            self.action_btn_3.label = "РћС‚РєСЂС‹С‚СЊ Р±РёР·РЅРµСЃС‹"
             return
 
         if self.active_page == "server":
             visible_items = self._current_server_items()
             self.prev_btn.disabled = self.page_index == 0
             self.next_btn.disabled = self.page_index >= self._max_server_page()
-            self.prev_btn.label = "Назад"
-            self.next_btn.label = "Дальше"
+            self.prev_btn.label = "РќР°Р·Р°Рґ"
+            self.next_btn.label = "Р”Р°Р»СЊС€Рµ"
 
             for index, button in enumerate((self.action_btn_1, self.action_btn_2, self.action_btn_3)):
                 if index >= len(visible_items):
@@ -469,7 +469,7 @@ class _BaseShopView(discord.ui.View):
                 item = visible_items[index]
                 item_id = int(item.get("id", 0) or 0)
                 can_buy = self._is_role_item(item)
-                button.label = f"Купить #{item_id}" if can_buy else f"Закрыто #{item_id}"
+                button.label = f"РљСѓРїРёС‚СЊ #{item_id}" if can_buy else f"Р—Р°РєСЂС‹С‚Рѕ #{item_id}"
                 button.disabled = not can_buy
                 button.style = discord.ButtonStyle.success if can_buy else discord.ButtonStyle.secondary
             return
@@ -480,8 +480,8 @@ class _BaseShopView(discord.ui.View):
             visible_items = self._current_title_items()
             self.prev_btn.disabled = self.page_index == 0
             self.next_btn.disabled = self.page_index >= self._max_title_page()
-            self.prev_btn.label = "Назад"
-            self.next_btn.label = "Дальше"
+            self.prev_btn.label = "РќР°Р·Р°Рґ"
+            self.next_btn.label = "Р”Р°Р»СЊС€Рµ"
 
             for index, button in enumerate((self.action_btn_1, self.action_btn_2, self.action_btn_3)):
                 if index >= len(visible_items):
@@ -508,38 +508,38 @@ class _BaseShopView(discord.ui.View):
         vip_level = int(self.user_data.get("vip_level", 0) or 0)
         auto_state = get_business_autocollect_state(self.user_data)
         embed = discord.Embed(
-            title="?? Магазин сервера",
-            description="Здесь собраны VIP, обмен валют, улучшения и серверные покупки.",
+            title="?? РњР°РіР°Р·РёРЅ СЃРµСЂРІРµСЂР°",
+            description="Р—РґРµСЃСЊ СЃРѕР±СЂР°РЅС‹ VIP, РѕР±РјРµРЅ РІР°Р»СЋС‚, СѓР»СѓС‡С€РµРЅРёСЏ Рё СЃРµСЂРІРµСЂРЅС‹Рµ РїРѕРєСѓРїРєРё.",
             color=COLORS["purple"],
         )
         embed.add_field(
-            name="Кошелёк",
+            name="РљРѕС€РµР»С‘Рє",
             value=(
-                f"Наличные: **{format_money(self.user_data.get('balance', 0))}**\n"
-                f"Гемы: **{int(self.user_data.get('gems', 0) or 0):,}**\n"
+                f"РќР°Р»РёС‡РЅС‹Рµ: **{format_money(self.user_data.get('balance', 0))}**\n"
+                f"Р“РµРјС‹: **{int(self.user_data.get('gems', 0) or 0):,}**\n"
                 f"VIP: **{format_vip_name(vip_level)}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Доступно сейчас",
+            name="Р”РѕСЃС‚СѓРїРЅРѕ СЃРµР№С‡Р°СЃ",
             value=(
-                f"VIP-уровней: **{max(0, len(VIP_LEVELS) - 1)}**\n"
-                f"Серверных товаров: **{len(self.custom_items)}**\n"
-                f"Автосбор: **{'Куплен' if auto_state['owned'] else 'Не куплен'}**"
+                f"VIP-СѓСЂРѕРІРЅРµР№: **{max(0, len(VIP_LEVELS) - 1)}**\n"
+                f"РЎРµСЂРІРµСЂРЅС‹С… С‚РѕРІР°СЂРѕРІ: **{len(self.custom_items)}**\n"
+                f"РђРІС‚РѕСЃР±РѕСЂ: **{'РљСѓРїР»РµРЅ' if auto_state['owned'] else 'РќРµ РєСѓРїР»РµРЅ'}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Быстрые разделы",
+            name="Р‘С‹СЃС‚СЂС‹Рµ СЂР°Р·РґРµР»С‹",
             value=(
-                "• VIP и обмен теперь покупаются кнопками внутри `/shop`\n"
-                "• Автосбор настраивается через `/mybusinesses`\n"
-                "• Серверные роли покупаются кнопками здесь же"
+                "вЂў VIP Рё РѕР±РјРµРЅ С‚РµРїРµСЂСЊ РїРѕРєСѓРїР°СЋС‚СЃСЏ РєРЅРѕРїРєР°РјРё РІРЅСѓС‚СЂРё `/shop`\n"
+                "вЂў РђРІС‚РѕСЃР±РѕСЂ РЅР°СЃС‚СЂР°РёРІР°РµС‚СЃСЏ С‡РµСЂРµР· `/mybusinesses`\n"
+                "вЂў РЎРµСЂРІРµСЂРЅС‹Рµ СЂРѕР»Рё РїРѕРєСѓРїР°СЋС‚СЃСЏ РєРЅРѕРїРєР°РјРё Р·РґРµСЃСЊ Р¶Рµ"
             ),
             inline=False,
         )
-        embed.set_footer(text="Переключай вкладки кнопками ниже.")
+        embed.set_footer(text="РџРµСЂРµРєР»СЋС‡Р°Р№ РІРєР»Р°РґРєРё РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.")
         return embed
 
     def _build_vip_embed(self) -> discord.Embed:
@@ -547,8 +547,8 @@ class _BaseShopView(discord.ui.View):
         visible_levels = self._current_vip_slice()
 
         embed = discord.Embed(
-            title="?? VIP-магазин",
-            description=f"Текущий уровень: **{format_vip_name(current_vip)}**",
+            title="?? VIP-РјР°РіР°Р·РёРЅ",
+            description=f"РўРµРєСѓС‰РёР№ СѓСЂРѕРІРµРЅСЊ: **{format_vip_name(current_vip)}**",
             color=COLORS["gold"],
         )
 
@@ -556,35 +556,35 @@ class _BaseShopView(discord.ui.View):
             embed.add_field(
                 name=f"{vip_data['emoji']} {format_vip_name(level)} | {format_price(vip_data['cost'], 'gems')}",
                 value=(
-                    f"Статус: **{vip_status_label(current_vip, level)}**\n"
-                    f"Бонус к daily: **+{int((vip_data['daily_bonus'] - 1) * 100)}%**\n"
-                    f"Снижение кулдауна: **-{int(vip_data['cooldown_reduction'] * 100)}%**"
+                    f"РЎС‚Р°С‚СѓСЃ: **{vip_status_label(current_vip, level)}**\n"
+                    f"Р‘РѕРЅСѓСЃ Рє daily: **+{int((vip_data['daily_bonus'] - 1) * 100)}%**\n"
+                    f"РЎРЅРёР¶РµРЅРёРµ РєСѓР»РґР°СѓРЅР°: **-{int(vip_data['cooldown_reduction'] * 100)}%**"
                 ),
                 inline=False,
             )
 
-        embed.set_footer(text=f"Страница {self.page_index + 1}/{self._max_vip_page() + 1}. Покупка VIP идёт кнопками ниже.")
+        embed.set_footer(text=f"РЎС‚СЂР°РЅРёС†Р° {self.page_index + 1}/{self._max_vip_page() + 1}. РџРѕРєСѓРїРєР° VIP РёРґС‘С‚ РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.")
         return embed
 
     def _build_exchange_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="?? Обмен валют",
-            description="Обменивай деньги и гемы прямо кнопками ниже.",
+            title="?? РћР±РјРµРЅ РІР°Р»СЋС‚",
+            description="РћР±РјРµРЅРёРІР°Р№ РґРµРЅСЊРіРё Рё РіРµРјС‹ РїСЂСЏРјРѕ РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.",
             color=COLORS["info"],
         )
         embed.add_field(
-            name="Гемы -> деньги",
-            value="Курс: **1 гем = $900**\nКнопка ниже откроет ввод количества гемов.",
+            name="Р“РµРјС‹ -> РґРµРЅСЊРіРё",
+            value="РљСѓСЂСЃ: **1 РіРµРј = $900**\nРљРЅРѕРїРєР° РЅРёР¶Рµ РѕС‚РєСЂРѕРµС‚ РІРІРѕРґ РєРѕР»РёС‡РµСЃС‚РІР° РіРµРјРѕРІ.",
             inline=True,
         )
         embed.add_field(
-            name="Деньги -> гемы",
-            value="Курс: **$1,000 = 1 гем**\nКнопка ниже откроет ввод количества гемов.",
+            name="Р”РµРЅСЊРіРё -> РіРµРјС‹",
+            value="РљСѓСЂСЃ: **$1,000 = 1 РіРµРј**\nРљРЅРѕРїРєР° РЅРёР¶Рµ РѕС‚РєСЂРѕРµС‚ РІРІРѕРґ РєРѕР»РёС‡РµСЃС‚РІР° РіРµРјРѕРІ.",
             inline=True,
         )
         embed.add_field(
-            name="Подсказка",
-            value="Гемы чаще выгоднее держать под VIP и улучшения, а деньги пускать в бизнесы и игры.",
+            name="РџРѕРґСЃРєР°Р·РєР°",
+            value="Р“РµРјС‹ С‡Р°С‰Рµ РІС‹РіРѕРґРЅРµРµ РґРµСЂР¶Р°С‚СЊ РїРѕРґ VIP Рё СѓР»СѓС‡С€РµРЅРёСЏ, Р° РґРµРЅСЊРіРё РїСѓСЃРєР°С‚СЊ РІ Р±РёР·РЅРµСЃС‹ Рё РёРіСЂС‹.",
             inline=False,
         )
         return embed
@@ -592,55 +592,55 @@ class _BaseShopView(discord.ui.View):
     def _build_upgrades_embed(self) -> discord.Embed:
         auto_state = get_business_autocollect_state(self.user_data)
         autocollect_available = db.user_field_supported("business_autocollect")
-        status = "Куплен" if auto_state["owned"] else "Не куплен"
-        mode = "Включён" if auto_state["enabled"] else "Выключен"
+        status = "РљСѓРїР»РµРЅ" if auto_state["owned"] else "РќРµ РєСѓРїР»РµРЅ"
+        mode = "Р’РєР»СЋС‡С‘РЅ" if auto_state["enabled"] else "Р’С‹РєР»СЋС‡РµРЅ"
         embed = discord.Embed(
-            title="?? Постоянные улучшения",
-            description="Полезные улучшения для экономики и бизнеса.",
+            title="?? РџРѕСЃС‚РѕСЏРЅРЅС‹Рµ СѓР»СѓС‡С€РµРЅРёСЏ",
+            description="РџРѕР»РµР·РЅС‹Рµ СѓР»СѓС‡С€РµРЅРёСЏ РґР»СЏ СЌРєРѕРЅРѕРјРёРєРё Рё Р±РёР·РЅРµСЃР°.",
             color=COLORS["purple"],
         )
         embed.add_field(
             name=f"{AUTO_COLLECT_UPGRADE['name']} | {format_price(AUTO_COLLECT_UPGRADE['price'], AUTO_COLLECT_UPGRADE['currency'])}",
             value=(
-                f"Статус: **{status}**\n"
-                f"Режим: **{mode}**\n"
-                f"Интервал: **{auto_state['interval_hours']}ч**\n"
+                f"РЎС‚Р°С‚СѓСЃ: **{status}**\n"
+                f"Р РµР¶РёРј: **{mode}**\n"
+                f"РРЅС‚РµСЂРІР°Р»: **{auto_state['interval_hours']}С‡**\n"
                 f"{AUTO_COLLECT_UPGRADE['description']}"
                 if autocollect_available
-                else "Автосбор временно недоступен. В таблице users нет колонки business_autocollect."
+                else "РђРІС‚РѕСЃР±РѕСЂ РІСЂРµРјРµРЅРЅРѕ РЅРµРґРѕСЃС‚СѓРїРµРЅ. Р’ С‚Р°Р±Р»РёС†Рµ users РЅРµС‚ РєРѕР»РѕРЅРєРё business_autocollect."
             ),
             inline=False,
         )
         embed.add_field(
-            name="Где управлять",
-            value="После покупки открой `/mybusinesses` и используй кнопку `Автосбор`.",
+            name="Р“РґРµ СѓРїСЂР°РІР»СЏС‚СЊ",
+            value="РџРѕСЃР»Рµ РїРѕРєСѓРїРєРё РѕС‚РєСЂРѕР№ `/mybusinesses` Рё РёСЃРїРѕР»СЊР·СѓР№ РєРЅРѕРїРєСѓ `РђРІС‚РѕСЃР±РѕСЂ`.",
             inline=False,
         )
         return embed
 
     def _build_server_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="?? Серверный магазин",
-            description="Серверные товары покупаются прямо кнопками ниже.",
+            title="?? РЎРµСЂРІРµСЂРЅС‹Р№ РјР°РіР°Р·РёРЅ",
+            description="РЎРµСЂРІРµСЂРЅС‹Рµ С‚РѕРІР°СЂС‹ РїРѕРєСѓРїР°СЋС‚СЃСЏ РїСЂСЏРјРѕ РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.",
             color=COLORS["success"],
         )
         if not self.custom_items:
-            embed.add_field(name="Пока пусто", value="Сейчас нет активных серверных товаров.", inline=False)
+            embed.add_field(name="РџРѕРєР° РїСѓСЃС‚Рѕ", value="РЎРµР№С‡Р°СЃ РЅРµС‚ Р°РєС‚РёРІРЅС‹С… СЃРµСЂРІРµСЂРЅС‹С… С‚РѕРІР°СЂРѕРІ.", inline=False)
             return embed
 
         for item in self._current_server_items():
             item_id = int(item.get("id", 0) or 0)
             embed.add_field(
-                name=f"#{item_id} | {item.get('name', 'Товар')}",
+                name=f"#{item_id} | {item.get('name', 'РўРѕРІР°СЂ')}",
                 value=(
-                    f"Тип: **{self._server_item_kind(item)}**\n"
-                    f"Цена: **{format_price(item.get('price', 0), str(item.get('currency', 'money')))}**\n"
+                    f"РўРёРї: **{self._server_item_kind(item)}**\n"
+                    f"Р¦РµРЅР°: **{format_price(item.get('price', 0), str(item.get('currency', 'money')))}**\n"
                     f"{clamp_text(item.get('description'))}"
                 ),
                 inline=False,
             )
 
-        embed.set_footer(text=f"Страница {self.page_index + 1}/{self._max_server_page() + 1}.")
+        embed.set_footer(text=f"РЎС‚СЂР°РЅРёС†Р° {self.page_index + 1}/{self._max_server_page() + 1}.")
         return embed
 
     def _build_customize_embed(self) -> discord.Embed:
@@ -651,38 +651,38 @@ class _BaseShopView(discord.ui.View):
         active_theme = str(profile.get("active_theme", "classic"))
         visible_items = self._current_title_items()
         embed = discord.Embed(
-            title="Кастомизация профиля",
-            description="Покупай титулы и фоны для профиля. Включать их можно через `/profile` > `Кастомизация`.",
+            title="РљР°СЃС‚РѕРјРёР·Р°С†РёСЏ РїСЂРѕС„РёР»СЏ",
+            description="РџРѕРєСѓРїР°Р№ С‚РёС‚СѓР»С‹ Рё С„РѕРЅС‹ РґР»СЏ РїСЂРѕС„РёР»СЏ. Р’РєР»СЋС‡Р°С‚СЊ РёС… РјРѕР¶РЅРѕ С‡РµСЂРµР· `/profile` > `РљР°СЃС‚РѕРјРёР·Р°С†РёСЏ`.",
             color=COLORS["gold"],
         )
         preview_url = ""
         for item in visible_items:
             if str(item.get("kind") or "title") == "theme":
                 theme_data = PROFILE_THEMES.get(str(item["key"]), {"name": item["name"]})
-                status = "Уже куплен" if item["key"] in owned_themes else "Можно купить"
+                status = "РЈР¶Рµ РєСѓРїР»РµРЅ" if item["key"] in owned_themes else "РњРѕР¶РЅРѕ РєСѓРїРёС‚СЊ"
                 if item["key"] == active_theme:
-                    status = "Сейчас активен"
+                    status = "РЎРµР№С‡Р°СЃ Р°РєС‚РёРІРµРЅ"
                 embed.add_field(
                     name=f"{item['name']} | {format_price(item['price'], item['currency'])}",
                     value=(
                         f"{item['description']}\n"
-                        f"Тема профиля: **{theme_data['name']}**\n"
-                        f"Статус: **{status}**"
+                        f"РўРµРјР° РїСЂРѕС„РёР»СЏ: **{theme_data['name']}**\n"
+                        f"РЎС‚Р°С‚СѓСЃ: **{status}**"
                     ),
                     inline=False,
                 )
                 preview_url = str(item.get("preview_url") or preview_url)
                 continue
             title_data = PROFILE_TITLES.get(item["key"], {"display": item["name"]})
-            status = "Уже куплен" if item["key"] in owned_titles else "Можно купить"
+            status = "РЈР¶Рµ РєСѓРїР»РµРЅ" if item["key"] in owned_titles else "РњРѕР¶РЅРѕ РєСѓРїРёС‚СЊ"
             if item["key"] == active_title:
-                status = "Сейчас активен"
+                status = "РЎРµР№С‡Р°СЃ Р°РєС‚РёРІРµРЅ"
             embed.add_field(
                 name=f"{item['name']} | {format_price(item['price'], item['currency'])}",
                 value=(
                     f"{item['description']}\n"
-                    f"Вид в профиле: `{title_data['display']}`\n"
-                    f"Статус: **{status}**"
+                    f"Р’РёРґ РІ РїСЂРѕС„РёР»Рµ: `{title_data['display']}`\n"
+                    f"РЎС‚Р°С‚СѓСЃ: **{status}**"
                 ),
                 inline=False,
             )
@@ -690,7 +690,7 @@ class _BaseShopView(discord.ui.View):
             preview_url = get_profile_theme_image(self.user_data) or ""
         if preview_url:
             embed.set_image(url=preview_url)
-        embed.set_footer(text=f"Страница {self.page_index + 1}/{self._max_title_page() + 1}.")
+        embed.set_footer(text=f"РЎС‚СЂР°РЅРёС†Р° {self.page_index + 1}/{self._max_title_page() + 1}.")
         return embed
 
     async def _refresh_message(self, interaction: discord.Interaction):
@@ -713,21 +713,21 @@ class _BaseShopView(discord.ui.View):
     async def _purchase_vip(self, level: int) -> tuple[bool, discord.Embed | str]:
         vip_data = VIP_LEVELS.get(level)
         if not vip_data or level <= 0:
-            return False, "Такого VIP-уровня нет."
+            return False, "РўР°РєРѕРіРѕ VIP-СѓСЂРѕРІРЅСЏ РЅРµС‚."
 
         async with get_user_lock(self.user_id):
             user = await db.get_user(self.user_id, self.guild_id)
             if not user:
-                return False, "Не удалось загрузить профиль."
+                return False, "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ."
 
             current_level = int(user.get("vip_level", 0) or 0)
             if current_level >= level:
-                return False, f"У тебя уже есть {format_vip_name(level)} или выше."
+                return False, f"РЈ С‚РµР±СЏ СѓР¶Рµ РµСЃС‚СЊ {format_vip_name(level)} РёР»Рё РІС‹С€Рµ."
 
             cost = int(vip_data["cost"])
             current_gems = int(user.get("gems", 0) or 0)
             if current_gems < cost:
-                return False, f"Не хватает гемов. Нужно: **{cost}**."
+                return False, f"РќРµ С…РІР°С‚Р°РµС‚ РіРµРјРѕРІ. РќСѓР¶РЅРѕ: **{cost}**."
 
             user["gems"] = current_gems - cost
             user["vip_level"] = level
@@ -735,19 +735,19 @@ class _BaseShopView(discord.ui.View):
             self.user_data = user
 
         embed = discord.Embed(
-            title="VIP активирован",
+            title="VIP Р°РєС‚РёРІРёСЂРѕРІР°РЅ",
             description=(
-                f"Активирован: **{format_vip_name(level)}**\n"
-                f"Потрачено: **{cost} гем.**\n"
-                f"Осталось гемов: **{int(self.user_data['gems']):,}**"
+                f"РђРєС‚РёРІРёСЂРѕРІР°РЅ: **{format_vip_name(level)}**\n"
+                f"РџРѕС‚СЂР°С‡РµРЅРѕ: **{cost} РіРµРј.**\n"
+                f"РћСЃС‚Р°Р»РѕСЃСЊ РіРµРјРѕРІ: **{int(self.user_data['gems']):,}**"
             ),
             color=COLORS["gold"],
         )
         embed.add_field(
-            name="Бонусы",
+            name="Р‘РѕРЅСѓСЃС‹",
             value=(
                 f"Daily: **+{int((vip_data['daily_bonus'] - 1) * 100)}%**\n"
-                f"Кулдауны: **-{int(vip_data['cooldown_reduction'] * 100)}%**"
+                f"РљСѓР»РґР°СѓРЅС‹: **-{int(vip_data['cooldown_reduction'] * 100)}%**"
             ),
             inline=False,
         )
@@ -755,21 +755,21 @@ class _BaseShopView(discord.ui.View):
 
     async def _purchase_autocollect_upgrade(self) -> tuple[bool, discord.Embed | str]:
         if not db.user_field_supported("business_autocollect"):
-            return False, "Автосбор временно недоступен. Сначала добавь колонку `business_autocollect` в таблицу `users`."
+            return False, "РђРІС‚РѕСЃР±РѕСЂ РІСЂРµРјРµРЅРЅРѕ РЅРµРґРѕСЃС‚СѓРїРµРЅ. РЎРЅР°С‡Р°Р»Р° РґРѕР±Р°РІСЊ РєРѕР»РѕРЅРєСѓ `business_autocollect` РІ С‚Р°Р±Р»РёС†Сѓ `users`."
 
         async with get_user_lock(self.user_id):
             user = await db.get_user(self.user_id, self.guild_id)
             if not user:
-                return False, "Не удалось загрузить профиль."
+                return False, "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ."
 
             auto_state = get_business_autocollect_state(user)
             if auto_state["owned"]:
-                return False, "Автосбор уже куплен."
+                return False, "РђРІС‚РѕСЃР±РѕСЂ СѓР¶Рµ РєСѓРїР»РµРЅ."
 
             price = int(AUTO_COLLECT_UPGRADE["price"])
             current_gems = int(user.get("gems", 0) or 0)
             if current_gems < price:
-                return False, f"Нужно **{price} гемов**, а у тебя только **{current_gems}**."
+                return False, f"РќСѓР¶РЅРѕ **{price} РіРµРјРѕРІ**, Р° Сѓ С‚РµР±СЏ С‚РѕР»СЊРєРѕ **{current_gems}**."
 
             auto_state.update({"owned": True, "enabled": False, "interval_hours": 6})
             user["gems"] = current_gems - price
@@ -783,10 +783,10 @@ class _BaseShopView(discord.ui.View):
             self.user_data = user
 
         embed = discord.Embed(
-            title="Улучшение куплено",
+            title="РЈР»СѓС‡С€РµРЅРёРµ РєСѓРїР»РµРЅРѕ",
             description=(
-                f"Ты купил **{AUTO_COLLECT_UPGRADE['name']}** за **{format_price(price, 'gems')}**.\n"
-                "Открой `/mybusinesses`, чтобы включить его и настроить интервал."
+                f"РўС‹ РєСѓРїРёР» **{AUTO_COLLECT_UPGRADE['name']}** Р·Р° **{format_price(price, 'gems')}**.\n"
+                "РћС‚РєСЂРѕР№ `/mybusinesses`, С‡С‚РѕР±С‹ РІРєР»СЋС‡РёС‚СЊ РµРіРѕ Рё РЅР°СЃС‚СЂРѕРёС‚СЊ РёРЅС‚РµСЂРІР°Р»."
             ),
             color=COLORS["success"],
         )
@@ -795,7 +795,7 @@ class _BaseShopView(discord.ui.View):
     async def _purchase_server_item(self, interaction: discord.Interaction, slot_index: int) -> tuple[bool, discord.Embed | str]:
         visible_items = self._current_server_items()
         if slot_index >= len(visible_items):
-            return False, "На этой кнопке сейчас нет товара."
+            return False, "РќР° СЌС‚РѕР№ РєРЅРѕРїРєРµ СЃРµР№С‡Р°СЃ РЅРµС‚ С‚РѕРІР°СЂР°."
 
         item = visible_items[slot_index]
         price = int(item.get("price", 0) or 0)
@@ -803,10 +803,10 @@ class _BaseShopView(discord.ui.View):
         role_id = item.get("role_id")
 
         if not self._is_role_item(item):
-            return False, "У этого серверного товара пока нет логики покупки кнопкой."
+            return False, "РЈ СЌС‚РѕРіРѕ СЃРµСЂРІРµСЂРЅРѕРіРѕ С‚РѕРІР°СЂР° РїРѕРєР° РЅРµС‚ Р»РѕРіРёРєРё РїРѕРєСѓРїРєРё РєРЅРѕРїРєРѕР№."
 
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            return False, "Эта покупка доступна только внутри сервера."
+            return False, "Р­С‚Р° РїРѕРєСѓРїРєР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РІРЅСѓС‚СЂРё СЃРµСЂРІРµСЂР°."
 
         try:
             role = interaction.guild.get_role(int(role_id)) if role_id is not None else None
@@ -814,25 +814,25 @@ class _BaseShopView(discord.ui.View):
             role = None
 
         if role is None:
-            return False, "Роль для этого товара не найдена на сервере."
+            return False, "Р РѕР»СЊ РґР»СЏ СЌС‚РѕРіРѕ С‚РѕРІР°СЂР° РЅРµ РЅР°Р№РґРµРЅР° РЅР° СЃРµСЂРІРµСЂРµ."
         if role in interaction.user.roles:
-            return False, "У тебя уже есть эта роль."
+            return False, "РЈ С‚РµР±СЏ СѓР¶Рµ РµСЃС‚СЊ СЌС‚Р° СЂРѕР»СЊ."
 
         async with get_user_lock(self.user_id):
             user = await db.get_user(self.user_id, self.guild_id)
             if not user:
-                return False, "Не удалось загрузить профиль."
+                return False, "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ."
 
             if currency == "gems":
                 current_value = int(user.get("gems", 0) or 0)
                 if current_value < price:
-                    return False, f"Не хватает гемов. Нужно: **{price}**."
+                    return False, f"РќРµ С…РІР°С‚Р°РµС‚ РіРµРјРѕРІ. РќСѓР¶РЅРѕ: **{price}**."
                 user["gems"] = current_value - price
                 update_payload = {"gems": user["gems"]}
             else:
                 current_value = int(user.get("balance", 0) or 0)
                 if current_value < price:
-                    return False, f"Не хватает денег. Нужно: **{format_money(price)}**."
+                    return False, f"РќРµ С…РІР°С‚Р°РµС‚ РґРµРЅРµРі. РќСѓР¶РЅРѕ: **{format_money(price)}**."
                 user["balance"] = current_value - price
                 update_payload = {"balance": user["balance"]}
 
@@ -844,24 +844,24 @@ class _BaseShopView(discord.ui.View):
                     await db.update_user(self.user_id, self.guild_id, {"gems": current_value})
                 else:
                     await db.update_user(self.user_id, self.guild_id, {"balance": current_value})
-                return False, "Не удалось выдать роль. Проверь права бота и позицию роли."
+                return False, "РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РґР°С‚СЊ СЂРѕР»СЊ. РџСЂРѕРІРµСЂСЊ РїСЂР°РІР° Р±РѕС‚Р° Рё РїРѕР·РёС†РёСЋ СЂРѕР»Рё."
 
             self.user_data = user
 
         embed = discord.Embed(
-            title="Покупка завершена",
+            title="РџРѕРєСѓРїРєР° Р·Р°РІРµСЂС€РµРЅР°",
             description=(
-                f"Куплено: **{item.get('name', 'Товар')}**\n"
-                f"Цена: **{format_price(price, currency)}**\n"
-                f"Получено: {role.mention}"
+                f"РљСѓРїР»РµРЅРѕ: **{item.get('name', 'РўРѕРІР°СЂ')}**\n"
+                f"Р¦РµРЅР°: **{format_price(price, currency)}**\n"
+                f"РџРѕР»СѓС‡РµРЅРѕ: {role.mention}"
             ),
             color=COLORS["success"],
         )
         embed.add_field(
-            name="После покупки",
+            name="РџРѕСЃР»Рµ РїРѕРєСѓРїРєРё",
             value=(
-                f"Наличные: **{format_money(self.user_data.get('balance', 0))}**\n"
-                f"Гемы: **{int(self.user_data.get('gems', 0) or 0):,}**"
+                f"РќР°Р»РёС‡РЅС‹Рµ: **{format_money(self.user_data.get('balance', 0))}**\n"
+                f"Р“РµРјС‹: **{int(self.user_data.get('gems', 0) or 0):,}**"
             ),
             inline=False,
         )
@@ -870,7 +870,7 @@ class _BaseShopView(discord.ui.View):
     async def _purchase_title_item(self, slot_index: int) -> tuple[bool, discord.Embed | str]:
         visible_items = self._current_title_items()
         if slot_index >= len(visible_items):
-            return False, "На этой кнопке сейчас нет косметики."
+            return False, "РќР° СЌС‚РѕР№ РєРЅРѕРїРєРµ СЃРµР№С‡Р°СЃ РЅРµС‚ РєРѕСЃРјРµС‚РёРєРё."
 
         item = visible_items[slot_index]
         item_kind = str(item.get("kind") or "title")
@@ -881,26 +881,26 @@ class _BaseShopView(discord.ui.View):
         async with get_user_lock(self.user_id):
             user = await db.get_user(self.user_id, self.guild_id)
             if not user:
-                return False, "Не удалось загрузить профиль."
+                return False, "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ."
 
             profile = get_profile_state(user)
             if item_kind == "theme":
                 if item_key in set(profile.get("owned_themes", [])):
-                    return False, "Этот фон у тебя уже есть."
+                    return False, "Р­С‚РѕС‚ С„РѕРЅ Сѓ С‚РµР±СЏ СѓР¶Рµ РµСЃС‚СЊ."
             else:
                 if item_key in set(profile.get("owned_titles", [])):
-                    return False, "Этот титул у тебя уже есть."
+                    return False, "Р­С‚РѕС‚ С‚РёС‚СѓР» Сѓ С‚РµР±СЏ СѓР¶Рµ РµСЃС‚СЊ."
 
             if currency == "gems":
                 current_value = int(user.get("gems", 0) or 0)
                 if current_value < price:
-                    return False, f"Не хватает гемов. Нужно: **{price}**."
+                    return False, f"РќРµ С…РІР°С‚Р°РµС‚ РіРµРјРѕРІ. РќСѓР¶РЅРѕ: **{price}**."
                 user["gems"] = current_value - price
                 update_payload = {"gems": user["gems"]}
             else:
                 current_value = int(user.get("balance", 0) or 0)
                 if current_value < price:
-                    return False, f"Не хватает денег. Нужно: **{format_money(price)}**."
+                    return False, f"РќРµ С…РІР°С‚Р°РµС‚ РґРµРЅРµРі. РќСѓР¶РЅРѕ: **{format_money(price)}**."
                 user["balance"] = current_value - price
                 update_payload = {"balance": user["balance"]}
 
@@ -915,11 +915,11 @@ class _BaseShopView(discord.ui.View):
         if item_kind == "theme":
             theme_data = PROFILE_THEMES.get(item_key, {"name": item["name"]})
             embed = discord.Embed(
-                title="Фон куплен",
+                title="Р¤РѕРЅ РєСѓРїР»РµРЅ",
                 description=(
-                    f"Куплен фон: **{theme_data['name']}**\n"
-                    f"Цена: **{format_price(price, currency)}**\n"
-                    f"Новый фон можно включить через `/profile` -> `Кастомизация`."
+                    f"РљСѓРїР»РµРЅ С„РѕРЅ: **{theme_data['name']}**\n"
+                    f"Р¦РµРЅР°: **{format_price(price, currency)}**\n"
+                    f"РќРѕРІС‹Р№ С„РѕРЅ РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ С‡РµСЂРµР· `/profile` -> `РљР°СЃС‚РѕРјРёР·Р°С†РёСЏ`."
                 ),
                 color=COLORS["success"],
             )
@@ -930,15 +930,15 @@ class _BaseShopView(discord.ui.View):
 
         title_data = PROFILE_TITLES.get(item_key, {"name": item["name"], "display": item["name"]})
         embed = discord.Embed(
-            title="Титул куплен",
+            title="РўРёС‚СѓР» РєСѓРїР»РµРЅ",
             description=(
-                f"Куплен титул: **{title_data['name']}**\n"
-                f"Цена: **{format_price(price, currency)}**\n"
-                f"Новый титул можно включить через `/profile` -> `Кастомизация`."
+                f"РљСѓРїР»РµРЅ С‚РёС‚СѓР»: **{title_data['name']}**\n"
+                f"Р¦РµРЅР°: **{format_price(price, currency)}**\n"
+                f"РќРѕРІС‹Р№ С‚РёС‚СѓР» РјРѕР¶РЅРѕ РІРєР»СЋС‡РёС‚СЊ С‡РµСЂРµР· `/profile` -> `РљР°СЃС‚РѕРјРёР·Р°С†РёСЏ`."
             ),
             color=COLORS["success"],
         )
-        embed.add_field(name="Вид в профиле", value=f"`{title_data['display']}`", inline=False)
+        embed.add_field(name="Р’РёРґ РІ РїСЂРѕС„РёР»Рµ", value=f"`{title_data['display']}`", inline=False)
         return True, embed
 
     async def _handle_action(self, interaction: discord.Interaction, slot_index: int | None = None):
@@ -963,8 +963,8 @@ class _BaseShopView(discord.ui.View):
                 payload = (
                     False,
                     discord.Embed(
-                        title="Курс обмена",
-                        description="1 гем = $1,000 при покупке\n1 гем = $900 при продаже",
+                        title="РљСѓСЂСЃ РѕР±РјРµРЅР°",
+                        description="1 РіРµРј = $1,000 РїСЂРё РїРѕРєСѓРїРєРµ\n1 РіРµРј = $900 РїСЂРё РїСЂРѕРґР°Р¶Рµ",
                         color=COLORS["info"],
                     ),
                 )
@@ -974,16 +974,16 @@ class _BaseShopView(discord.ui.View):
                 payload = (
                     False,
                     discord.Embed(
-                        title="Как работает автосбор",
+                        title="РљР°Рє СЂР°Р±РѕС‚Р°РµС‚ Р°РІС‚РѕСЃР±РѕСЂ",
                         description=(
-                            "После покупки бот сам проверяет твои бизнесы по выбранному интервалу "
-                            "и переводит готовую прибыль на баланс."
+                            "РџРѕСЃР»Рµ РїРѕРєСѓРїРєРё Р±РѕС‚ СЃР°Рј РїСЂРѕРІРµСЂСЏРµС‚ С‚РІРѕРё Р±РёР·РЅРµСЃС‹ РїРѕ РІС‹Р±СЂР°РЅРЅРѕРјСѓ РёРЅС‚РµСЂРІР°Р»Сѓ "
+                            "Рё РїРµСЂРµРІРѕРґРёС‚ РіРѕС‚РѕРІСѓСЋ РїСЂРёР±С‹Р»СЊ РЅР° Р±Р°Р»Р°РЅСЃ."
                         ),
                         color=COLORS["info"],
                     ),
                 )
             elif self.active_page == "upgrades" and slot_index == 2:
-                payload = (False, "Открой `/mybusinesses` и используй кнопку `Автосбор`.")
+                payload = (False, "РћС‚РєСЂРѕР№ `/mybusinesses` Рё РёСЃРїРѕР»СЊР·СѓР№ РєРЅРѕРїРєСѓ `РђРІС‚РѕСЃР±РѕСЂ`.")
             else:
                 return
 
@@ -994,7 +994,7 @@ class _BaseShopView(discord.ui.View):
             else:
                 await interaction.followup.send(str(result), ephemeral=True)
 
-    @discord.ui.button(label="Обзор", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="РћР±Р·РѕСЂ", style=discord.ButtonStyle.primary, row=0)
     async def overview_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "overview")
 
@@ -1002,19 +1002,19 @@ class _BaseShopView(discord.ui.View):
     async def vip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "vip")
 
-    @discord.ui.button(label="Обмен", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="РћР±РјРµРЅ", style=discord.ButtonStyle.secondary, row=0)
     async def exchange_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "exchange")
 
-    @discord.ui.button(label="Улучшения", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="РЈР»СѓС‡С€РµРЅРёСЏ", style=discord.ButtonStyle.secondary, row=0)
     async def upgrades_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "upgrades")
 
-    @discord.ui.button(label="Сервер", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="РЎРµСЂРІРµСЂ", style=discord.ButtonStyle.secondary, row=0)
     async def server_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "server")
 
-    @discord.ui.button(label="Кастомизация", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="РљР°СЃС‚РѕРјРёР·Р°С†РёСЏ", style=discord.ButtonStyle.secondary, row=2)
     async def customize_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "customize")
 
@@ -1030,15 +1030,15 @@ class _BaseShopView(discord.ui.View):
                 self.page_index = max(0, self.page_index - 1)
             await self._refresh_message(interaction)
 
-    @discord.ui.button(label="Недоступно", style=discord.ButtonStyle.secondary, row=1, disabled=True)
+    @discord.ui.button(label="РќРµРґРѕСЃС‚СѓРїРЅРѕ", style=discord.ButtonStyle.secondary, row=1, disabled=True)
     async def action_btn_1(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_action(interaction, 0)
 
-    @discord.ui.button(label="Недоступно", style=discord.ButtonStyle.secondary, row=1, disabled=True)
+    @discord.ui.button(label="РќРµРґРѕСЃС‚СѓРїРЅРѕ", style=discord.ButtonStyle.secondary, row=1, disabled=True)
     async def action_btn_2(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_action(interaction, 1)
 
-    @discord.ui.button(label="Недоступно", style=discord.ButtonStyle.secondary, row=1, disabled=True)
+    @discord.ui.button(label="РќРµРґРѕСЃС‚СѓРїРЅРѕ", style=discord.ButtonStyle.secondary, row=1, disabled=True)
     async def action_btn_3(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_action(interaction, 2)
 
@@ -1075,7 +1075,7 @@ class BattlePassView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Это меню боевого пропуска открыто не тобой.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Рѕ РјРµРЅСЋ Р±РѕРµРІРѕРіРѕ РїСЂРѕРїСѓСЃРєР° РѕС‚РєСЂС‹С‚Рѕ РЅРµ С‚РѕР±РѕР№.", ephemeral=True)
             return False
         return True
 
@@ -1102,7 +1102,7 @@ class BattlePassView(discord.ui.View):
         next_free = self._next_claimable_tier(user, premium=False)
         next_premium = self._next_claimable_tier(user, premium=True)
 
-        self.buy_premium_btn.label = "Покупка в /shop" if not premium_open else "Премиум открыт"
+        self.buy_premium_btn.label = "РџРѕРєСѓРїРєР° РІ /shop" if not premium_open else "РџСЂРµРјРёСѓРј РѕС‚РєСЂС‹С‚"
         self.buy_premium_btn.style = discord.ButtonStyle.success if not premium_open else discord.ButtonStyle.secondary
         self.buy_premium_btn.disabled = premium_open
 
@@ -1113,7 +1113,7 @@ class BattlePassView(discord.ui.View):
     async def build_embed(self) -> discord.Embed:
         user = await self._get_user()
         if not user:
-            return discord.Embed(title="Боевой пропуск", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            return discord.Embed(title="Р‘РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє", description="РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", color=COLORS["warning"])
 
         self._sync_buttons(user)
         state = ensure_battle_pass_state(user)
@@ -1124,70 +1124,70 @@ class BattlePassView(discord.ui.View):
         next_premium = self._next_claimable_tier(user, premium=True)
         total_xp = int(state.get("xp", 0) or 0)
         max_xp = SEASON_MAX_TIERS * 100
-        pass_status = "ПРЕМИУМ" if premium_open else "БЕСПЛАТНО"
+        pass_status = "РџР Р•РњРРЈРњ" if premium_open else "Р‘Р•РЎРџР›РђРўРќРћ"
 
         embed = discord.Embed(
-            title=f"{SEASON_NAME} • {pass_status}",
+            title=f"{SEASON_NAME} вЂў {pass_status}",
             description=(
-                "Сезонный пропуск с ежедневными заданиями, бесплатной и платной веткой наград.\n"
+                "РЎРµР·РѕРЅРЅС‹Р№ РїСЂРѕРїСѓСЃРє СЃ РµР¶РµРґРЅРµРІРЅС‹РјРё Р·Р°РґР°РЅРёСЏРјРё, Р±РµСЃРїР»Р°С‚РЅРѕР№ Рё РїР»Р°С‚РЅРѕР№ РІРµС‚РєРѕР№ РЅР°РіСЂР°Рґ.\n"
                 f"`{build_progress_bar(total_xp, max_xp, length=12)}` **{total_xp}/{max_xp} XP**"
             ),
             color=COLORS["gold"],
         )
         embed.add_field(
-            name="Прогресс",
+            name="РџСЂРѕРіСЂРµСЃСЃ",
             value=(
-                f"Уровень: **{unlocked}/{SEASON_MAX_TIERS}**\n"
-                f"До следующего: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
-                f"Статус пропуска: **{pass_status}**"
+                f"РЈСЂРѕРІРµРЅСЊ: **{unlocked}/{SEASON_MAX_TIERS}**\n"
+                f"Р”Рѕ СЃР»РµРґСѓСЋС‰РµРіРѕ: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
+                f"РЎС‚Р°С‚СѓСЃ РїСЂРѕРїСѓСЃРєР°: **{pass_status}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Следующие награды",
+            name="РЎР»РµРґСѓСЋС‰РёРµ РЅР°РіСЂР°РґС‹",
             value=(
-                f"БЕСПЛАТНО: **{reward_text(SEASON_FREE_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**\n"
-                f"ПРЕМИУМ: **{reward_text(SEASON_PREMIUM_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**"
+                f"Р‘Р•РЎРџР›РђРўРќРћ: **{reward_text(SEASON_FREE_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**\n"
+                f"РџР Р•РњРРЈРњ: **{reward_text(SEASON_PREMIUM_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Платная ветка",
+            name="РџР»Р°С‚РЅР°СЏ РІРµС‚РєР°",
             value=(
-                f"Цена открытия: **{format_money(SEASON_PREMIUM_COST)}**\n"
-                "Покупка доступна только через `/shop`."
+                f"Р¦РµРЅР° РѕС‚РєСЂС‹С‚РёСЏ: **{format_money(SEASON_PREMIUM_COST)}**\n"
+                "РџРѕРєСѓРїРєР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ С‡РµСЂРµР· `/shop`."
             ),
             inline=False,
         )
 
         mission_lines: list[str] = []
         for mission in state.get("daily_missions", []):
-            marker = "Готово" if mission.get("completed") else "В процессе"
+            marker = "Р“РѕС‚РѕРІРѕ" if mission.get("completed") else "Р’ РїСЂРѕС†РµСЃСЃРµ"
             mission_lines.append(
-                f"{marker} • {mission.get('description', 'Задание')} "
+                f"{marker} вЂў {mission.get('description', 'Р—Р°РґР°РЅРёРµ')} "
                 f"({int(mission.get('progress', 0) or 0)}/{int(mission.get('target', 0) or 0)}) "
                 f"+{int(mission.get('xp_reward', 0) or 0)} XP"
             )
-        embed.add_field(name="Ежедневные задания", value="\n".join(mission_lines) or "Сегодня заданий нет.", inline=False)
+        embed.add_field(name="Р•Р¶РµРґРЅРµРІРЅС‹Рµ Р·Р°РґР°РЅРёСЏ", value="\n".join(mission_lines) or "РЎРµРіРѕРґРЅСЏ Р·Р°РґР°РЅРёР№ РЅРµС‚.", inline=False)
 
         preview_lines: list[str] = []
         start_tier = min(SEASON_MAX_TIERS, max(1, unlocked + 1 if next_free is None else next_free))
         for tier in range(start_tier, min(SEASON_MAX_TIERS, start_tier + 4) + 1):
             free_reward = reward_text(SEASON_FREE_REWARDS[tier - 1])
             premium_reward = reward_text(SEASON_PREMIUM_REWARDS[tier - 1])
-            preview_lines.append(f"Уровень {tier}: FREE {free_reward} | PREMIUM {premium_reward}")
-        embed.add_field(name="Ближайшие уровни", value="\n".join(preview_lines), inline=False)
+            preview_lines.append(f"РЈСЂРѕРІРµРЅСЊ {tier}: FREE {free_reward} | PREMIUM {premium_reward}")
+        embed.add_field(name="Р‘Р»РёР¶Р°Р№С€РёРµ СѓСЂРѕРІРЅРё", value="\n".join(preview_lines), inline=False)
         embed.set_footer(
             text=(
-                f"Следующая бесплатная награда: {'уровень ' + str(next_free) if next_free else 'всё получено'} | "
-                f"следующая премиум-награда: {'уровень ' + str(next_premium) if next_premium else 'нет доступных'}"
+                f"РЎР»РµРґСѓСЋС‰Р°СЏ Р±РµСЃРїР»Р°С‚РЅР°СЏ РЅР°РіСЂР°РґР°: {'СѓСЂРѕРІРµРЅСЊ ' + str(next_free) if next_free else 'РІСЃС‘ РїРѕР»СѓС‡РµРЅРѕ'} | "
+                f"СЃР»РµРґСѓСЋС‰Р°СЏ РїСЂРµРјРёСѓРј-РЅР°РіСЂР°РґР°: {'СѓСЂРѕРІРµРЅСЊ ' + str(next_premium) if next_premium else 'РЅРµС‚ РґРѕСЃС‚СѓРїРЅС‹С…'}"
             )
         )
         return embed
 
         user = await self._get_user()
         if not user:
-            return discord.Embed(title="Боевой пропуск", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            return discord.Embed(title="Р‘РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє", description="РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", color=COLORS["warning"])
 
         self._sync_buttons(user)
         state = ensure_battle_pass_state(user)
@@ -1200,60 +1200,60 @@ class BattlePassView(discord.ui.View):
         max_xp = SEASON_MAX_TIERS * 100
 
         embed = discord.Embed(
-            title=f"{SEASON_NAME} - боевой пропуск",
+            title=f"{SEASON_NAME} - Р±РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє",
             description=(
-                "Бесплатная и платная ветка с ежедневными заданиями, бустами, косметикой и гемами.\n"
+                "Р‘РµСЃРїР»Р°С‚РЅР°СЏ Рё РїР»Р°С‚РЅР°СЏ РІРµС‚РєР° СЃ РµР¶РµРґРЅРµРІРЅС‹РјРё Р·Р°РґР°РЅРёСЏРјРё, Р±СѓСЃС‚Р°РјРё, РєРѕСЃРјРµС‚РёРєРѕР№ Рё РіРµРјР°РјРё.\n"
                 f"`{build_progress_bar(total_xp, max_xp, length=12)}` **{total_xp}/{max_xp} XP**"
             ),
             color=COLORS["gold"],
         )
         embed.add_field(
-            name="Прогресс",
+            name="РџСЂРѕРіСЂРµСЃСЃ",
             value=(
-                f"Уровень: **{unlocked}/{SEASON_MAX_TIERS}**\n"
-                f"До следующего: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
-                f"Платная ветка: **{'Открыта' if premium_open else 'Закрыта'}**"
+                f"РЈСЂРѕРІРµРЅСЊ: **{unlocked}/{SEASON_MAX_TIERS}**\n"
+                f"Р”Рѕ СЃР»РµРґСѓСЋС‰РµРіРѕ: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
+                f"РџР»Р°С‚РЅР°СЏ РІРµС‚РєР°: **{'РћС‚РєСЂС‹С‚Р°' if premium_open else 'Р—Р°РєСЂС‹С‚Р°'}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Следующие награды",
+            name="РЎР»РµРґСѓСЋС‰РёРµ РЅР°РіСЂР°РґС‹",
             value=(
-                f"Бесплатно: **{reward_text(SEASON_FREE_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**\n"
-                f"Платно: **{reward_text(SEASON_PREMIUM_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**"
+                f"Р‘РµСЃРїР»Р°С‚РЅРѕ: **{reward_text(SEASON_FREE_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**\n"
+                f"РџР»Р°С‚РЅРѕ: **{reward_text(SEASON_PREMIUM_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Платная ветка",
+            name="РџР»Р°С‚РЅР°СЏ РІРµС‚РєР°",
             value=(
-                f"Цена открытия: **{format_money(SEASON_PREMIUM_COST)}**\n"
-                "Покупка доступна только через `/shop`."
+                f"Р¦РµРЅР° РѕС‚РєСЂС‹С‚РёСЏ: **{format_money(SEASON_PREMIUM_COST)}**\n"
+                "РџРѕРєСѓРїРєР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ С‡РµСЂРµР· `/shop`."
             ),
             inline=False,
         )
 
         mission_lines: list[str] = []
         for mission in state.get("daily_missions", []):
-            marker = "Выполнено" if mission.get("completed") else "В процессе"
+            marker = "Р’С‹РїРѕР»РЅРµРЅРѕ" if mission.get("completed") else "Р’ РїСЂРѕС†РµСЃСЃРµ"
             mission_lines.append(
-                f"{marker} {mission.get('description', 'Задание')} "
+                f"{marker} {mission.get('description', 'Р—Р°РґР°РЅРёРµ')} "
                 f"({int(mission.get('progress', 0) or 0)}/{int(mission.get('target', 0) or 0)}) "
                 f"+{int(mission.get('xp_reward', 0) or 0)} XP"
             )
-        embed.add_field(name="Ежедневные задания", value="\n".join(mission_lines) or "Сегодня заданий нет.", inline=False)
+        embed.add_field(name="Р•Р¶РµРґРЅРµРІРЅС‹Рµ Р·Р°РґР°РЅРёСЏ", value="\n".join(mission_lines) or "РЎРµРіРѕРґРЅСЏ Р·Р°РґР°РЅРёР№ РЅРµС‚.", inline=False)
 
         preview_lines: list[str] = []
         start_tier = min(SEASON_MAX_TIERS, max(1, unlocked + 1 if next_free is None else next_free))
         for tier in range(start_tier, min(SEASON_MAX_TIERS, start_tier + 4) + 1):
             free_reward = reward_text(SEASON_FREE_REWARDS[tier - 1])
             premium_reward = reward_text(SEASON_PREMIUM_REWARDS[tier - 1])
-            preview_lines.append(f"Уровень {tier}: бесплатно {free_reward} | платно {premium_reward}")
-        embed.add_field(name="Ближайшие уровни", value="\n".join(preview_lines), inline=False)
+            preview_lines.append(f"РЈСЂРѕРІРµРЅСЊ {tier}: Р±РµСЃРїР»Р°С‚РЅРѕ {free_reward} | РїР»Р°С‚РЅРѕ {premium_reward}")
+        embed.add_field(name="Р‘Р»РёР¶Р°Р№С€РёРµ СѓСЂРѕРІРЅРё", value="\n".join(preview_lines), inline=False)
         embed.set_footer(
             text=(
-                f"Следующая бесплатная награда: {'уровень ' + str(next_free) if next_free else 'всё получено'} | "
-                f"следующая платная: {'уровень ' + str(next_premium) if next_premium else 'нет доступных'}"
+                f"РЎР»РµРґСѓСЋС‰Р°СЏ Р±РµСЃРїР»Р°С‚РЅР°СЏ РЅР°РіСЂР°РґР°: {'СѓСЂРѕРІРµРЅСЊ ' + str(next_free) if next_free else 'РІСЃС‘ РїРѕР»СѓС‡РµРЅРѕ'} | "
+                f"СЃР»РµРґСѓСЋС‰Р°СЏ РїР»Р°С‚РЅР°СЏ: {'СѓСЂРѕРІРµРЅСЊ ' + str(next_premium) if next_premium else 'РЅРµС‚ РґРѕСЃС‚СѓРїРЅС‹С…'}"
             )
         )
         return embed
@@ -1265,7 +1265,7 @@ class BattlePassView(discord.ui.View):
         await self._remember_message(interaction)
         return True
 
-    @discord.ui.button(label="Открыть премиум", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="РћС‚РєСЂС‹С‚СЊ РїСЂРµРјРёСѓРј", style=discord.ButtonStyle.success, row=0)
     async def buy_premium_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1277,7 +1277,7 @@ class BattlePassView(discord.ui.View):
                 return
             await view._remember_message(interaction)
 
-    @discord.ui.button(label="Забрать бесплатную", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Р—Р°Р±СЂР°С‚СЊ Р±РµСЃРїР»Р°С‚РЅСѓСЋ", style=discord.ButtonStyle.primary, row=0)
     async def claim_free_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1285,11 +1285,11 @@ class BattlePassView(discord.ui.View):
             async with get_user_lock(self.user_id):
                 user = await db.get_user(self.user_id, self.guild_id)
                 if not user:
-                    await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
+                    await interaction.followup.send("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", ephemeral=True)
                     return
                 tier = self._next_claimable_tier(user, premium=False)
                 if tier is None:
-                    await interaction.followup.send("Сейчас нет бесплатных наград для получения.", ephemeral=True)
+                    await interaction.followup.send("РЎРµР№С‡Р°СЃ РЅРµС‚ Р±РµСЃРїР»Р°С‚РЅС‹С… РЅР°РіСЂР°Рґ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ.", ephemeral=True)
                     return
                 success, payload = claim_battle_pass_reward(user, tier, premium=False)
                 if not success:
@@ -1307,9 +1307,9 @@ class BattlePassView(discord.ui.View):
                     },
                 )
             await self._refresh_message(interaction)
-            await interaction.followup.send(f"Получена бесплатная награда уровня {tier}: {reward_text(payload)}", ephemeral=True)
+            await interaction.followup.send(f"РџРѕР»СѓС‡РµРЅР° Р±РµСЃРїР»Р°С‚РЅР°СЏ РЅР°РіСЂР°РґР° СѓСЂРѕРІРЅСЏ {tier}: {reward_text(payload)}", ephemeral=True)
 
-    @discord.ui.button(label="Забрать премиум", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Р—Р°Р±СЂР°С‚СЊ РїСЂРµРјРёСѓРј", style=discord.ButtonStyle.primary, row=1)
     async def claim_premium_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1317,11 +1317,11 @@ class BattlePassView(discord.ui.View):
             async with get_user_lock(self.user_id):
                 user = await db.get_user(self.user_id, self.guild_id)
                 if not user:
-                    await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
+                    await interaction.followup.send("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", ephemeral=True)
                     return
                 tier = self._next_claimable_tier(user, premium=True)
                 if tier is None:
-                    await interaction.followup.send("Сейчас нет платных наград для получения.", ephemeral=True)
+                    await interaction.followup.send("РЎРµР№С‡Р°СЃ РЅРµС‚ РїР»Р°С‚РЅС‹С… РЅР°РіСЂР°Рґ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ.", ephemeral=True)
                     return
                 success, payload = claim_battle_pass_reward(user, tier, premium=True)
                 if not success:
@@ -1339,16 +1339,16 @@ class BattlePassView(discord.ui.View):
                     },
                 )
             await self._refresh_message(interaction)
-            await interaction.followup.send(f"Получена платная награда уровня {tier}: {reward_text(payload)}", ephemeral=True)
+            await interaction.followup.send(f"РџРѕР»СѓС‡РµРЅР° РїР»Р°С‚РЅР°СЏ РЅР°РіСЂР°РґР° СѓСЂРѕРІРЅСЏ {tier}: {reward_text(payload)}", ephemeral=True)
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="РћР±РЅРѕРІРёС‚СЊ", style=discord.ButtonStyle.secondary, row=1)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
             await self._refresh_message(interaction)
 
-    @discord.ui.button(label="Назад в магазин", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="РќР°Р·Р°Рґ РІ РјР°РіР°Р·РёРЅ", style=discord.ButtonStyle.secondary, row=2)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1381,57 +1381,57 @@ class ShopView(_BaseShopView):
         tier = battle_pass_tier(self.user_data)
         tier_progress, tier_total = battle_pass_progress_to_next(self.user_data)
         embed = discord.Embed(
-            title="Магазин сервера",
-            description="Главный раздел покупок для VIP, обмена, кастомизации и постоянных улучшений.",
+            title="РњР°РіР°Р·РёРЅ СЃРµСЂРІРµСЂР°",
+            description="Р“Р»Р°РІРЅС‹Р№ СЂР°Р·РґРµР» РїРѕРєСѓРїРѕРє РґР»СЏ VIP, РѕР±РјРµРЅР°, РєР°СЃС‚РѕРјРёР·Р°С†РёРё Рё РїРѕСЃС‚РѕСЏРЅРЅС‹С… СѓР»СѓС‡С€РµРЅРёР№.",
             color=COLORS["purple"],
         )
         embed.add_field(
-            name="Кошелёк",
+            name="РљРѕС€РµР»С‘Рє",
             value=(
-                f"Наличные: **{format_money(self.user_data.get('balance', 0))}**\n"
-                f"Гемы: **{int(self.user_data.get('gems', 0) or 0):,}**\n"
+                f"РќР°Р»РёС‡РЅС‹Рµ: **{format_money(self.user_data.get('balance', 0))}**\n"
+                f"Р“РµРјС‹: **{int(self.user_data.get('gems', 0) or 0):,}**\n"
                 f"VIP: **{format_vip_name(vip_level)}**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Сезон",
+            name="РЎРµР·РѕРЅ",
             value=(
                 f"{SEASON_NAME}\n"
-                f"Уровень: **{tier}/{SEASON_MAX_TIERS}**\n"
-                f"Прогресс: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total} XP**"
+                f"РЈСЂРѕРІРµРЅСЊ: **{tier}/{SEASON_MAX_TIERS}**\n"
+                f"РџСЂРѕРіСЂРµСЃСЃ: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total} XP**"
             ),
             inline=True,
         )
         embed.add_field(
-            name="Быстрый обзор",
+            name="Р‘С‹СЃС‚СЂС‹Р№ РѕР±Р·РѕСЂ",
             value=(
-                f"Платная ветка пропуска: **{'Открыта' if pass_state.get('premium_unlocked') else 'Закрыта'}**\n"
-                f"Автосбор: **{'Куплен' if auto_state['owned'] else 'Не куплен'}**\n"
-                f"Серверные товары: **{len(self.custom_items)}**\n"
-                f"Косметика: **{len(THEME_SHOP_ITEMS) + len(TITLE_SHOP_ITEMS)}**"
+                f"РџР»Р°С‚РЅР°СЏ РІРµС‚РєР° РїСЂРѕРїСѓСЃРєР°: **{'РћС‚РєСЂС‹С‚Р°' if pass_state.get('premium_unlocked') else 'Р—Р°РєСЂС‹С‚Р°'}**\n"
+                f"РђРІС‚РѕСЃР±РѕСЂ: **{'РљСѓРїР»РµРЅ' if auto_state['owned'] else 'РќРµ РєСѓРїР»РµРЅ'}**\n"
+                f"РЎРµСЂРІРµСЂРЅС‹Рµ С‚РѕРІР°СЂС‹: **{len(self.custom_items)}**\n"
+                f"РљРѕСЃРјРµС‚РёРєР°: **{len(THEME_SHOP_ITEMS) + len(TITLE_SHOP_ITEMS)}**"
             ),
             inline=False,
         )
         embed.add_field(
-            name="Что доступно ниже",
+            name="Р§С‚Рѕ РґРѕСЃС‚СѓРїРЅРѕ РЅРёР¶Рµ",
             value=(
-                "Боевой пропуск: купить платную ветку, а задания и награды смотреть через `/bp`\n"
-                "VIP: удобство, бонусы, дополнительные слоты контрактов и обновления\n"
-                "Обмен: покупка и продажа гемов в одном месте\n"
-                "Кастомизация: покупка титулов и фоновых тем для профиля"
+                "Р‘РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє: РєСѓРїРёС‚СЊ РїР»Р°С‚РЅСѓСЋ РІРµС‚РєСѓ, Р° Р·Р°РґР°РЅРёСЏ Рё РЅР°РіСЂР°РґС‹ СЃРјРѕС‚СЂРµС‚СЊ С‡РµСЂРµР· `/bp`\n"
+                "VIP: СѓРґРѕР±СЃС‚РІРѕ, Р±РѕРЅСѓСЃС‹, РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ СЃР»РѕС‚С‹ РєРѕРЅС‚СЂР°РєС‚РѕРІ Рё РѕР±РЅРѕРІР»РµРЅРёСЏ\n"
+                "РћР±РјРµРЅ: РїРѕРєСѓРїРєР° Рё РїСЂРѕРґР°Р¶Р° РіРµРјРѕРІ РІ РѕРґРЅРѕРј РјРµСЃС‚Рµ\n"
+                "РљР°СЃС‚РѕРјРёР·Р°С†РёСЏ: РїРѕРєСѓРїРєР° С‚РёС‚СѓР»РѕРІ Рё С„РѕРЅРѕРІС‹С… С‚РµРј РґР»СЏ РїСЂРѕС„РёР»СЏ"
             ),
             inline=False,
         )
-        embed.set_footer(text="Выбирай раздел магазина в селекте сверху, а действия выполняй кнопками ниже.")
+        embed.set_footer(text="Р’С‹Р±РёСЂР°Р№ СЂР°Р·РґРµР» РјР°РіР°Р·РёРЅР° РІ СЃРµР»РµРєС‚Рµ СЃРІРµСЂС…Сѓ, Р° РґРµР№СЃС‚РІРёСЏ РІС‹РїРѕР»РЅСЏР№ РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.")
         return embed
 
     def _build_vip_embed(self) -> discord.Embed:
         current_vip = int(self.user_data.get("vip_level", 0) or 0)
         visible_levels = self._current_vip_slice()
         embed = discord.Embed(
-            title="VIP-магазин",
-            description=f"Текущий уровень: **{format_vip_name(current_vip)}**",
+            title="VIP-РјР°РіР°Р·РёРЅ",
+            description=f"РўРµРєСѓС‰РёР№ СѓСЂРѕРІРµРЅСЊ: **{format_vip_name(current_vip)}**",
             color=COLORS["gold"],
         )
 
@@ -1439,16 +1439,16 @@ class ShopView(_BaseShopView):
             embed.add_field(
                 name=f"{vip_data['emoji']} {format_vip_name(level)} | {format_price(vip_data['cost'], 'gems')}",
                 value=(
-                    f"Статус: **{vip_status_label(current_vip, level)}**\n"
-                    f"Бонус к ежедневной награде: **+{int((vip_data['daily_bonus'] - 1) * 100)}%**\n"
-                    f"Снижение кулдаунов: **-{int(vip_data['cooldown_reduction'] * 100)}%**\n"
-                    f"Контракты: **{contract_slots_for_vip(level)} слотов**, **{contract_rerolls_for_vip(level)} обновлений в день**\n"
-                    "Профиль: более аккуратный вид и дополнительные удобства"
+                    f"РЎС‚Р°С‚СѓСЃ: **{vip_status_label(current_vip, level)}**\n"
+                    f"Р‘РѕРЅСѓСЃ Рє РµР¶РµРґРЅРµРІРЅРѕР№ РЅР°РіСЂР°РґРµ: **+{int((vip_data['daily_bonus'] - 1) * 100)}%**\n"
+                    f"РЎРЅРёР¶РµРЅРёРµ РєСѓР»РґР°СѓРЅРѕРІ: **-{int(vip_data['cooldown_reduction'] * 100)}%**\n"
+                    f"РљРѕРЅС‚СЂР°РєС‚С‹: **{contract_slots_for_vip(level)} СЃР»РѕС‚РѕРІ**, **{contract_rerolls_for_vip(level)} РѕР±РЅРѕРІР»РµРЅРёР№ РІ РґРµРЅСЊ**\n"
+                    "РџСЂРѕС„РёР»СЊ: Р±РѕР»РµРµ Р°РєРєСѓСЂР°С‚РЅС‹Р№ РІРёРґ Рё РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ СѓРґРѕР±СЃС‚РІР°"
                 ),
                 inline=False,
             )
 
-        embed.set_footer(text=f"Страница {self.page_index + 1}/{self._max_vip_page() + 1}. Покупка VIP доступна кнопками ниже.")
+        embed.set_footer(text=f"РЎС‚СЂР°РЅРёС†Р° {self.page_index + 1}/{self._max_vip_page() + 1}. РџРѕРєСѓРїРєР° VIP РґРѕСЃС‚СѓРїРЅР° РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.")
         return embed
 
     async def _handle_action(self, interaction: discord.Interaction, slot_index: int | None = None):
@@ -1459,12 +1459,12 @@ class ShopView(_BaseShopView):
                 async with get_user_lock(self.user_id):
                     user = await db.get_user(self.user_id, self.guild_id)
                     if not user:
-                        await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
+                        await interaction.followup.send("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", ephemeral=True)
                         return
                     if ensure_battle_pass_state(user).get("premium_unlocked"):
                         self.user_data = user
                         await self._refresh_message(interaction)
-                        await interaction.followup.send("Платная ветка уже куплена. Для заданий и наград используй `/bp`.", ephemeral=True)
+                        await interaction.followup.send("РџР»Р°С‚РЅР°СЏ РІРµС‚РєР° СѓР¶Рµ РєСѓРїР»РµРЅР°. Р”Р»СЏ Р·Р°РґР°РЅРёР№ Рё РЅР°РіСЂР°Рґ РёСЃРїРѕР»СЊР·СѓР№ `/bp`.", ephemeral=True)
                         return
                     success, message = buy_premium_pass(user)
                     if not success:
@@ -1480,13 +1480,13 @@ class ShopView(_BaseShopView):
                     )
                     self.user_data = user
                 await self._refresh_message(interaction)
-                await interaction.followup.send("Боевой пропуск куплен. Всё остальное по нему открывается через `/bp`.", ephemeral=True)
+                await interaction.followup.send("Р‘РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє РєСѓРїР»РµРЅ. Р’СЃС‘ РѕСЃС‚Р°Р»СЊРЅРѕРµ РїРѕ РЅРµРјСѓ РѕС‚РєСЂС‹РІР°РµС‚СЃСЏ С‡РµСЂРµР· `/bp`.", ephemeral=True)
                 return
             if self.active_page == "overview" and slot_index == 1:
-                await interaction.response.send_message("Переключайся на вкладку `VIP` верхней кнопкой.", ephemeral=True)
+                await interaction.response.send_message("РџРµСЂРµРєР»СЋС‡Р°Р№СЃСЏ РЅР° РІРєР»Р°РґРєСѓ `VIP` РІРµСЂС…РЅРµР№ РєРЅРѕРїРєРѕР№.", ephemeral=True)
                 return
             if self.active_page == "overview" and slot_index == 2:
-                await interaction.response.send_message("Переключайся на вкладку `Обмен` верхней кнопкой.", ephemeral=True)
+                await interaction.response.send_message("РџРµСЂРµРєР»СЋС‡Р°Р№СЃСЏ РЅР° РІРєР»Р°РґРєСѓ `РћР±РјРµРЅ` РІРµСЂС…РЅРµР№ РєРЅРѕРїРєРѕР№.", ephemeral=True)
                 return
 
             if self.active_page == "exchange" and slot_index == 0:
@@ -1518,16 +1518,16 @@ class ShopView(_BaseShopView):
                 payload = (
                     False,
                     discord.Embed(
-                        title="Как работает автосбор",
+                        title="РљР°Рє СЂР°Р±РѕС‚Р°РµС‚ Р°РІС‚РѕСЃР±РѕСЂ",
                         description=(
-                            "После покупки бот проверяет твои бизнесы через выбранный интервал "
-                            "и автоматически переводит готовую прибыль на баланс."
+                            "РџРѕСЃР»Рµ РїРѕРєСѓРїРєРё Р±РѕС‚ РїСЂРѕРІРµСЂСЏРµС‚ С‚РІРѕРё Р±РёР·РЅРµСЃС‹ С‡РµСЂРµР· РІС‹Р±СЂР°РЅРЅС‹Р№ РёРЅС‚РµСЂРІР°Р» "
+                            "Рё Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРµСЂРµРІРѕРґРёС‚ РіРѕС‚РѕРІСѓСЋ РїСЂРёР±С‹Р»СЊ РЅР° Р±Р°Р»Р°РЅСЃ."
                         ),
                         color=COLORS["info"],
                     ),
                 )
             elif self.active_page == "upgrades" and slot_index == 2:
-                payload = (False, "Открой `/mybusinesses` и используй там кнопку `Автосбор`.")
+                payload = (False, "РћС‚РєСЂРѕР№ `/mybusinesses` Рё РёСЃРїРѕР»СЊР·СѓР№ С‚Р°Рј РєРЅРѕРїРєСѓ `РђРІС‚РѕСЃР±РѕСЂ`.")
             else:
                 return
 
@@ -1558,13 +1558,13 @@ class SettingsView(discord.ui.View):
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
         if self.profile_cog is not None:
-            back_button = discord.ui.Button(label="Назад к профилю", style=discord.ButtonStyle.secondary, row=3)
+            back_button = discord.ui.Button(label="РќР°Р·Р°Рґ Рє РїСЂРѕС„РёР»СЋ", style=discord.ButtonStyle.secondary, row=3)
             back_button.callback = self._go_back_to_profile
             self.add_item(back_button)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Это меню настроек открыто не тобой.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Рѕ РјРµРЅСЋ РЅР°СЃС‚СЂРѕРµРє РѕС‚РєСЂС‹С‚Рѕ РЅРµ С‚РѕР±РѕР№.", ephemeral=True)
             return False
         return True
 
@@ -1580,11 +1580,11 @@ class SettingsView(discord.ui.View):
     async def _go_back_to_profile(self, interaction: discord.Interaction):
         async with self._view_lock:
             if self.profile_cog is None:
-                await interaction.response.send_message("Профиль сейчас недоступен.", ephemeral=True)
+                await interaction.response.send_message("РџСЂРѕС„РёР»СЊ СЃРµР№С‡Р°СЃ РЅРµРґРѕСЃС‚СѓРїРµРЅ.", ephemeral=True)
                 return
             member = interaction.guild.get_member(self.profile_target_id) if interaction.guild else None
             if member is None:
-                await interaction.response.send_message("Игрок не найден.", ephemeral=True)
+                await interaction.response.send_message("РРіСЂРѕРє РЅРµ РЅР°Р№РґРµРЅ.", ephemeral=True)
                 return
             from cogs.economy import ProfileView
 
@@ -1604,7 +1604,7 @@ class SettingsView(discord.ui.View):
                 pass
             schedule_message_cleanup(self.message, delay_seconds=0)
 
-    @discord.ui.button(label="Уведомления", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="РЈРІРµРґРѕРјР»РµРЅРёСЏ", style=discord.ButtonStyle.primary, row=0)
     async def toggle_notifications(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1612,11 +1612,11 @@ class SettingsView(discord.ui.View):
             enabled = await self.cog.toggle_smart_notifications(self.user_id, self.guild_id)
             await self._refresh_view(interaction)
             await interaction.followup.send(
-                "Умные уведомления включены." if enabled else "Умные уведомления отключены.",
+                "РЈРјРЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ РІРєР»СЋС‡РµРЅС‹." if enabled else "РЈРјРЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ РѕС‚РєР»СЋС‡РµРЅС‹.",
                 ephemeral=True,
             )
 
-    @discord.ui.button(label="Роль активности", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Р РѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1626,27 +1626,27 @@ class SettingsView(discord.ui.View):
             guild = interaction.guild
             role_id = await resolve_activity_role_id(guild, self.guild_id)
             if enabled:
-                message = "Автовыдача роли активности снова включена."
+                message = "РђРІС‚РѕРІС‹РґР°С‡Р° СЂРѕР»Рё Р°РєС‚РёРІРЅРѕСЃС‚Рё СЃРЅРѕРІР° РІРєР»СЋС‡РµРЅР°."
                 if role_changed:
-                    message += " Роль выдана."
+                    message += " Р РѕР»СЊ РІС‹РґР°РЅР°."
                 elif role_id is None:
-                    message += " Админ пока не настроил роль на сервере."
+                    message += " РђРґРјРёРЅ РїРѕРєР° РЅРµ РЅР°СЃС‚СЂРѕРёР» СЂРѕР»СЊ РЅР° СЃРµСЂРІРµСЂРµ."
             else:
-                message = "Автовыдача роли активности отключена."
+                message = "РђРІС‚РѕРІС‹РґР°С‡Р° СЂРѕР»Рё Р°РєС‚РёРІРЅРѕСЃС‚Рё РѕС‚РєР»СЋС‡РµРЅР°."
                 if role_changed:
-                    message += " Роль снята и больше не будет выдаваться автоматически."
+                    message += " Р РѕР»СЊ СЃРЅСЏС‚Р° Рё Р±РѕР»СЊС€Рµ РЅРµ Р±СѓРґРµС‚ РІС‹РґР°РІР°С‚СЊСЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё."
             await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.select(
-        placeholder="Переключить конкретное уведомление",
+        placeholder="РџРµСЂРµРєР»СЋС‡РёС‚СЊ РєРѕРЅРєСЂРµС‚РЅРѕРµ СѓРІРµРґРѕРјР»РµРЅРёРµ",
         min_values=1,
         max_values=1,
         row=1,
         options=[
-            discord.SelectOption(label="Депозит", value="notify_deposit", emoji="??"),
-            discord.SelectOption(label="Аренда", value="notify_rent", emoji="??"),
-            discord.SelectOption(label="Бизнес", value="notify_business", emoji="??"),
-            discord.SelectOption(label="Урожай", value="notify_harvest", emoji="??"),
+            discord.SelectOption(label="Р”РµРїРѕР·РёС‚", value="notify_deposit", emoji="??"),
+            discord.SelectOption(label="РђСЂРµРЅРґР°", value="notify_rent", emoji="??"),
+            discord.SelectOption(label="Р‘РёР·РЅРµСЃ", value="notify_business", emoji="??"),
+            discord.SelectOption(label="РЈСЂРѕР¶Р°Р№", value="notify_harvest", emoji="??"),
             discord.SelectOption(label="Daily streak", value="notify_daily_streak", emoji="?"),
         ],
     )
@@ -1657,13 +1657,13 @@ class SettingsView(discord.ui.View):
             preference_key = select.values[0]
             enabled = await self.cog.toggle_notification_type(self.user_id, self.guild_id, preference_key)
             await self._refresh_view(interaction)
-            label = SMART_NOTIFICATION_SETTINGS.get(preference_key, {}).get("label", "Уведомление")
+            label = SMART_NOTIFICATION_SETTINGS.get(preference_key, {}).get("label", "РЈРІРµРґРѕРјР»РµРЅРёРµ")
             await interaction.followup.send(
-                f"Уведомление «{label}» {'включено' if enabled else 'выключено'}.",
+                f"РЈРІРµРґРѕРјР»РµРЅРёРµ В«{label}В» {'РІРєР»СЋС‡РµРЅРѕ' if enabled else 'РІС‹РєР»СЋС‡РµРЅРѕ'}.",
                 ephemeral=True,
             )
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="РћР±РЅРѕРІРёС‚СЊ", style=discord.ButtonStyle.secondary, row=2)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1671,10 +1671,10 @@ class SettingsView(discord.ui.View):
             await self._refresh_view(interaction)
 
 
-class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
+class ChannelIdModal(discord.ui.Modal, title="РРіСЂРѕРІРѕР№ РєР°РЅР°Р»"):
     channel_id = discord.ui.TextInput(
-        label="ID текстового канала",
-        placeholder="Например: 123456789012345678",
+        label="ID С‚РµРєСЃС‚РѕРІРѕРіРѕ РєР°РЅР°Р»Р°",
+        placeholder="РќР°РїСЂРёРјРµСЂ: 123456789012345678",
         required=True,
         max_length=25,
     )
@@ -1686,17 +1686,17 @@ class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
     async def on_submit(self, interaction: discord.Interaction):
         raw_value = str(self.channel_id.value or "").strip()
         if not raw_value.isdigit():
-            await interaction.response.send_message("Нужен числовой ID текстового канала.", ephemeral=True)
+            await interaction.response.send_message("РќСѓР¶РµРЅ С‡РёСЃР»РѕРІРѕР№ ID С‚РµРєСЃС‚РѕРІРѕРіРѕ РєР°РЅР°Р»Р°.", ephemeral=True)
             return
 
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message("Эта настройка доступна только на сервере.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Р° РЅР°СЃС‚СЂРѕР№РєР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РЅР° СЃРµСЂРІРµСЂРµ.", ephemeral=True)
             return
 
         channel = guild.get_channel(int(raw_value))
         if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message("Канал не найден или это не текстовый канал.", ephemeral=True)
+            await interaction.response.send_message("РљР°РЅР°Р» РЅРµ РЅР°Р№РґРµРЅ РёР»Рё СЌС‚Рѕ РЅРµ С‚РµРєСЃС‚РѕРІС‹Р№ РєР°РЅР°Р».", ephemeral=True)
             return
 
         await self.parent_view.cog.update_server_settings(guild.id, {"allowed_channel_id": channel.id})
@@ -1706,13 +1706,13 @@ class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
                 await self.parent_view.message.edit(embed=embed, view=self.parent_view)
             except Exception:
                 pass
-        await interaction.response.send_message(f"Игровой канал установлен: {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"РРіСЂРѕРІРѕР№ РєР°РЅР°Р» СѓСЃС‚Р°РЅРѕРІР»РµРЅ: {channel.mention}", ephemeral=True)
 
 
-class ActivityRoleModal(discord.ui.Modal, title="Роль активности"):
+class ActivityRoleModal(discord.ui.Modal, title="Р РѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё"):
     role_id = discord.ui.TextInput(
-        label="ID роли",
-        placeholder="Например: 123456789012345678",
+        label="ID СЂРѕР»Рё",
+        placeholder="РќР°РїСЂРёРјРµСЂ: 123456789012345678",
         required=True,
         max_length=25,
     )
@@ -1724,17 +1724,17 @@ class ActivityRoleModal(discord.ui.Modal, title="Роль активности"):
     async def on_submit(self, interaction: discord.Interaction):
         raw_value = str(self.role_id.value or "").strip()
         if not raw_value.isdigit():
-            await interaction.response.send_message("Нужен числовой ID роли.", ephemeral=True)
+            await interaction.response.send_message("РќСѓР¶РµРЅ С‡РёСЃР»РѕРІРѕР№ ID СЂРѕР»Рё.", ephemeral=True)
             return
 
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message("Эта настройка доступна только на сервере.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Р° РЅР°СЃС‚СЂРѕР№РєР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РЅР° СЃРµСЂРІРµСЂРµ.", ephemeral=True)
             return
 
         role = guild.get_role(int(raw_value))
         if role is None:
-            await interaction.response.send_message("Роль с таким ID не найдена на этом сервере.", ephemeral=True)
+            await interaction.response.send_message("Р РѕР»СЊ СЃ С‚Р°РєРёРј ID РЅРµ РЅР°Р№РґРµРЅР° РЅР° СЌС‚РѕРј СЃРµСЂРІРµСЂРµ.", ephemeral=True)
             return
 
         await self.parent_view.cog.update_server_settings(guild.id, {"activity_role_id": role.id})
@@ -1744,7 +1744,7 @@ class ActivityRoleModal(discord.ui.Modal, title="Роль активности"):
                 await self.parent_view.message.edit(embed=embed, view=self.parent_view)
             except Exception:
                 pass
-        await interaction.response.send_message(f"Роль активности установлена: {role.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Р РѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё СѓСЃС‚Р°РЅРѕРІР»РµРЅР°: {role.mention}", ephemeral=True)
 
 
 class ServerSettingsView(discord.ui.View):
@@ -1758,7 +1758,7 @@ class ServerSettingsView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Это меню настроек сервера открыто не тобой.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Рѕ РјРµРЅСЋ РЅР°СЃС‚СЂРѕРµРє СЃРµСЂРІРµСЂР° РѕС‚РєСЂС‹С‚Рѕ РЅРµ С‚РѕР±РѕР№.", ephemeral=True)
             return False
         return True
 
@@ -1785,33 +1785,33 @@ class ServerSettingsView(discord.ui.View):
                 pass
             schedule_message_cleanup(self.message, delay_seconds=0)
 
-    @discord.ui.button(label="Задать канал", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Р—Р°РґР°С‚СЊ РєР°РЅР°Р»", style=discord.ButtonStyle.primary, row=0)
     async def set_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ChannelIdModal(self))
 
-    @discord.ui.button(label="Сбросить канал", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="РЎР±СЂРѕСЃРёС‚СЊ РєР°РЅР°Р»", style=discord.ButtonStyle.secondary, row=0)
     async def clear_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
             await self.cog.update_server_settings(self.guild_id, {"allowed_channel_id": None})
             await self._refresh_view(interaction)
-            await interaction.followup.send("Ограничение по игровому каналу снято.", ephemeral=True)
+            await interaction.followup.send("РћРіСЂР°РЅРёС‡РµРЅРёРµ РїРѕ РёРіСЂРѕРІРѕРјСѓ РєР°РЅР°Р»Сѓ СЃРЅСЏС‚Рѕ.", ephemeral=True)
 
-    @discord.ui.button(label="Задать роль", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Р—Р°РґР°С‚СЊ СЂРѕР»СЊ", style=discord.ButtonStyle.primary, row=1)
     async def set_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ActivityRoleModal(self))
 
-    @discord.ui.button(label="Сбросить роль", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="РЎР±СЂРѕСЃРёС‚СЊ СЂРѕР»СЊ", style=discord.ButtonStyle.secondary, row=1)
     async def clear_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
             await self.cog.update_server_settings(self.guild_id, {"activity_role_id": None})
             await self._refresh_view(interaction)
-            await interaction.followup.send("Роль активности отключена для сервера.", ephemeral=True)
+            await interaction.followup.send("Р РѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё РѕС‚РєР»СЋС‡РµРЅР° РґР»СЏ СЃРµСЂРІРµСЂР°.", ephemeral=True)
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="РћР±РЅРѕРІРёС‚СЊ", style=discord.ButtonStyle.secondary, row=2)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1855,32 +1855,32 @@ class UserCog(commands.Cog, name="User"):
         active_channel_id = await resolve_allowed_channel_id(guild, guild.id)
         active_role_id = await resolve_activity_role_id(guild, guild.id)
 
-        channel_text = "Не задан. Команды можно использовать в любом текстовом канале."
+        channel_text = "РќРµ Р·Р°РґР°РЅ. РљРѕРјР°РЅРґС‹ РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РІ Р»СЋР±РѕРј С‚РµРєСЃС‚РѕРІРѕРј РєР°РЅР°Р»Рµ."
         if active_channel_id is not None:
             channel_text = f"<#{active_channel_id}>"
             if not settings_present and configured_channel_id is None:
-                channel_text += "\nСейчас используется старый базовый канал по умолчанию."
+                channel_text += "\nРЎРµР№С‡Р°СЃ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ СЃС‚Р°СЂС‹Р№ Р±Р°Р·РѕРІС‹Р№ РєР°РЅР°Р» РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ."
         elif configured_channel_id is not None:
             channel_text = (
-                f"`{configured_channel_id}` не найден.\n"
-                "Задай новый текстовый канал или сними ограничение."
+                f"`{configured_channel_id}` РЅРµ РЅР°Р№РґРµРЅ.\n"
+                "Р—Р°РґР°Р№ РЅРѕРІС‹Р№ С‚РµРєСЃС‚РѕРІС‹Р№ РєР°РЅР°Р» РёР»Рё СЃРЅРёРјРё РѕРіСЂР°РЅРёС‡РµРЅРёРµ."
             )
 
-        role_text = "Не задана. Бот не будет автоматически выдавать роль за активность."
+        role_text = "РќРµ Р·Р°РґР°РЅР°. Р‘РѕС‚ РЅРµ Р±СѓРґРµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РІС‹РґР°РІР°С‚СЊ СЂРѕР»СЊ Р·Р° Р°РєС‚РёРІРЅРѕСЃС‚СЊ."
         if active_role_id is not None:
             role = guild.get_role(active_role_id)
             role_text = role.mention if role is not None else f"`{active_role_id}`"
             if not settings_present and configured_role_id is None:
-                role_text += "\nСейчас используется старая базовая роль по умолчанию."
+                role_text += "\nРЎРµР№С‡Р°СЃ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ СЃС‚Р°СЂР°СЏ Р±Р°Р·РѕРІР°СЏ СЂРѕР»СЊ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ."
         elif configured_role_id is not None:
             role_text = (
-                f"`{configured_role_id}` не найдена.\n"
-                "Задай новую роль или отключи автовыдачу роли на сервере."
+                f"`{configured_role_id}` РЅРµ РЅР°Р№РґРµРЅР°.\n"
+                "Р—Р°РґР°Р№ РЅРѕРІСѓСЋ СЂРѕР»СЊ РёР»Рё РѕС‚РєР»СЋС‡Рё Р°РІС‚РѕРІС‹РґР°С‡Сѓ СЂРѕР»Рё РЅР° СЃРµСЂРІРµСЂРµ."
             )
 
         embed = discord.Embed(
-            title="?? Настройки сервера",
-            description="Здесь админ задаёт игровой канал и роль активности для текущего сервера.",
+            title="?? РќР°СЃС‚СЂРѕР№РєРё СЃРµСЂРІРµСЂР°",
+            description="Р—РґРµСЃСЊ Р°РґРјРёРЅ Р·Р°РґР°С‘С‚ РёРіСЂРѕРІРѕР№ РєР°РЅР°Р» Рё СЂРѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё РґР»СЏ С‚РµРєСѓС‰РµРіРѕ СЃРµСЂРІРµСЂР°.",
             color=COLORS["info"],
             timestamp=datetime.now(timezone.utc),
         )
@@ -1889,31 +1889,31 @@ class UserCog(commands.Cog, name="User"):
         else:
             embed.set_author(name=guild.name)
         embed.add_field(
-            name="Игровой канал",
+            name="РРіСЂРѕРІРѕР№ РєР°РЅР°Р»",
             value=(
                 f"{channel_text}\n"
-                "Если канал указан, все игровые команды работают только там."
+                "Р•СЃР»Рё РєР°РЅР°Р» СѓРєР°Р·Р°РЅ, РІСЃРµ РёРіСЂРѕРІС‹Рµ РєРѕРјР°РЅРґС‹ СЂР°Р±РѕС‚Р°СЋС‚ С‚РѕР»СЊРєРѕ С‚Р°Рј."
             ),
             inline=False,
         )
         embed.add_field(
-            name="Роль активности",
+            name="Р РѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё",
             value=(
                 f"{role_text}\n"
-                "Выдаётся при активности с ботом, если игрок не отключил это у себя в `/profile`."
+                "Р’С‹РґР°С‘С‚СЃСЏ РїСЂРё Р°РєС‚РёРІРЅРѕСЃС‚Рё СЃ Р±РѕС‚РѕРј, РµСЃР»Рё РёРіСЂРѕРє РЅРµ РѕС‚РєР»СЋС‡РёР» СЌС‚Рѕ Сѓ СЃРµР±СЏ РІ `/profile`."
             ),
             inline=False,
         )
         embed.add_field(
-            name="Как это работает",
+            name="РљР°Рє СЌС‚Рѕ СЂР°Р±РѕС‚Р°РµС‚",
             value=(
-                "• `/setting` — серверные настройки админа\n"
-                "• `/profile` > `Настройки` — личные уведомления и авто-роль\n"
-                "• без настроенного канала бот доступен в любом текстовом канале"
+                "вЂў `/setting` вЂ” СЃРµСЂРІРµСЂРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё Р°РґРјРёРЅР°\n"
+                "вЂў `/profile` > `РќР°СЃС‚СЂРѕР№РєРё` вЂ” Р»РёС‡РЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ Рё Р°РІС‚Рѕ-СЂРѕР»СЊ\n"
+                "вЂў Р±РµР· РЅР°СЃС‚СЂРѕРµРЅРЅРѕРіРѕ РєР°РЅР°Р»Р° Р±РѕС‚ РґРѕСЃС‚СѓРїРµРЅ РІ Р»СЋР±РѕРј С‚РµРєСЃС‚РѕРІРѕРј РєР°РЅР°Р»Рµ"
             ),
             inline=False,
         )
-        embed.set_footer(text="Вводи ID текстового канала и ID роли кнопками ниже.")
+        embed.set_footer(text="Р’РІРѕРґРё ID С‚РµРєСЃС‚РѕРІРѕРіРѕ РєР°РЅР°Р»Р° Рё ID СЂРѕР»Рё РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.")
         return embed
 
     @staticmethod
@@ -1986,133 +1986,50 @@ class UserCog(commands.Cog, name="User"):
         auto_role = bool(preferences.get("auto_casino_role", True))
         notifications = bool(preferences.get("smart_notifications", True))
         notification_lines = [
-            f"• {config['label']}: **{'Вкл' if bool(preferences.get(key, True)) else 'Выкл'}**"
+            f"вЂў {config['label']}: **{'Р’РєР»' if bool(preferences.get(key, True)) else 'Р’С‹РєР»'}**"
             for key, config in SMART_NOTIFICATION_SETTINGS.items()
         ]
 
         channel_id = await resolve_allowed_channel_id(member.guild if isinstance(member, discord.Member) else None, guild_id)
-        channel_text = f"<#{channel_id}>" if channel_id is not None else "Любой текстовый канал сервера"
+        channel_text = f"<#{channel_id}>" if channel_id is not None else "Р›СЋР±РѕР№ С‚РµРєСЃС‚РѕРІС‹Р№ РєР°РЅР°Р» СЃРµСЂРІРµСЂР°"
 
-        role_text = "Админ ещё не настроил роль активности."
+        role_text = "РђРґРјРёРЅ РµС‰С‘ РЅРµ РЅР°СЃС‚СЂРѕРёР» СЂРѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё."
         if isinstance(member, discord.Member):
             role_id = await resolve_activity_role_id(member.guild, guild_id)
             role = member.guild.get_role(role_id) if role_id is not None else None
             if role is not None:
                 has_role = role in member.roles
-                status = "есть" if has_role else "нет"
-                role_text = f"{role.mention} • сейчас: **{status}**"
+                status = "РµСЃС‚СЊ" if has_role else "РЅРµС‚"
+                role_text = f"{role.mention} вЂў СЃРµР№С‡Р°СЃ: **{status}**"
 
         embed = discord.Embed(
-            title="?? Личные настройки",
-            description="Здесь ты управляешь уведомлениями и своей ролью активности.",
+            title="?? Р›РёС‡РЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё",
+            description="Р—РґРµСЃСЊ С‚С‹ СѓРїСЂР°РІР»СЏРµС€СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏРјРё Рё СЃРІРѕРµР№ СЂРѕР»СЊСЋ Р°РєС‚РёРІРЅРѕСЃС‚Рё.",
             color=COLORS["info"],
             timestamp=datetime.now(timezone.utc),
         )
         embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
         embed.add_field(
-            name="Умные уведомления",
+            name="РЈРјРЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ",
             value=(
-                f"Статус: **{'Включены' if notifications else 'Выключены'}**\n"
-                f"Канал: {channel_text}\n"
-                "Следят за депозитом, арендой, бизнесами, урожаем и почти сгорающим daily streak.\n\n"
-                "**Отдельные типы:**\n"
+                f"РЎС‚Р°С‚СѓСЃ: **{'Р’РєР»СЋС‡РµРЅС‹' if notifications else 'Р’С‹РєР»СЋС‡РµРЅС‹'}**\n"
+                f"РљР°РЅР°Р»: {channel_text}\n"
+                "РЎР»РµРґСЏС‚ Р·Р° РґРµРїРѕР·РёС‚РѕРј, Р°СЂРµРЅРґРѕР№, Р±РёР·РЅРµСЃР°РјРё, СѓСЂРѕР¶Р°РµРј Рё РїРѕС‡С‚Рё СЃРіРѕСЂР°СЋС‰РёРј daily streak.\n\n"
+                "**РћС‚РґРµР»СЊРЅС‹Рµ С‚РёРїС‹:**\n"
                 + "\n".join(notification_lines)
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="Роль активности",
-            value=(
-                f"Статус: **{'Включена' if auto_role else 'Выключена'}**\n"
-                f"Текущая роль: {role_text}\n"
-                "Если отключить, роль снимется и больше не будет выдаваться автоматически."
-            ),
-            inline=False,
-        )
-        embed.set_footer(text="Уведомления и роль можно менять здесь, а серверные параметры задаются через /setting.")
-        return embed
-
-    def make_settings_view(
-        self,
-        *,
-        user_id: int,
-        guild_id: int,
-        profile_cog: Any | None = None,
-        profile_target_id: int | None = None,
-    ) -> SettingsView:
-        return SettingsView(
-            self,
-            user_id,
-            guild_id,
-            profile_cog=profile_cog,
-            profile_target_id=profile_target_id,
-        )
-
-    async def update_server_settings(self, guild_id: int, payload: dict[str, Any]) -> bool:
-        return await db.upsert_guild_settings(guild_id, payload)
-
-    async def build_server_settings_embed(self, guild: discord.Guild) -> discord.Embed:
-        settings = await get_guild_runtime_settings(guild.id)
-        configured_channel_id = settings.get("allowed_channel_id")
-        configured_role_id = settings.get("activity_role_id")
-        active_channel_id = await resolve_allowed_channel_id(guild, guild.id)
-        active_role_id = await resolve_activity_role_id(guild, guild.id)
-
-        channel_text = "РќРµ Р·Р°РґР°РЅ. РљРѕРјР°РЅРґС‹ РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РІ Р»СЋР±РѕРј С‚РµРєСЃС‚РѕРІРѕРј РєР°РЅР°Р»Рµ."
-        if active_channel_id is not None:
-            channel_text = f"<#{active_channel_id}>"
-        elif configured_channel_id is not None:
-            channel_text = (
-                f"`{configured_channel_id}` РЅРµ РЅР°Р№РґРµРЅ.\n"
-                "Р—Р°РґР°Р№ РЅРѕРІС‹Р№ С‚РµРєСЃС‚РѕРІС‹Р№ РєР°РЅР°Р» РёР»Рё СЃРЅРёРјРё РѕРіСЂР°РЅРёС‡РµРЅРёРµ."
-            )
-
-        role_text = "РќРµ Р·Р°РґР°РЅР°. Р‘РѕС‚ РЅРµ Р±СѓРґРµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РІС‹РґР°РІР°С‚СЊ СЂРѕР»СЊ Р·Р° Р°РєС‚РёРІРЅРѕСЃС‚СЊ."
-        if active_role_id is not None:
-            role = guild.get_role(active_role_id)
-            role_text = role.mention if role is not None else f"`{active_role_id}`"
-        elif configured_role_id is not None:
-            role_text = (
-                f"`{configured_role_id}` РЅРµ РЅР°Р№РґРµРЅР°.\n"
-                "Р—Р°РґР°Р№ РЅРѕРІСѓСЋ СЂРѕР»СЊ РёР»Рё РѕС‚РєР»СЋС‡Рё Р°РІС‚РѕРІС‹РґР°С‡Сѓ СЂРѕР»Рё РЅР° СЃРµСЂРІРµСЂРµ."
-            )
-
-        embed = discord.Embed(
-            title="вљ™пёЏ РќР°СЃС‚СЂРѕР№РєРё СЃРµСЂРІРµСЂР°",
-            description="Р—РґРµСЃСЊ Р°РґРјРёРЅ Р·Р°РґР°С‘С‚ РёРіСЂРѕРІРѕР№ РєР°РЅР°Р» Рё СЂРѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё РґР»СЏ С‚РµРєСѓС‰РµРіРѕ СЃРµСЂРІРµСЂР°.",
-            color=COLORS["info"],
-            timestamp=datetime.now(timezone.utc),
-        )
-        if guild.icon:
-            embed.set_author(name=guild.name, icon_url=guild.icon.url)
-        else:
-            embed.set_author(name=guild.name)
-        embed.add_field(
-            name="РРіСЂРѕРІРѕР№ РєР°РЅР°Р»",
-            value=(
-                f"{channel_text}\n"
-                "Р•СЃР»Рё РєР°РЅР°Р» СѓРєР°Р·Р°РЅ, РІСЃРµ РёРіСЂРѕРІС‹Рµ РєРѕРјР°РЅРґС‹ СЂР°Р±РѕС‚Р°СЋС‚ С‚РѕР»СЊРєРѕ С‚Р°Рј."
             ),
             inline=False,
         )
         embed.add_field(
             name="Р РѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё",
             value=(
-                f"{role_text}\n"
-                "Р’С‹РґР°С‘С‚СЃСЏ РїСЂРё Р°РєС‚РёРІРЅРѕСЃС‚Рё СЃ Р±РѕС‚РѕРј, РµСЃР»Рё РёРіСЂРѕРє РЅРµ РѕС‚РєР»СЋС‡РёР» СЌС‚Рѕ Сѓ СЃРµР±СЏ РІ `/profile`."
+                f"РЎС‚Р°С‚СѓСЃ: **{'Р’РєР»СЋС‡РµРЅР°' if auto_role else 'Р’С‹РєР»СЋС‡РµРЅР°'}**\n"
+                f"РўРµРєСѓС‰Р°СЏ СЂРѕР»СЊ: {role_text}\n"
+                "Р•СЃР»Рё РѕС‚РєР»СЋС‡РёС‚СЊ, СЂРѕР»СЊ СЃРЅРёРјРµС‚СЃСЏ Рё Р±РѕР»СЊС€Рµ РЅРµ Р±СѓРґРµС‚ РІС‹РґР°РІР°С‚СЊСЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё."
             ),
             inline=False,
         )
-        embed.add_field(
-            name="РљР°Рє СЌС‚Рѕ СЂР°Р±РѕС‚Р°РµС‚",
-            value=(
-                "вЂў `/setting` вЂ” СЃРµСЂРІРµСЂРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё Р°РґРјРёРЅР°\n"
-                "вЂў `/profile` в†’ `РќР°СЃС‚СЂРѕР№РєРё` вЂ” Р»РёС‡РЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ Рё Р°РІС‚Рѕ-СЂРѕР»СЊ\n"
-                "вЂў Р±РµР· РЅР°СЃС‚СЂРѕРµРЅРЅРѕРіРѕ РєР°РЅР°Р»Р° Р±РѕС‚ РґРѕСЃС‚СѓРїРµРЅ РІ Р»СЋР±РѕРј С‚РµРєСЃС‚РѕРІРѕРј РєР°РЅР°Р»Рµ"
-            ),
-            inline=False,
-        )
-        embed.set_footer(text="Р’РІРѕРґРё ID С‚РµРєСЃС‚РѕРІРѕРіРѕ РєР°РЅР°Р»Р° Рё ID СЂРѕР»Рё РєРЅРѕРїРєР°РјРё РЅРёР¶Рµ.")
+        embed.set_footer(text="РЈРІРµРґРѕРјР»РµРЅРёСЏ Рё СЂРѕР»СЊ РјРѕР¶РЅРѕ РјРµРЅСЏС‚СЊ Р·РґРµСЃСЊ, Р° СЃРµСЂРІРµСЂРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹ Р·Р°РґР°СЋС‚СЃСЏ С‡РµСЂРµР· /setting.")
         return embed
 
     async def toggle_smart_notifications(self, user_id: int, guild_id: int) -> bool:
@@ -2162,10 +2079,10 @@ class UserCog(commands.Cog, name="User"):
             if role is not None:
                 try:
                     if new_value and role not in member.roles:
-                        await member.add_roles(role, reason="Игрок включил автовыдачу роли активности")
+                        await member.add_roles(role, reason="РРіСЂРѕРє РІРєР»СЋС‡РёР» Р°РІС‚РѕРІС‹РґР°С‡Сѓ СЂРѕР»Рё Р°РєС‚РёРІРЅРѕСЃС‚Рё")
                         role_changed = True
                     elif not new_value and role in member.roles:
-                        await member.remove_roles(role, reason="Игрок отключил автовыдачу роли активности")
+                        await member.remove_roles(role, reason="РРіСЂРѕРє РѕС‚РєР»СЋС‡РёР» Р°РІС‚РѕРІС‹РґР°С‡Сѓ СЂРѕР»Рё Р°РєС‚РёРІРЅРѕСЃС‚Рё")
                         role_changed = True
                 except Exception:
                     pass
@@ -2226,14 +2143,14 @@ class UserCog(commands.Cog, name="User"):
         deposit_marker = deposit["matures_at"].isoformat() if deposit["active"] and deposit["matured"] and deposit["matures_at"] else None
         deposit_changed = self._update_notification_marker(next_markers, "deposit_ready", deposit_marker if deposit_enabled else None)
         if deposit_enabled and deposit_marker and deposit_changed:
-            lines.append("?? Депозит созрел и готов к выдаче через `/bank`.")
+            lines.append("?? Р”РµРїРѕР·РёС‚ СЃРѕР·СЂРµР» Рё РіРѕС‚РѕРІ Рє РІС‹РґР°С‡Рµ С‡РµСЂРµР· `/bank`.")
 
         auto_collect_state = get_business_autocollect_state(user)
         if business_enabled and not auto_collect_state.get("enabled"):
             business_count, business_marker = self._get_business_ready_marker(user, now)
             business_changed = self._update_notification_marker(next_markers, "business_ready", business_marker)
             if business_marker and business_changed:
-                lines.append(f"?? Бизнесы готовы к сбору: **{business_count}** шт.")
+                lines.append(f"?? Р‘РёР·РЅРµСЃС‹ РіРѕС‚РѕРІС‹ Рє СЃР±РѕСЂСѓ: **{business_count}** С€С‚.")
         else:
             self._update_notification_marker(next_markers, "business_ready", None)
 
@@ -2244,7 +2161,7 @@ class UserCog(commands.Cog, name="User"):
             rent_marker = "|".join(sorted(str(rental.get("id")) for rental in ready_rentals if rental.get("id"))) or None
             rent_changed = self._update_notification_marker(next_markers, "rent_ready", rent_marker if rent_enabled else None)
             if rent_enabled and rent_marker and rent_changed:
-                lines.append(f"?? Аренда готова к сбору: **{len(ready_rentals)}** заявок.")
+                lines.append(f"?? РђСЂРµРЅРґР° РіРѕС‚РѕРІР° Рє СЃР±РѕСЂСѓ: **{len(ready_rentals)}** Р·Р°СЏРІРѕРє.")
 
             game_stats = user.get("game_stats") if isinstance(user.get("game_stats"), dict) else {}
             systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
@@ -2259,7 +2176,7 @@ class UserCog(commands.Cog, name="User"):
                 harvest_marker = "|".join(ready_plot_tokens) or None
                 harvest_changed = self._update_notification_marker(next_markers, "harvest_ready", harvest_marker if harvest_enabled else None)
                 if harvest_enabled and harvest_marker and harvest_changed:
-                    lines.append(f"?? Урожай готов: **{len(ready_plot_tokens)}** грядок можно собрать.")
+                    lines.append(f"?? РЈСЂРѕР¶Р°Р№ РіРѕС‚РѕРІ: **{len(ready_plot_tokens)}** РіСЂСЏРґРѕРє РјРѕР¶РЅРѕ СЃРѕР±СЂР°С‚СЊ.")
         else:
             self._update_notification_marker(next_markers, "rent_ready", None)
             self._update_notification_marker(next_markers, "harvest_ready", None)
@@ -2267,7 +2184,7 @@ class UserCog(commands.Cog, name="User"):
         daily_warning_marker = self._get_daily_warning_marker(user, now)
         daily_changed = self._update_notification_marker(next_markers, "daily_warning", daily_warning_marker if daily_enabled else None)
         if daily_enabled and daily_warning_marker and daily_changed:
-            lines.append("? Daily streak почти сгорает. Забери `/daily`, чтобы не потерять серию.")
+            lines.append("? Daily streak РїРѕС‡С‚Рё СЃРіРѕСЂР°РµС‚. Р—Р°Р±РµСЂРё `/daily`, С‡С‚РѕР±С‹ РЅРµ РїРѕС‚РµСЂСЏС‚СЊ СЃРµСЂРёСЋ.")
 
         return lines, next_markers != markers, next_markers
 
@@ -2306,12 +2223,12 @@ class UserCog(commands.Cog, name="User"):
                 continue
 
             embed = discord.Embed(
-                title="?? Умные уведомления",
+                title="?? РЈРјРЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ",
                 description="\n".join(f"? {line}" for line in lines),
                 color=COLORS["info"],
                 timestamp=now,
             )
-            embed.set_footer(text="Эти уведомления можно отключить через /profile > Настройки.")
+            embed.set_footer(text="Р­С‚Рё СѓРІРµРґРѕРјР»РµРЅРёСЏ РјРѕР¶РЅРѕ РѕС‚РєР»СЋС‡РёС‚СЊ С‡РµСЂРµР· /profile > РќР°СЃС‚СЂРѕР№РєРё.")
             try:
                 await channel.send(
                     f"<@{user_id}>",
@@ -2329,7 +2246,7 @@ class UserCog(commands.Cog, name="User"):
         await self.bot.wait_until_ready()
 
     @staticmethod
-    def _timer_value(now: datetime, ready_at: datetime | None, ready_label: str = "Готово") -> str:
+    def _timer_value(now: datetime, ready_at: datetime | None, ready_label: str = "Р“РѕС‚РѕРІРѕ") -> str:
         if ready_at is None or ready_at <= now:
             return f"**{ready_label}**"
         return format_discord_deadline(ready_at)
@@ -2367,10 +2284,10 @@ class UserCog(commands.Cog, name="User"):
         ).astimezone(timezone.utc)
 
     @staticmethod
-    def _dashboard_status(now: datetime, ready_at: datetime | None, ready_label: str = "Готово") -> str:
+    def _dashboard_status(now: datetime, ready_at: datetime | None, ready_label: str = "Р“РѕС‚РѕРІРѕ") -> str:
         if ready_at is None or ready_at <= now:
             return ready_label
-        return f"Через {format_discord_deadline(ready_at)}"
+        return f"Р§РµСЂРµР· {format_discord_deadline(ready_at)}"
 
     async def _open_battle_pass(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
@@ -2392,15 +2309,15 @@ class UserCog(commands.Cog, name="User"):
         await interaction.response.send_message(embed=view.build_embed(), view=view)
         view.message = await interaction.original_response()
 
-    @app_commands.command(name="battlepass", description="Открыть боевой пропуск")
+    @app_commands.command(name="battlepass", description="РћС‚РєСЂС‹С‚СЊ Р±РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє")
     async def battlepass(self, interaction: discord.Interaction):
         await self._open_battle_pass(interaction)
 
-    @app_commands.command(name="bp", description="Быстро открыть боевой пропуск")
+    @app_commands.command(name="bp", description="Р‘С‹СЃС‚СЂРѕ РѕС‚РєСЂС‹С‚СЊ Р±РѕРµРІРѕР№ РїСЂРѕРїСѓСЃРє")
     async def bp(self, interaction: discord.Interaction):
         await self._open_battle_pass(interaction)
 
-    @app_commands.command(name="timers", description="Показать таймеры и состояние игровых систем")
+    @app_commands.command(name="timers", description="РџРѕРєР°Р·Р°С‚СЊ С‚Р°Р№РјРµСЂС‹ Рё СЃРѕСЃС‚РѕСЏРЅРёРµ РёРіСЂРѕРІС‹С… СЃРёСЃС‚РµРј")
     async def timers(self, interaction: discord.Interaction):
         if not await check_channel(interaction):
             await send_wrong_channel_message(interaction)
@@ -2408,7 +2325,7 @@ class UserCog(commands.Cog, name="User"):
 
         user = await db.get_user(interaction.user.id, interaction.guild_id)
         if not user:
-            await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
+            await interaction.response.send_message("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРѕС„РёР»СЊ.", ephemeral=True)
             return
 
         now = datetime.now(timezone.utc)
@@ -2446,48 +2363,48 @@ class UserCog(commands.Cog, name="User"):
 
         auto_state = get_business_autocollect_state(user)
         if not auto_state["owned"]:
-            auto_collect_text = "Нет модуля"
+            auto_collect_text = "РќРµС‚ РјРѕРґСѓР»СЏ"
         elif not auto_state["enabled"]:
-            auto_collect_text = "Выключен"
+            auto_collect_text = "Р’С‹РєР»СЋС‡РµРЅ"
         else:
             last_run = normalize_datetime(auto_state.get("last_run"))
             next_run = None if last_run is None else last_run + timedelta(hours=int(auto_state["interval_hours"]))
-            auto_collect_text = self._timer_value(now, next_run, "готов к запуску")
+            auto_collect_text = self._timer_value(now, next_run, "РіРѕС‚РѕРІ Рє Р·Р°РїСѓСЃРєСѓ")
 
         if total_businesses <= 0:
-            business_collect_text = "Нет бизнесов"
+            business_collect_text = "РќРµС‚ Р±РёР·РЅРµСЃРѕРІ"
         elif ready_businesses > 0:
-            business_collect_text = f"**Готово:** {ready_businesses} шт."
+            business_collect_text = f"**Р“РѕС‚РѕРІРѕ:** {ready_businesses} С€С‚."
         else:
             business_collect_text = self._timer_value(now, next_business_ready)
 
         house_cog = self.bot.get_cog("House")
-        basement_text = "Система дома недоступна"
-        rent_text = "Система дома недоступна"
+        basement_text = "РЎРёСЃС‚РµРјР° РґРѕРјР° РЅРµРґРѕСЃС‚СѓРїРЅР°"
+        rent_text = "РЎРёСЃС‚РµРјР° РґРѕРјР° РЅРµРґРѕСЃС‚СѓРїРЅР°"
         if house_cog is not None:
             snapshot = house_cog._house_snapshot(user, interaction.guild_id)
             rental_state = house_cog._rental_status(user)
             if snapshot.get("house_data") is None:
-                basement_text = "Дом не куплен"
-                rent_text = "Дом не куплен"
+                basement_text = "Р”РѕРј РЅРµ РєСѓРїР»РµРЅ"
+                rent_text = "Р”РѕРј РЅРµ РєСѓРїР»РµРЅ"
             else:
                 ready_amount = int(snapshot.get("ready", 0) or 0)
                 if int(snapshot.get("hourly_income", 0) or 0) <= 0:
-                    basement_text = "Подвал не настроен"
+                    basement_text = "РџРѕРґРІР°Р» РЅРµ РЅР°СЃС‚СЂРѕРµРЅ"
                 elif ready_amount > 0:
-                    basement_text = f"**Готово:** {format_money(ready_amount)}"
+                    basement_text = f"**Р“РѕС‚РѕРІРѕ:** {format_money(ready_amount)}"
                 else:
-                    basement_text = f"Заполнится {format_discord_deadline(snapshot.get('next_cap_at'))}"
+                    basement_text = f"Р—Р°РїРѕР»РЅРёС‚СЃСЏ {format_discord_deadline(snapshot.get('next_cap_at'))}"
 
                 ready_rentals = rental_state.get("ready_rentals", [])
                 ongoing_rentals = rental_state.get("ongoing_rentals", [])
                 if ready_rentals:
-                    rent_text = f"**Готово:** {len(ready_rentals)} шт."
+                    rent_text = f"**Р“РѕС‚РѕРІРѕ:** {len(ready_rentals)} С€С‚."
                 elif ongoing_rentals:
                     next_rent_ready = min(normalize_datetime(rental.get("ends_at")) or now for rental in ongoing_rentals)
                     rent_text = self._timer_value(now, next_rent_ready)
                 else:
-                    rent_text = "Нет активной аренды"
+                    rent_text = "РќРµС‚ Р°РєС‚РёРІРЅРѕР№ Р°СЂРµРЅРґС‹"
 
         reset_at = self._next_kyiv_midnight(now)
         rod_name = FISHING_RODS.get(str(user.get("fishing_rod", "none") or "none"), FISHING_RODS["none"])["name"]
@@ -2502,23 +2419,23 @@ class UserCog(commands.Cog, name="User"):
             ready_count += 1
         if ready_businesses > 0:
             ready_count += 1
-        if basement_text.startswith("**Готово:**"):
+        if basement_text.startswith("**Р“РѕС‚РѕРІРѕ:**"):
             ready_count += 1
-        if rent_text.startswith("**Готово:**"):
+        if rent_text.startswith("**Р“РѕС‚РѕРІРѕ:**"):
             ready_count += 1
 
-        fishing_status = "Без кд" if fish_cd <= 0 else self._dashboard_status(now, fish_ready)
+        fishing_status = "Р‘РµР· РєРґ" if fish_cd <= 0 else self._dashboard_status(now, fish_ready)
         if fishing_world["active_event"] is not None:
-            event_status = f"Активен `{fishing_world['active_event']['name']}` до {format_discord_deadline(fishing_world['active_event']['end_at'].astimezone(timezone.utc))}"
+            event_status = f"РђРєС‚РёРІРµРЅ `{fishing_world['active_event']['name']}` РґРѕ {format_discord_deadline(fishing_world['active_event']['end_at'].astimezone(timezone.utc))}"
         elif next_event is not None:
-            event_status = f"Следующее окно {format_discord_deadline(next_event['start_at'].astimezone(timezone.utc))}"
+            event_status = f"РЎР»РµРґСѓСЋС‰РµРµ РѕРєРЅРѕ {format_discord_deadline(next_event['start_at'].astimezone(timezone.utc))}"
         else:
-            event_status = "Следующее окно пока не найдено"
+            event_status = "РЎР»РµРґСѓСЋС‰РµРµ РѕРєРЅРѕ РїРѕРєР° РЅРµ РЅР°Р№РґРµРЅРѕ"
 
         shield_until = normalize_datetime(user.get("shield_until"))
-        shield_text = "Не активна"
+        shield_text = "РќРµ Р°РєС‚РёРІРЅР°"
         if has_active_shield(user) and shield_until is not None:
-            shield_text = f"Активна до {format_discord_deadline(shield_until)}"
+            shield_text = f"РђРєС‚РёРІРЅР° РґРѕ {format_discord_deadline(shield_until)}"
 
         game_stats = user.get("game_stats") if isinstance(user.get("game_stats"), dict) else {}
         systems = game_stats.get("_systems") if isinstance(game_stats, dict) else {}
@@ -2528,103 +2445,103 @@ class UserCog(commands.Cog, name="User"):
         ready_plots = sum(1 for plot in plots if isinstance(plot, dict) and str(plot.get("state") or "") == "ready")
         dry_plots = sum(1 for plot in plots if isinstance(plot, dict) and str(plot.get("state") or "") == "dry")
         active_plots = sum(1 for plot in plots if isinstance(plot, dict) and plot.get("crop_code"))
-        if basement_text == "Дом не куплен":
-            garden_text = "Дом не куплен"
+        if basement_text == "Р”РѕРј РЅРµ РєСѓРїР»РµРЅ":
+            garden_text = "Р”РѕРј РЅРµ РєСѓРїР»РµРЅ"
         elif active_plots <= 0:
-            garden_text = "Нет посадок"
+            garden_text = "РќРµС‚ РїРѕСЃР°РґРѕРє"
         elif ready_plots > 0:
-            garden_text = f"Готово: {ready_plots} гряд."
+            garden_text = f"Р“РѕС‚РѕРІРѕ: {ready_plots} РіСЂСЏРґ."
         elif dry_plots > 0:
-            garden_text = f"Нужен полив: {dry_plots} гряд."
+            garden_text = f"РќСѓР¶РµРЅ РїРѕР»РёРІ: {dry_plots} РіСЂСЏРґ."
         else:
-            garden_text = f"Растёт: {active_plots} гряд."
+            garden_text = f"Р Р°СЃС‚С‘С‚: {active_plots} РіСЂСЏРґ."
 
         economy_lines = [
-            f"• /daily — {self._dashboard_status(now, daily_ready)}",
-            f"• /hourly — {self._dashboard_status(now, hourly_ready)}",
-            f"• /work — {self._dashboard_status(now, work_ready)}",
+            f"вЂў /daily вЂ” {self._dashboard_status(now, daily_ready)}",
+            f"вЂў /hourly вЂ” {self._dashboard_status(now, hourly_ready)}",
+            f"вЂў /work вЂ” {self._dashboard_status(now, work_ready)}",
         ]
         activity_lines = [
-            f"• /crime — {self._dashboard_status(now, crime_ready)}",
-            f"• /slut — {self._dashboard_status(now, slut_ready)}",
-            f"• Теневая страховка — {shield_text}",
+            f"вЂў /crime вЂ” {self._dashboard_status(now, crime_ready)}",
+            f"вЂў /slut вЂ” {self._dashboard_status(now, slut_ready)}",
+            f"вЂў РўРµРЅРµРІР°СЏ СЃС‚СЂР°С…РѕРІРєР° вЂ” {shield_text}",
         ]
         fishing_lines = [
-            f"• Заброс — {fishing_status}",
-            f"• Погода — {describe_world_lines(fishing_world)[1].replace('• ', '')}",
-            f"• Ивент — {event_status}",
+            f"вЂў Р—Р°Р±СЂРѕСЃ вЂ” {fishing_status}",
+            f"вЂў РџРѕРіРѕРґР° вЂ” {describe_world_lines(fishing_world)[1].replace('вЂў ', '')}",
+            f"вЂў РРІРµРЅС‚ вЂ” {event_status}",
         ]
         business_lines = [
-            f"• Ручной сбор — {business_collect_text.replace('**', '')}",
-            f"• Автосбор — {auto_collect_text.replace('**', '')}",
-            f"• Всего точек — {total_businesses}",
+            f"вЂў Р СѓС‡РЅРѕР№ СЃР±РѕСЂ вЂ” {business_collect_text.replace('**', '')}",
+            f"вЂў РђРІС‚РѕСЃР±РѕСЂ вЂ” {auto_collect_text.replace('**', '')}",
+            f"вЂў Р’СЃРµРіРѕ С‚РѕС‡РµРє вЂ” {total_businesses}",
         ]
         house_lines = [
-            f"• Подвал — {basement_text.replace('**', '')}",
-            f"• Аренда — {rent_text.replace('**', '')}",
-            f"• Сад — {garden_text}",
+            f"вЂў РџРѕРґРІР°Р» вЂ” {basement_text.replace('**', '')}",
+            f"вЂў РђСЂРµРЅРґР° вЂ” {rent_text.replace('**', '')}",
+            f"вЂў РЎР°Рґ вЂ” {garden_text}",
         ]
         reset_lines = [
-            f"• Новый daily — {format_discord_deadline(reset_at)}",
-            f"• Смена фазы — {format_discord_deadline(fishing_world['next_phase_change_at'])}",
-            f"• Погода/спот — {format_discord_deadline(fishing_world['next_hotspot_change_at'])}",
+            f"вЂў РќРѕРІС‹Р№ daily вЂ” {format_discord_deadline(reset_at)}",
+            f"вЂў РЎРјРµРЅР° С„Р°Р·С‹ вЂ” {format_discord_deadline(fishing_world['next_phase_change_at'])}",
+            f"вЂў РџРѕРіРѕРґР°/СЃРїРѕС‚ вЂ” {format_discord_deadline(fishing_world['next_hotspot_change_at'])}",
         ]
 
         embed = discord.Embed(
-            title="?? Панель таймеров",
+            title="?? РџР°РЅРµР»СЊ С‚Р°Р№РјРµСЂРѕРІ",
             description=(
-                "Самое важное по кулдаунам и системам аккаунта в одном экране.\n"
-                f"Доступно прямо сейчас: **{ready_count}** • Активная удочка: **{rod_name}**"
+                "РЎР°РјРѕРµ РІР°Р¶РЅРѕРµ РїРѕ РєСѓР»РґР°СѓРЅР°Рј Рё СЃРёСЃС‚РµРјР°Рј Р°РєРєР°СѓРЅС‚Р° РІ РѕРґРЅРѕРј СЌРєСЂР°РЅРµ.\n"
+                f"Р”РѕСЃС‚СѓРїРЅРѕ РїСЂСЏРјРѕ СЃРµР№С‡Р°СЃ: **{ready_count}** вЂў РђРєС‚РёРІРЅР°СЏ СѓРґРѕС‡РєР°: **{rod_name}**"
             ),
             color=COLORS["info"],
             timestamp=now,
         )
         embed.add_field(
-            name="?? Экономика",
+            name="?? Р­РєРѕРЅРѕРјРёРєР°",
             value="\n".join(economy_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Активности",
+            name="?? РђРєС‚РёРІРЅРѕСЃС‚Рё",
             value="\n".join(activity_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Рыбалка",
+            name="?? Р С‹Р±Р°Р»РєР°",
             value="\n".join(fishing_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Бизнесы",
+            name="?? Р‘РёР·РЅРµСЃС‹",
             value="\n".join(business_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Дом",
+            name="?? Р”РѕРј",
             value="\n".join(house_lines),
             inline=False,
         )
         embed.add_field(
-            name="?? Сбросы",
+            name="?? РЎР±СЂРѕСЃС‹",
             value="\n".join(reset_lines),
             inline=False,
         )
-        embed.set_footer(text="Статусы с «Через …» обновляются автоматически через Discord-таймеры.")
+        embed.set_footer(text="РЎС‚Р°С‚СѓСЃС‹ СЃ В«Р§РµСЂРµР· вЂ¦В» РѕР±РЅРѕРІР»СЏСЋС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё С‡РµСЂРµР· Discord-С‚Р°Р№РјРµСЂС‹.")
         await interaction.response.send_message(embed=embed)
         try:
             schedule_message_cleanup(await interaction.original_response())
         except Exception:
             pass
 
-    @app_commands.command(name="setting", description="Настроить канал и роль активности для сервера")
+    @app_commands.command(name="setting", description="РќР°СЃС‚СЂРѕРёС‚СЊ РєР°РЅР°Р» Рё СЂРѕР»СЊ Р°РєС‚РёРІРЅРѕСЃС‚Рё РґР»СЏ СЃРµСЂРІРµСЂР°")
     async def setting(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if guild is None or member is None:
-            await interaction.response.send_message("Эта команда доступна только внутри сервера.", ephemeral=True)
+            await interaction.response.send_message("Р­С‚Р° РєРѕРјР°РЅРґР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РІРЅСѓС‚СЂРё СЃРµСЂРІРµСЂР°.", ephemeral=True)
             return
         if not (member.guild_permissions.manage_guild or member.guild_permissions.administrator):
-            await interaction.response.send_message("Нужны права `Управление сервером`.", ephemeral=True)
+            await interaction.response.send_message("РќСѓР¶РЅС‹ РїСЂР°РІР° `РЈРїСЂР°РІР»РµРЅРёРµ СЃРµСЂРІРµСЂРѕРј`.", ephemeral=True)
             return
 
         view = ServerSettingsView(self, interaction.user.id, guild.id)
