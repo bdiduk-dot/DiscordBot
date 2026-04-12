@@ -23,7 +23,7 @@ from cogs.fishing_world import (
 from cogs.cases import open_case_from_inventory
 from config import COLORS, FISH_RARITIES, FISHING_RODS, get_vip_level
 from database import db, get_user_lock
-from easter_event import (
+from legacy.easter_archive import (
     EASTER_ARCHIVE_CATEGORY,
     EASTER_CHEST_CODE,
     EASTER_DECOR_TROPHY_PREFIX,
@@ -39,10 +39,9 @@ from easter_event import (
     grant_easter_drops,
     grant_pond_bonus_loot,
     migrate_legacy_easter_decor_inventory,
-    open_easter_chest,
     split_active_and_archived_items,
-    unlock_easter_pond,
     ensure_easter_state,
+    archived_item_message,
 )
 from inventory_system import (
     add_fish_item,
@@ -382,6 +381,12 @@ def _fishing_state(user: dict[str, Any]) -> dict[str, Any]:
     fishing.setdefault("equipped_bait", None)
     fishing.setdefault("unlocked_zones", ["river_bank"])
     fishing.setdefault("selected_zone", "river_bank")
+    fishing["unlocked_zones"] = [
+        zone_key for zone_key in fishing.get("unlocked_zones", [])
+        if zone_key in FISHING_ZONES and zone_key != EASTER_POND_ZONE_KEY
+    ] or ["river_bank"]
+    if str(fishing.get("selected_zone", "river_bank") or "river_bank") not in FISHING_ZONES or str(fishing.get("selected_zone", "river_bank") or "river_bank") == EASTER_POND_ZONE_KEY:
+        fishing["selected_zone"] = "river_bank"
     fishing.setdefault("total_catches", 0)
     fishing.setdefault("last_catch", None)
     _bait_shop_state(fishing)
@@ -415,7 +420,7 @@ def _shop_visible_zone_items() -> list[tuple[str, dict[str, Any]]]:
     return [
         (key, value)
         for key, value in FISHING_ZONES.items()
-        if key not in {"river_bank", EASTER_POND_ZONE_KEY}
+        if key != "river_bank"
     ]
 
 
@@ -1301,7 +1306,9 @@ class FishingCog(commands.Cog, name="Fishing"):
         current_rod = user.get("fishing_rod", "none")
         equipped_tackle = fishing.get("equipped_tackle", "starter")
         equipped_bait = fishing.get("equipped_bait")
-        selected_zone = fishing.get("selected_zone", "river_bank")
+        selected_zone = str(fishing.get("selected_zone", "river_bank") or "river_bank")
+        if selected_zone not in FISHING_ZONES or selected_zone == EASTER_POND_ZONE_KEY:
+            selected_zone = "river_bank"
         bait_text = FISHING_BAITS[equipped_bait]["name"] if equipped_bait in FISHING_BAITS else "Без наживки"
         owned_rods = set(fishing.get("owned_rods", []))
 
@@ -1605,7 +1612,9 @@ class FishingCog(commands.Cog, name="Fishing"):
         current_rod = user.get("fishing_rod", "none")
         equipped_tackle = fishing.get("equipped_tackle", "starter")
         equipped_bait = fishing.get("equipped_bait")
-        selected_zone = fishing.get("selected_zone", "river_bank")
+        selected_zone = str(fishing.get("selected_zone", "river_bank") or "river_bank")
+        if selected_zone not in FISHING_ZONES or selected_zone == EASTER_POND_ZONE_KEY:
+            selected_zone = "river_bank"
         bait_text = FISHING_BAITS[equipped_bait]["name"] if equipped_bait else "нет"
         embed = discord.Embed(title="🎣 Рыболовный магазин", description=f"Удочка: **{FISHING_RODS[current_rod]['name']}**\nСнасть: **{FISHING_TACKLES[equipped_tackle]['name']}**\nНаживка: **{bait_text}**\nЗона: **{FISHING_ZONES[selected_zone]['name']}**", color=COLORS['purple'])
         if active_tab == "rods":
@@ -1837,13 +1846,13 @@ class FishingCog(commands.Cog, name="Fishing"):
         bait_key = fishing.get("equipped_bait")
         bait_stock = fishing.get("bait_stock", {})
         selected_zone = str(fishing.get("selected_zone", "river_bank") or "river_bank")
-        if selected_zone == EASTER_POND_ZONE_KEY and not easter_pond_available():
+        if selected_zone == EASTER_POND_ZONE_KEY:
             selected_zone = "river_bank"
         owned_rods = ", ".join(self.display_rod_name(key) for key in fishing.get("owned_rods", [])) or "Нет"
         owned_tackles = ", ".join(self.display_tackle_name(key) for key in fishing.get("owned_tackles", [])) or "Нет"
         visible_unlocked_zones = [
             key for key in fishing.get("unlocked_zones", [])
-            if key != EASTER_POND_ZONE_KEY or easter_pond_available()
+            if key != EASTER_POND_ZONE_KEY
         ]
         unlocked_zones = ", ".join(_display_zone_name(key) for key in visible_unlocked_zones) or "Нет"
         bait_lines = []
@@ -2231,18 +2240,13 @@ class FishingCog(commands.Cog, name="Fishing"):
                     set_active_theme(user, str(theme_key))
                     result_lines.append(f"Открыта и активирована тема: **{reward_text({'type': 'theme', 'key': theme_key})}**")
             elif item_type == "event_pass":
-                if unlock_easter_pond(user):
-                    result_lines.append("Открыт **Пруд золотого кролика**. Теперь его можно выбрать в снастях и ловить ивентовую рыбу.")
-                else:
-                    result_lines.append("Пруд золотого кролика уже был открыт ранее.")
+                archived_message = archived_item_message(consumed)
+                if archived_message:
+                    result_lines.append(archived_message)
             elif item_type == "event_chest":
-                easter_cog = self.bot.get_cog("EasterEvent")
-                guild_state = easter_cog.get_cached_guild_state(guild_id) if easter_cog else None
-                rewards = open_easter_chest(user, guild_state=guild_state)
-                result_lines.append("Пасхальный сундук открыт:")
-                result_lines.extend(rewards["lines"])
-                if easter_cog and int(rewards.get("server_points", 0) or 0) > 0:
-                    result_lines.extend(await easter_cog.apply_server_progress(guild_id, int(rewards.get("server_points", 0) or 0)))
+                archived_message = archived_item_message(consumed)
+                if archived_message:
+                    result_lines.append(archived_message)
             elif item_type == "home_furniture":
                 furniture_key = str(consumed.get("code") or "")
                 house_state = _house_state(user)
@@ -2856,11 +2860,11 @@ class InventoryView(discord.ui.View):
         self.bait_select.disabled = not bool(self.bait_select.options)
 
         unlocked_zones = set(fishing.get("unlocked_zones", ["river_bank"]))
-        if current_zone == EASTER_POND_ZONE_KEY and not easter_pond_available():
+        if current_zone == EASTER_POND_ZONE_KEY:
             current_zone = "river_bank"
         zone_options = []
         for zone_key in FISHING_ZONES:
-            if zone_key == EASTER_POND_ZONE_KEY and not easter_pond_available():
+            if zone_key == EASTER_POND_ZONE_KEY:
                 continue
             if zone_key != "river_bank" and zone_key not in unlocked_zones:
                 continue

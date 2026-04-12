@@ -422,7 +422,7 @@ class BlackjackView(discord.ui.View):
                 user["win_streak"] = 0
 
             if net_result > 0:
-                from easter_event import grant_easter_drops
+                from legacy.easter_archive import grant_easter_drops
 
                 easter_cog = interaction.client.get_cog("EasterEvent")
                 easter_payload = grant_easter_drops(

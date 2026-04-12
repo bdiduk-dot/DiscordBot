@@ -882,7 +882,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if not user:
             return None, None
         house_state, changed = _migrate_house_state(user)
-        from easter_event import migrate_legacy_easter_decor_inventory
+        from legacy.easter_archive import migrate_legacy_easter_decor_inventory
 
         migrated_easter_decor = bool(migrate_legacy_easter_decor_inventory(user))
         migrated_reserved_furniture = migrate_legacy_reserved_furniture(user, house_state=house_state)
@@ -911,7 +911,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         vip_bonus = _house_vip_bonus(user)
         rental_ready = house_cog._rental_status(user) if house_cog is not None else {"ready_total": 0, "ongoing_rentals": []}
         _, can = _active_watering_can(house_state)
-        from easter_event import get_owned_easter_furniture
+        from legacy.easter_archive import get_owned_easter_furniture
 
         owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
         pending = _pending_furniture_keys(user)
@@ -1165,7 +1165,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         rental_state = house_cog._rental_status(user)
         _, next_refresh, offers, accepted = house_cog._generate_rental_offers(user, house_state, house_data)
         capacity = _house_rental_capacity(house_data, vip_bonus)
-        from easter_event import collection_rent_multiplier
+        from legacy.easter_archive import collection_rent_multiplier
 
         decor_rent_multiplier = collection_rent_multiplier(user)
         ongoing_lines = []
@@ -1203,7 +1203,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             return discord.Embed(title="Обустройство", description="Не удалось загрузить профиль.", color=COLORS["warning"])
         house_data = _house_current_data(house_state)
         embed = discord.Embed(title="Обустройство", color=COLORS["gold"])
-        from easter_event import get_owned_easter_furniture
+        from legacy.easter_archive import get_owned_easter_furniture
 
         owned = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
         pending = _pending_furniture_keys(user)
@@ -1302,7 +1302,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             if not user:
                 return False, "Не удалось загрузить профиль."
             house_state, _ = _migrate_house_state(user)
-            from easter_event import collection_garden_yield_multiplier
+            from legacy.easter_archive import collection_garden_yield_multiplier
 
             garden_yield_multiplier = collection_garden_yield_multiplier(user)
             if not _house_current_data(house_state):
@@ -1492,7 +1492,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             if not ready_rentals:
                 return False, "Готовой аренды пока нет."
             owned_furniture = set(house_state.get("furniture", []))
-            from easter_event import collection_rent_multiplier
+            from legacy.easter_archive import collection_rent_multiplier
 
             decor_rent_multiplier = collection_rent_multiplier(user)
             total_value = 0
@@ -1511,7 +1511,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             ready_ids = {rental.get("id") for rental in ready_rentals}
             house_state["active_rentals"] = [rental for rental in house_state.get("active_rentals", []) if rental.get("id") not in ready_ids]
             user["balance"] = int(user.get("balance", 0) or 0) + total_value
-            from easter_event import grant_easter_drops
+            from legacy.easter_archive import grant_easter_drops
 
             easter_cog = self.bot.get_cog("EasterEvent")
             easter_payload = grant_easter_drops(

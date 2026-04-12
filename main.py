@@ -50,14 +50,18 @@ class CasinoBot(commands.Bot):
             return True
         if interaction.guild_id is None:
             return True
+
         from database import Database
+
         settings = await Database.get_guild_settings(interaction.guild_id)
         channel_id = settings.get("allowed_channel_id") if isinstance(settings, dict) else None
         if not channel_id:
-            await interaction.response.send_message("Бот не настроен! Администратор должен использовать `/setting` и указать канал для работы бота.", ephemeral=True)
-            return False
+            return True
         if interaction.channel_id != int(channel_id):
-            await interaction.response.send_message(f"Бот работает только в канале <#{channel_id}>.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Бот работает только в канале <#{channel_id}>.",
+                ephemeral=True,
+            )
             return False
         return True
 
@@ -83,7 +87,6 @@ class CasinoBot(commands.Bot):
             "cogs.user",
             "cogs.shop",
             "cogs.inventory",
-            "cogs.easter",
         ]
 
         for cog in cogs:
@@ -128,32 +131,12 @@ async def on_ready():
                 print(f"Synced {guild.name} ({guild.id}): {', '.join(guild_commands)}")
                 synced_guilds += 1
 
-            # Keep slash-commands guild-scoped so Discord does not show duplicated
-            # global + guild copies in the same server command picker.
             bot.tree.clear_commands(guild=None)
             await bot.tree.sync()
             bot._slash_commands_synced = True
             print(f"Synced guild slash commands on {synced_guilds} guild(s) and cleared global duplicates")
         except Exception as exc:
             print(f"Guild sync error: {exc}")
-
-    # updates_cog = bot.get_cog("Updates")
-    # if updates_cog is not None:
-    #     try:
-    #         await updates_cog.ensure_startup_post()
-    #     except Exception as exc:
-    #         print(f"Updates startup hook error: {exc}")
-
-
-@bot.event
-async def on_guild_join(guild: discord.Guild):
-    try:
-        await bot.wait_until_ready()
-        await bot.sync_guild_commands(guild)
-        guild_commands = sorted(command.name for command in bot.tree.get_commands(guild=guild))
-        print(f"Joined {guild.name} ({guild.id}) and synced: {', '.join(guild_commands)}")
-    except Exception as exc:
-        print(f"Guild join sync error for {guild.id}: {exc}")
 
 
 @bot.event

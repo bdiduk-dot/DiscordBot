@@ -1240,7 +1240,7 @@ class BusinessCog(commands.Cog, name="Business"):
 
             user["businesses"] = normalized_businesses
             user["balance"] += total_collected
-            from easter_event import grant_easter_drops
+            from legacy.easter_archive import grant_easter_drops
 
             easter_cog = self.bot.get_cog("EasterEvent")
             easter_payload = grant_easter_drops(

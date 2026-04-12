@@ -85,6 +85,17 @@ async def _remember_interaction_message(
     except Exception:
         return interaction.message or current
 
+
+def _safe_component_emoji(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if all(char in {"?", "�"} for char in cleaned):
+        return None
+    return cleaned
+
 TITLE_SHOP_ITEMS: list[dict[str, Any]] = [
     {
         "key": "wallet_destroyer",
@@ -387,7 +398,7 @@ class _BaseShopView(discord.ui.View):
             self.action_btn_1.disabled = premium_open
             self.action_btn_1.style = discord.ButtonStyle.success if not premium_open else discord.ButtonStyle.secondary
             self.action_btn_1.label = "Купить пропуск" if not premium_open else "Пропуск куплен"
-            self.action_btn_1.emoji = "???"
+            self.action_btn_1.emoji = None
 
             self.action_btn_2.disabled = True
             self.action_btn_2.style = discord.ButtonStyle.secondary
@@ -415,7 +426,7 @@ class _BaseShopView(discord.ui.View):
                 button.disabled = current_level >= level
                 button.style = discord.ButtonStyle.success if current_level < level else discord.ButtonStyle.secondary
                 button.label = f"VIP {level}"
-                button.emoji = data.get("emoji")
+                button.emoji = None
             return
 
         if self.active_page == "exchange":
@@ -508,7 +519,7 @@ class _BaseShopView(discord.ui.View):
         vip_level = int(self.user_data.get("vip_level", 0) or 0)
         auto_state = get_business_autocollect_state(self.user_data)
         embed = discord.Embed(
-            title="?? Магазин сервера",
+            title="Магазин сервера",
             description="Здесь собраны VIP, обмен валют, улучшения и серверные покупки.",
             color=COLORS["purple"],
         )
@@ -547,7 +558,7 @@ class _BaseShopView(discord.ui.View):
         visible_levels = self._current_vip_slice()
 
         embed = discord.Embed(
-            title="?? VIP-магазин",
+            title="VIP-магазин",
             description=f"Текущий уровень: **{format_vip_name(current_vip)}**",
             color=COLORS["gold"],
         )
@@ -568,7 +579,7 @@ class _BaseShopView(discord.ui.View):
 
     def _build_exchange_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="?? Обмен валют",
+            title="Обмен валют",
             description="Обменивай деньги и гемы прямо кнопками ниже.",
             color=COLORS["info"],
         )
@@ -595,7 +606,7 @@ class _BaseShopView(discord.ui.View):
         status = "Куплен" if auto_state["owned"] else "Не куплен"
         mode = "Включён" if auto_state["enabled"] else "Выключен"
         embed = discord.Embed(
-            title="?? Постоянные улучшения",
+            title="Постоянные улучшения",
             description="Полезные улучшения для экономики и бизнеса.",
             color=COLORS["purple"],
         )
@@ -620,7 +631,7 @@ class _BaseShopView(discord.ui.View):
 
     def _build_server_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="?? Серверный магазин",
+            title="Серверный магазин",
             description="Серверные товары покупаются прямо кнопками ниже.",
             color=COLORS["success"],
         )
@@ -1643,11 +1654,11 @@ class SettingsView(discord.ui.View):
         max_values=1,
         row=1,
         options=[
-            discord.SelectOption(label="Депозит", value="notify_deposit", emoji="??"),
-            discord.SelectOption(label="Аренда", value="notify_rent", emoji="??"),
-            discord.SelectOption(label="Бизнес", value="notify_business", emoji="??"),
-            discord.SelectOption(label="Урожай", value="notify_harvest", emoji="??"),
-            discord.SelectOption(label="Daily streak", value="notify_daily_streak", emoji="?"),
+            discord.SelectOption(label="Депозит", value="notify_deposit"),
+            discord.SelectOption(label="Аренда", value="notify_rent"),
+            discord.SelectOption(label="Бизнес", value="notify_business"),
+            discord.SelectOption(label="Урожай", value="notify_harvest"),
+            discord.SelectOption(label="Daily streak", value="notify_daily_streak"),
         ],
     )
     async def notification_type_select(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -1925,7 +1936,7 @@ class UserCog(commands.Cog, name="User"):
             )
 
         embed = discord.Embed(
-            title="?? Настройки сервера",
+            title="Настройки сервера",
             description="Здесь админ задаёт игровой канал и роль активности для текущего сервера.",
             color=COLORS["info"],
             timestamp=datetime.now(timezone.utc),
@@ -2060,7 +2071,7 @@ class UserCog(commands.Cog, name="User"):
                 role_text = f"{role.mention} • сейчас: **{status}**"
 
         embed = discord.Embed(
-            title="?? Личные настройки",
+            title="Личные настройки",
             description="Здесь ты управляешь уведомлениями и своей ролью активности.",
             color=COLORS["info"],
             timestamp=datetime.now(timezone.utc),
@@ -2280,8 +2291,8 @@ class UserCog(commands.Cog, name="User"):
                 continue
 
             embed = discord.Embed(
-                title="?? Умные уведомления",
-                description="\n".join(f"? {line}" for line in lines),
+                title="Умные уведомления",
+                description="\n".join(f"• {line}" for line in lines),
                 color=COLORS["info"],
                 timestamp=now,
             )
@@ -2545,7 +2556,7 @@ class UserCog(commands.Cog, name="User"):
         ]
 
         embed = discord.Embed(
-            title="?? Панель таймеров",
+            title="Панель таймеров",
             description=(
                 "Самое важное по кулдаунам и системам аккаунта в одном экране.\n"
                 f"Доступно прямо сейчас: **{ready_count}** • Активная удочка: **{rod_name}**"
@@ -2554,32 +2565,32 @@ class UserCog(commands.Cog, name="User"):
             timestamp=now,
         )
         embed.add_field(
-            name="?? Экономика",
+            name="Экономика",
             value="\n".join(economy_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Активности",
+            name="Активности",
             value="\n".join(activity_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Рыбалка",
+            name="Рыбалка",
             value="\n".join(fishing_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Бизнесы",
+            name="Бизнесы",
             value="\n".join(business_lines),
             inline=True,
         )
         embed.add_field(
-            name="?? Дом",
+            name="Дом",
             value="\n".join(house_lines),
             inline=False,
         )
         embed.add_field(
-            name="?? Сбросы",
+            name="Сбросы",
             value="\n".join(reset_lines),
             inline=False,
         )

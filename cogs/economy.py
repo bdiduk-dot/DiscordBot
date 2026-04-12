@@ -37,6 +37,7 @@ from utils import (
     ensure_unique_businesses,
     format_discord_deadline,
     has_active_shield,
+    normalize_datetime,
     record_player_progress,
     safe_defer,
     safe_edit_original_response,
@@ -73,6 +74,23 @@ HOUSE_PROFILE_NAMES = {
 
 def format_money(value: int | float) -> str:
     return f"${int(value):,}"
+
+
+def _utc_timestamp(value: datetime | str | None) -> datetime | None:
+    return normalize_datetime(value)
+
+
+def _safe_component_emoji(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if "?" in cleaned or "�" in cleaned:
+        return None
+    if cleaned.startswith(("р", "в", "Р", "С")):
+        return None
+    return cleaned
 
 
 def clean_business_name(business: dict) -> str:
@@ -175,24 +193,6 @@ class ProfileView(discord.ui.View):
             embed = await self.cog.build_profile_embed(member, self.guild_id)
             await interaction.response.edit_message(embed=embed, view=self)
             await self._remember_message(interaction)
-
-    @discord.ui.button(label="Настройки", style=discord.ButtonStyle.secondary, row=0)
-    async def settings_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._view_lock:
-            user_cog = self.cog.bot.get_cog("User")
-            if user_cog is None:
-                await interaction.response.send_message("Система настроек сейчас недоступна.", ephemeral=True)
-                return
-            embed = await user_cog.build_settings_embed(interaction.user, self.guild_id)
-            view = user_cog.make_settings_view(
-                user_id=self.user_id,
-                guild_id=self.guild_id,
-                profile_cog=self.cog,
-                profile_target_id=self.target_id,
-            )
-            await interaction.response.edit_message(embed=embed, view=view)
-            await view._remember_message(interaction)
-
 
     async def on_timeout(self):
         for child in self.children:
@@ -335,7 +335,7 @@ class CrimeChoiceView(discord.ui.View):
             vip = get_vip_level(int(user.get("vip_level", 0) or 0))
             cooldown_minutes = int(30 * (1 - vip["cooldown_reduction"]))
             if user.get("last_crime"):
-                last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
+                last_crime = _utc_timestamp(user.get("last_crime")) or (now - timedelta(minutes=cooldown_minutes))
                 if now - last_crime < timedelta(minutes=cooldown_minutes):
                     next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
                     await safe_edit_original_response(
@@ -387,7 +387,7 @@ class CrimeChoiceView(discord.ui.View):
                     )
                     color = COLORS["error"]
                     asyncio.create_task(record_player_progress(self.user_id, self.guild_id, action="crime", amount=1, reputation=-6, crime_runs=1))
-            from easter_event import grant_easter_drops
+            from legacy.easter_archive import grant_easter_drops
 
             easter_cog = self.cog.bot.get_cog("EasterEvent")
             easter_payload = grant_easter_drops(
@@ -513,7 +513,7 @@ class ProfileCustomizeView(discord.ui.View):
                     label=f"#{int(item.get('id', 0) or 0)} {str(item.get('name', 'Улов'))}"[:100],
                     value=str(int(item.get("id", 0) or 0)),
                     description=description[:100],
-                    emoji=str(item.get("emoji")) if item.get("emoji") else None,
+                    emoji=_safe_component_emoji(item.get("emoji")),
                 )
             )
         if not catch_options:
@@ -778,14 +778,7 @@ class EconomyCog(commands.Cog, name="Economy"):
             vip = get_vip_level(int(user.get("vip_level", 0) or 0))
             cooldown_minutes = self._work_cooldown_minutes(user)
             if user.get("last_work"):
-                try:
-                    last_work = datetime.fromisoformat(str(user["last_work"]))
-                except ValueError:
-                    last_work = now - timedelta(minutes=cooldown_minutes)
-                if last_work.tzinfo is None:
-                    last_work = last_work.replace(tzinfo=timezone.utc)
-                else:
-                    last_work = last_work.astimezone(timezone.utc)
+                last_work = _utc_timestamp(user.get("last_work")) or (now - timedelta(minutes=cooldown_minutes))
                 if now - last_work < timedelta(minutes=cooldown_minutes):
                     next_work_at = last_work + timedelta(minutes=cooldown_minutes)
                     return False, f"Следующая работа будет доступна {format_discord_deadline(next_work_at)}."
@@ -798,7 +791,7 @@ class EconomyCog(commands.Cog, name="Economy"):
             if event_multiplier > 1:
                 salary = int(salary * event_multiplier)
 
-            from easter_event import grant_easter_drops, maybe_apply_easter_work_bonus
+            from legacy.easter_archive import grant_easter_drops, maybe_apply_easter_work_bonus
 
             easter_cog = self.bot.get_cog("EasterEvent")
             salary = maybe_apply_easter_work_bonus(user, salary)
@@ -1312,7 +1305,7 @@ class EconomyCog(commands.Cog, name="Economy"):
             cooldown_hours = int(24 * (1 - vip["cooldown_reduction"]))
 
             if user.get("last_daily"):
-                last_daily = datetime.fromisoformat(user["last_daily"]).replace(tzinfo=timezone.utc)
+                last_daily = _utc_timestamp(user.get("last_daily")) or (now - timedelta(hours=cooldown_hours))
                 if now - last_daily < timedelta(hours=cooldown_hours):
                     next_daily_at = last_daily + timedelta(hours=cooldown_hours)
                     await interaction.edit_original_response(
@@ -1332,7 +1325,7 @@ class EconomyCog(commands.Cog, name="Economy"):
 
             streak_multiplier = 1
             if user.get("last_daily"):
-                last_daily = datetime.fromisoformat(user["last_daily"]).replace(tzinfo=timezone.utc)
+                last_daily = _utc_timestamp(user.get("last_daily")) or (now - timedelta(hours=cooldown_hours))
                 if now - last_daily <= timedelta(hours=48):
                     user["daily_streak"] = int(user.get("daily_streak", 0) or 0) + 1
                 else:
@@ -1344,7 +1337,7 @@ class EconomyCog(commands.Cog, name="Economy"):
                 streak_multiplier = 2
 
             final_bonus = int(bonus * streak_multiplier)
-            from easter_event import grant_easter_drops
+            from legacy.easter_archive import grant_easter_drops
 
             user["balance"] += final_bonus
             user["gems"] += gems
@@ -1404,7 +1397,7 @@ class EconomyCog(commands.Cog, name="Economy"):
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
         cooldown_minutes = int(10 * (1 - vip["cooldown_reduction"]))
         if user.get("last_work"):
-            last_work = datetime.fromisoformat(user["last_work"]).replace(tzinfo=timezone.utc)
+            last_work = _utc_timestamp(user.get("last_work")) or (now - timedelta(minutes=cooldown_minutes))
             if now - last_work < timedelta(minutes=cooldown_minutes):
                 next_work_at = last_work + timedelta(minutes=cooldown_minutes)
                 await safe_edit_original_response(
@@ -1441,7 +1434,7 @@ class EconomyCog(commands.Cog, name="Economy"):
         vip = get_vip_level(int(user.get("vip_level", 0) or 0))
         cooldown_minutes = int(30 * (1 - vip["cooldown_reduction"]))
         if user.get("last_crime"):
-            last_crime = datetime.fromisoformat(user["last_crime"]).replace(tzinfo=timezone.utc)
+            last_crime = _utc_timestamp(user.get("last_crime")) or (now - timedelta(minutes=cooldown_minutes))
             if now - last_crime < timedelta(minutes=cooldown_minutes):
                 next_crime_at = last_crime + timedelta(minutes=cooldown_minutes)
                 await safe_edit_original_response(
@@ -1503,7 +1496,7 @@ class EconomyCog(commands.Cog, name="Economy"):
             cooldown_minutes = int(15 * (1 - vip["cooldown_reduction"]))
 
             if user.get("last_slut"):
-                last_slut = datetime.fromisoformat(user["last_slut"]).replace(tzinfo=timezone.utc)
+                last_slut = _utc_timestamp(user.get("last_slut")) or (now - timedelta(minutes=cooldown_minutes))
                 if now - last_slut < timedelta(minutes=cooldown_minutes):
                     next_slut_at = last_slut + timedelta(minutes=cooldown_minutes)
                     await interaction.edit_original_response(
@@ -1544,7 +1537,7 @@ class EconomyCog(commands.Cog, name="Economy"):
                     )
                     color = COLORS["error"]
 
-            from easter_event import grant_easter_drops
+            from legacy.easter_archive import grant_easter_drops
 
             easter_cog = self.bot.get_cog("EasterEvent")
             easter_payload = grant_easter_drops(
@@ -1603,7 +1596,7 @@ class EconomyCog(commands.Cog, name="Economy"):
             cooldown_hours = max(1, int(1 * (1 - vip["cooldown_reduction"])))
 
             if user.get("last_hourly"):
-                last_hourly = datetime.fromisoformat(user["last_hourly"]).replace(tzinfo=timezone.utc)
+                last_hourly = _utc_timestamp(user.get("last_hourly")) or (now - timedelta(hours=cooldown_hours))
                 if now - last_hourly < timedelta(hours=cooldown_hours):
                     next_hourly_at = last_hourly + timedelta(hours=cooldown_hours)
                     await interaction.edit_original_response(

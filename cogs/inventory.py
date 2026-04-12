@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.fishing import InventoryView as LegacyInventoryView
-from easter_event import EASTER_POND_ZONE_KEY, easter_pond_available
+from legacy.easter_archive import EASTER_POND_ZONE_KEY, easter_pond_available
 from config import COLORS
 from utils import check_channel, safe_defer, safe_edit_original_response, send_wrong_channel_message
 

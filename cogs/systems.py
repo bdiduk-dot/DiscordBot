@@ -1196,7 +1196,7 @@ class SystemsCog(commands.Cog, name="Systems"):
         embed.set_footer(text="Выполняй контракты обычными командами бота и забирай награду кнопками ниже.")
         return embed
 
-    async def get_black_market_offers(self, user_id: int, guild_id: int) -> tuple[list[dict[str, Any]], set[str]]:
+    async def _legacy_get_black_market_offers(self, user_id: int, guild_id: int) -> tuple[list[dict[str, Any]], set[str]]:
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
@@ -1206,7 +1206,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             offers = _daily_black_market_offers(state["day"])
             return offers, set(state.get("purchased", []))
 
-    async def buy_black_market_offer(self, user_id: int, guild_id: int, slot: int) -> tuple[bool, discord.Embed | str]:
+    async def _legacy_buy_black_market_offer(self, user_id: int, guild_id: int, slot: int) -> tuple[bool, discord.Embed | str]:
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
@@ -1295,7 +1295,7 @@ class SystemsCog(commands.Cog, name="Systems"):
         )
         return True, embed
 
-    async def build_black_market_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+    async def _legacy_build_black_market_embed(self, user_id: int, guild_id: int) -> discord.Embed:
         user = await db.get_user(user_id, guild_id)
         if not user:
             return discord.Embed(title="Чёрный рынок", description="Не удалось загрузить профиль.", color=COLORS["warning"])
@@ -1505,7 +1505,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
             return list(state.get("offers", [])), set(state.get("purchased", []))
 
-    async def buy_black_market_offer(self, user_id: int, guild_id: int, slot: int) -> tuple[bool, discord.Embed | str]:
+    async def _legacy_buy_black_market_offer_v2(self, user_id: int, guild_id: int, slot: int) -> tuple[bool, discord.Embed | str]:
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
@@ -1612,7 +1612,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             embed.add_field(name="Событие", value=f"Цены изменены ивентом **{active_event['name']}**.", inline=False)
         return True, embed
 
-    async def build_black_market_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+    async def _legacy_build_black_market_embed_v2(self, user_id: int, guild_id: int) -> discord.Embed:
         user = await db.get_user(user_id, guild_id)
         if not user:
             return discord.Embed(title="Чёрный рынок", description="Не удалось загрузить профиль.", color=COLORS["warning"])
