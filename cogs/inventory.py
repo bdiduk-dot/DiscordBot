@@ -20,7 +20,7 @@ class InventoryV2View(LegacyInventoryView):
         self.fish_btn.label = "🐟 Рыба"
         self.gear_btn.label = "🎣 Снаряжение"
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.inventory_cog.build_inventory_embed(self.user_id, self.guild_id, self.active_tab, self.page)
         user, _, _, fish_items, general_items = await self.cog._inventory_snapshot(self.user_id, self.guild_id)
         self.sync_buttons(user, fish_items, general_items)

@@ -236,11 +236,22 @@ def create_embed(title: str, description: str, color: int = COLORS['info']) -> d
     return embed
 
 async def check_channel(interaction: discord.Interaction) -> bool:
-    """Fast channel check that doesn't block the interaction on role assignment."""
+    """Fast channel check. Only validates the allowed channel restriction.
+
+    Heavy side-effects (role assignment, leaderboard sync, autocollect) are
+    intentionally NOT performed here to avoid eating the 3-second Discord
+    interaction timeout when Supabase is slow.  Call
+    ``post_interaction_tasks(interaction)`` as a fire-and-forget task AFTER
+    the interaction has been deferred.
+    """
     allowed_channel_id = await resolve_allowed_channel_id(interaction.guild, interaction.guild_id)
     if allowed_channel_id is not None and interaction.channel_id != allowed_channel_id:
         return False
+    return True
 
+
+async def _run_post_interaction_tasks(interaction: discord.Interaction) -> None:
+    """Background helper that runs heavy side-effects after the interaction is deferred."""
     try:
         user_data = None
         if interaction.guild_id is not None:
@@ -266,7 +277,10 @@ async def check_channel(interaction: discord.Interaction) -> bool:
     except Exception:
         pass
 
-    return True
+
+def post_interaction_tasks(interaction: discord.Interaction) -> None:
+    """Fire-and-forget launcher for heavy post-defer side-effects."""
+    asyncio.create_task(_run_post_interaction_tasks(interaction))
 
 async def send_wrong_channel_message(interaction: discord.Interaction):
     """Отправить сообщение о неправильном канале."""
@@ -292,6 +306,7 @@ async def safe_defer(interaction: discord.Interaction, *, ephemeral: bool = Fals
     try:
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=ephemeral, thinking=thinking)
+        post_interaction_tasks(interaction)
         return True
     except discord.NotFound:
         return False

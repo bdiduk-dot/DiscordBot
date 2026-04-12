@@ -1170,22 +1170,6 @@ class EasterCog(commands.Cog, name="EasterEvent"):
             ok, payload = collect_easter_businesses_v2(user, guild_state=guild_state)
             if not ok:
                 return str(payload["message"])
-            await db.update_user(user_id, guild_id, {"balance": user.get("balance", 0), "inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
-            extra = f"\n🎨 Расписных яиц: **+{payload['painted']}**" if int(payload["painted"]) > 0 else ""
-            return (
-                "\n".join(payload["lines"] + progress_lines)
-                + f"\n\n💰 Деньги: **+{format_money(payload['money'])}**\n🥚 Обычных яиц: **+{payload['common']}**{extra}"
-            )
-
-    async def collect_business_rewards(self, user_id: int, guild_id: int) -> str:
-        async with get_user_lock(user_id):
-            user = await db.get_user(user_id, guild_id)
-            if not user:
-                return "Не удалось загрузить профиль."
-            guild_state = await self._refresh_guild_state(guild_id)
-            ok, payload = collect_easter_businesses_v2(user, guild_state=guild_state)
-            if not ok:
-                return str(payload["message"])
             await db.update_user(
                 user_id,
                 guild_id,

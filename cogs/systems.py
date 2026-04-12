@@ -565,7 +565,7 @@ class ContractsView(discord.ui.View):
         except Exception:
             self.message = interaction.message or self.message
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.cog.build_contracts_embed(self.user_id, self.guild_id)
         self._sync_buttons(await self.cog.get_contracts(self.user_id, self.guild_id))
         await interaction.edit_original_response(embed=embed, view=self)
@@ -589,7 +589,7 @@ class ContractsView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.claim_contract_reward(self.user_id, self.guild_id, slot)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -612,7 +612,7 @@ class ContractsView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -647,7 +647,7 @@ class ContractsViewV2(discord.ui.View):
         except Exception:
             self.message = interaction.message or self.message
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.cog.build_contracts_embed(self.user_id, self.guild_id)
         self._sync_buttons(await self.cog.get_contracts(self.user_id, self.guild_id))
         await interaction.edit_original_response(embed=embed, view=self)
@@ -676,7 +676,7 @@ class ContractsViewV2(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.claim_contract_reward(self.user_id, self.guild_id, slot)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -708,7 +708,7 @@ class ContractsViewV2(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.reroll_contracts(self.user_id, self.guild_id)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -719,7 +719,7 @@ class ContractsViewV2(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -782,7 +782,7 @@ class BlackMarketView(discord.ui.View):
             else:
                 button.emoji = "💵"
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         offers, purchased = await self.cog.get_black_market_offers(self.user_id, self.guild_id)
         self._sync_buttons(offers, purchased)
         embed = await self.cog.build_black_market_embed(self.user_id, self.guild_id)
@@ -794,7 +794,7 @@ class BlackMarketView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             _, payload = await self.cog.buy_black_market_offer(self.user_id, self.guild_id, slot)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -825,7 +825,7 @@ class BlackMarketView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def on_timeout(self):
         for child in self.children:

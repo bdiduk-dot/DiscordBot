@@ -600,7 +600,7 @@ class FishShopView(discord.ui.View):
                 button.disabled = False
                 button.style = discord.ButtonStyle.primary if owned else discord.ButtonStyle.success
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         state = await self.cog.get_fishing_profile(self.user_id, self.guild_id)
         self._sync_buttons(state)
         embed = await self.cog.build_fishshop_embed(self.user_id, self.guild_id, self.active_tab, self.page)
@@ -615,7 +615,7 @@ class FishShopView(discord.ui.View):
             if self.active_tab != tab:
                 self.page = 0
             self.active_tab = tab
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     async def _buy_slot(self, interaction: discord.Interaction, slot: int):
         async with self._view_lock:
@@ -627,7 +627,7 @@ class FishShopView(discord.ui.View):
                 return
             item_key, _ = visible_items[slot]
             _, payload = await self.cog.handle_fishshop_action_v2(self.user_id, self.guild_id, self.active_tab, item_key)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
             else:
@@ -655,7 +655,7 @@ class FishShopView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             self.page = max(0, self.page - 1)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     @discord.ui.button(label="Товар 1", style=discord.ButtonStyle.success, row=1)
     async def item_1(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -675,14 +675,14 @@ class FishShopView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             self.page = min(self._max_page(), self.page + 1)
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
 
     async def on_timeout(self):
@@ -754,7 +754,7 @@ class EnhancedFishShopView(FishShopView):
             else:
                 button.disabled = _bait_shop_remaining_limit(state, item_key) <= 0
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         state = await self.cog.get_fishing_profile(self.user_id, self.guild_id)
         self._sync_buttons(state)
         embed = await self.cog.build_fishshop_embed_v2(self.user_id, self.guild_id, self.active_tab, self.page)
@@ -784,7 +784,7 @@ class FishingCastView(discord.ui.View):
         except Exception:
             self.message = interaction.message or self.message
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh_view(self, interaction: discord.Interaction):
         embed = await self.cog.build_fishing_menu_embed(self.user_id, self.guild_id)
         state = await self.cog.get_fishing_profile(self.user_id, self.guild_id)
         current_zone = str(state.get("selected_zone", "river_bank") or "river_bank")
@@ -802,7 +802,7 @@ class FishingCastView(discord.ui.View):
             if not await safe_defer(interaction):
                 return
             await self.cog.select_fishing_zone(self.user_id, self.guild_id, select.values[0])
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
     @discord.ui.button(label="Закинуть удочку", style=discord.ButtonStyle.success, row=1)
     async def cast(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -816,7 +816,7 @@ class FishingCastView(discord.ui.View):
                     await interaction.followup.send(embed=payload, ephemeral=True)
                 else:
                     await interaction.followup.send(str(payload), ephemeral=True)
-                await self._refresh(interaction)
+                await self._refresh_view(interaction)
                 return
             await self.cog._play_cast_animation(interaction, fishing_state)
             await safe_edit_original_response(interaction, embed=payload, view=None)
@@ -828,7 +828,7 @@ class FishingCastView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self._refresh(interaction)
+            await self._refresh_view(interaction)
 
 
     async def on_timeout(self):
