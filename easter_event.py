@@ -198,31 +198,33 @@ EASTER_SERVER_PROGRESS_MILESTONES: tuple[dict[str, Any], ...] = (
 
 EASTER_FURNITURE_BUFFS = {
     "easter_egg_basket": {
-        "name": "Корзина с яйцами",
+        "name": "Плетёная корзина",
         "emoji": "🧺",
-        "description": "Увеличивает шанс выпадения пасхальных яиц.",
+        "description": "Даёт +2% к урожаю в саду.",
         "price_common": 45,
         "price_painted": 0,
         "price_gold": 0,
-        "egg_drop_bonus": 0.05,
+        "egg_drop_bonus": 0.0,
+        "garden_yield_bonus": 0.02,
     },
     "easter_rabbit_lamp": {
-        "name": "Кроличья лампа",
-        "emoji": "🐰",
-        "description": "Даёт бонус к доходу пасхальных бизнесов.",
+        "name": "Тёплая лампа",
+        "emoji": "🪔",
+        "description": "Даёт +2% к выплате аренды.",
         "price_common": 95,
         "price_painted": 1,
         "price_gold": 0,
-        "business_bonus": 0.05,
+        "business_bonus": 0.0,
+        "rent_bonus": 0.02,
     },
     "easter_chocolate_fountain": {
-        "name": "Шоколадный фонтан",
-        "emoji": "🍫",
-        "description": "Даёт бонус к награде /work во время ивента.",
+        "name": "Домашний фонтан",
+        "emoji": "⛲",
+        "description": "Даёт +2% к награде /work.",
         "price_common": 80,
         "price_painted": 1,
         "price_gold": 0,
-        "work_bonus": 0.05,
+        "work_bonus": 0.02,
     },
 }
 
@@ -793,17 +795,30 @@ def _egg_drop_bonus_chance(user: dict[str, Any]) -> float:
     return max(0.0, float(furniture.get("egg_drop_bonus", 0.0) or 0.0))
 
 
+def _furniture_bonus_value(user: dict[str, Any], code: str, field: str) -> float:
+    if not has_easter_furniture(user, code):
+        return 0.0
+    furniture = EASTER_FURNITURE_BUFFS.get(code, {})
+    return max(0.0, float(furniture.get(field, 0.0) or 0.0))
+
+
 def _work_money_bonus_multiplier(user: dict[str, Any]) -> float:
-    return 1.05 if has_easter_furniture(user, "easter_chocolate_fountain") else 1.0
+    return 1.0 + _furniture_bonus_value(user, "easter_chocolate_fountain", "work_bonus")
 
 
 def _event_business_money_bonus(user: dict[str, Any]) -> float:
     return 1.05 if has_easter_furniture(user, "easter_rabbit_lamp") else 1.0
 
 
+def collection_garden_yield_multiplier(user: dict[str, Any]) -> float:
+    return 1.0 + _furniture_bonus_value(user, "easter_egg_basket", "garden_yield_bonus")
+
+
+def collection_rent_multiplier(user: dict[str, Any]) -> float:
+    return 1.0 + _furniture_bonus_value(user, "easter_rabbit_lamp", "rent_bonus")
+
+
 def maybe_apply_easter_work_bonus(user: dict[str, Any], amount: int) -> int:
-    if not easter_is_active():
-        return int(amount)
     return int(round(int(amount) * _work_money_bonus_multiplier(user)))
 
 

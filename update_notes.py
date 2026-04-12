@@ -10,7 +10,7 @@ UPDATE_CHANNEL_ID = 1486032811809964243
 UPDATE_TITLE = "🌱 Переход после Easter 2026"
 FAST_UPDATE_TITLE = "⚡ fastFIX / переход"
 
-LATEST_UPDATE_TEXT = """
+ARCHIVED_UPDATE_TEXT = """
 > Основной бот подготовлен к мягкому переходу после Easter Event 2026. Прогресс игроков сохраняется, а оставшиеся пасхальные предметы больше не ломают повседневный геймплей.
 
 ## 📦 Что сохраняется
@@ -34,7 +34,7 @@ LATEST_UPDATE_TEXT = """
 ▸ Можно спокойно переходить к разработке `3.0`, не ломая старые профили
 """
 
-LATEST_FAST_TEXT = """
+ARCHIVED_FAST_TEXT = """
 **fastFIX**
 • `/profile -> Настройки`: кнопка настроек и возврат в профиль работают без падения view.
 • Easter по умолчанию переведён в архивный режим, чтобы старый ивент не активировался повторно после смены ветки.
@@ -46,8 +46,8 @@ LATEST_FAST_TEXT = """
 • `main` подготовлена как безопасная точка входа перед началом обновления `3.0`.
 """
 
-ARCHIVED_UPDATE_TEXT = LATEST_UPDATE_TEXT
-ARCHIVED_FAST_TEXT = LATEST_FAST_TEXT
+LATEST_UPDATE_TEXT = ""
+LATEST_FAST_TEXT = ""
 
 
 def _split_update_text(text: str, limit: int = 3800) -> list[str]:

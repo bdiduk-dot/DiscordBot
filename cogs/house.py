@@ -1165,6 +1165,9 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         rental_state = house_cog._rental_status(user)
         _, next_refresh, offers, accepted = house_cog._generate_rental_offers(user, house_state, house_data)
         capacity = _house_rental_capacity(house_data, vip_bonus)
+        from easter_event import collection_rent_multiplier
+
+        decor_rent_multiplier = collection_rent_multiplier(user)
         ongoing_lines = []
         for rental in rental_state.get("ongoing_rentals", []):
             ongoing_lines.append(f"**{rental.get('tenant_name', 'Жилец')}** • {format_money(int(rental.get('payout', 0) or 0))} • до {format_discord_deadline(rental.get('ends_at'))}")
@@ -1174,8 +1177,11 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         offer_lines = []
         for index, offer in enumerate(offers, start=1):
             status = "Уже занято" if offer["id"] in accepted else "Можно взять"
+            preview_payout = int(offer["payout"] * (1 + vip_bonus["rent_bonus"]))
+            if decor_rent_multiplier > 1:
+                preview_payout = int(round(preview_payout * decor_rent_multiplier))
             offer_lines.append(
-                f"**{index}. {offer['tenant_name']}** • {offer['duration_hours']}ч • **{format_money(int(offer['payout'] * (1 + vip_bonus['rent_bonus'])))}**\n"
+                f"**{index}. {offer['tenant_name']}** • {offer['duration_hours']}ч • **{format_money(preview_payout)}**\n"
                 f"{offer['description']}\nСтатус: **{status}**"
             )
         embed.description = (
@@ -1184,6 +1190,8 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             f"Готово к сбору: **{format_money(int(rental_state.get('ready_total', 0) or 0))}**\n"
             f"Следующее обновление заявок: {format_discord_deadline(next_refresh)}"
         )
+        if decor_rent_multiplier > 1:
+            embed.description += "\n🪔 Коллекционный декор даёт **+2%** к аренде."
         embed.add_field(name="Текущие жильцы", value="\n".join(ongoing_lines), inline=False)
         embed.add_field(name="Доступные заявки", value="\n\n".join(offer_lines), inline=False)
         embed.set_footer(text="При сборе аренды может сработать случайное событие у жильцов.")
@@ -1211,16 +1219,21 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if not owned and not pending and not easter_owned:
             embed.description = "Мебели пока нет. Открой `/shop` → `IKEA`."
             return embed
-        embed.description = f"Дом: **{house_data['name']}**\nМебель даёт постоянные бонусы дому и связанным системам."
+        embed.description = f"Дом: **{house_data['name']}**\nМебель и коллекционный декор дают постоянные мягкие бонусы дому и связанным системам."
         if owned:
             lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - {FURNITURE_BUFFS.get(key, 'Бонус активен.')}" for key in owned]
             embed.add_field(name="Установленная мебель", value="\n".join(lines), inline=False)
         if easter_owned:
             easter_lines = [f"{item['emoji']} **{item['name']}** - {item['description']}" for item in easter_owned]
-            embed.add_field(name="Пасхальный декор", value="\n".join(easter_lines), inline=False)
+            embed.add_field(name="Коллекционный декор", value="\n".join(easter_lines), inline=False)
         if pending:
             pending_lines = [f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** - используй из инвентаря, чтобы установить" for key in pending]
             embed.add_field(name="В инвентаре", value="\n".join(pending_lines), inline=False)
+        embed.add_field(
+            name="Трофеи",
+            value="Памятные трофеи хранятся в инвентаре и не пропадают. Сейчас их нельзя отдельно расставлять по дому, но они сохраняются у тебя навсегда.",
+            inline=False,
+        )
         return embed
 
     async def plant_seed(self, user_id: int, guild_id: int, plot_index: int, crop_code: str) -> tuple[bool, discord.Embed | str]:
@@ -1289,6 +1302,9 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             if not user:
                 return False, "Не удалось загрузить профиль."
             house_state, _ = _migrate_house_state(user)
+            from easter_event import collection_garden_yield_multiplier
+
+            garden_yield_multiplier = collection_garden_yield_multiplier(user)
             if not _house_current_data(house_state):
                 return False, "Сначала купи дом."
             plots = _refresh_garden_state(house_state)
@@ -1304,6 +1320,8 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
                 if crop is None:
                     continue
                 amount = random.randint(int(crop["yield_min"]), int(crop["yield_max"]))
+                if garden_yield_multiplier > 1:
+                    amount = max(1, int(round(amount * garden_yield_multiplier)))
                 add_general_item(
                     user,
                     item_type="crop_harvest",
@@ -1474,12 +1492,17 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             if not ready_rentals:
                 return False, "Готовой аренды пока нет."
             owned_furniture = set(house_state.get("furniture", []))
+            from easter_event import collection_rent_multiplier
+
+            decor_rent_multiplier = collection_rent_multiplier(user)
             total_value = 0
             event_lines = []
             for rental in ready_rentals:
                 payout = int(rental.get("payout", 0) or 0)
                 if "plasma_tv" in owned_furniture:
                     payout = int(round(payout * 1.05))
+                if decor_rent_multiplier > 1:
+                    payout = int(round(payout * decor_rent_multiplier))
                 if random.random() <= 0.20:
                     event = random.choice(TENANT_EVENTS["positive" if random.random() < 0.5 else "negative"])
                     payout = max(0, int(round(payout * float(event["multiplier"]))))
