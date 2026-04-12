@@ -1683,9 +1683,18 @@ class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
         super().__init__()
         self.parent_view = parent_view
 
+    @staticmethod
+    def _extract_snowflake(raw_value: str) -> int | None:
+        cleaned = raw_value.strip().replace("<#", "").replace(">", "").strip()
+        if not cleaned.isdigit():
+            return None
+        parsed = int(cleaned)
+        return parsed if parsed > 0 else None
+
     async def on_submit(self, interaction: discord.Interaction):
         raw_value = str(self.channel_id.value or "").strip()
-        if not raw_value.isdigit():
+        channel_id = self._extract_snowflake(raw_value)
+        if channel_id is None:
             await interaction.response.send_message("Нужен числовой ID текстового канала.", ephemeral=True)
             return
 
@@ -1694,19 +1703,31 @@ class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
             await interaction.response.send_message("Эта настройка доступна только на сервере.", ephemeral=True)
             return
 
-        channel = guild.get_channel(int(raw_value))
+        channel = guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message("Канал не найден или это не текстовый канал.", ephemeral=True)
             return
+        me = guild.me
+        if me is not None:
+            permissions = channel.permissions_for(me)
+            if not permissions.view_channel or not permissions.send_messages:
+                await interaction.response.send_message(
+                    "Бот не может писать в этот канал. Дай ему доступ к просмотру и отправке сообщений.",
+                    ephemeral=True,
+                )
+                return
 
-        await self.parent_view.cog.update_server_settings(guild.id, {"allowed_channel_id": channel.id})
+        persisted = await self.parent_view.cog.update_server_settings(guild.id, {"allowed_channel_id": channel.id})
         embed = await self.parent_view.cog.build_server_settings_embed(guild)
         if self.parent_view.message is not None:
             try:
                 await self.parent_view.message.edit(embed=embed, view=self.parent_view)
             except Exception:
                 pass
-        await interaction.response.send_message(f"Игровой канал установлен: {channel.mention}", ephemeral=True)
+        message = f"Игровой канал установлен: {channel.mention}"
+        if not persisted:
+            message += "\nВнимание: настройка применена только на текущий запуск. Для сохранения после рестарта нужна таблица `public.guild_settings`."
+        await interaction.response.send_message(message, ephemeral=True)
 
 
 class ActivityRoleModal(discord.ui.Modal, title="Роль активности"):
@@ -1721,9 +1742,18 @@ class ActivityRoleModal(discord.ui.Modal, title="Роль активности")
         super().__init__()
         self.parent_view = parent_view
 
+    @staticmethod
+    def _extract_snowflake(raw_value: str) -> int | None:
+        cleaned = raw_value.strip().replace("<@&", "").replace(">", "").strip()
+        if not cleaned.isdigit():
+            return None
+        parsed = int(cleaned)
+        return parsed if parsed > 0 else None
+
     async def on_submit(self, interaction: discord.Interaction):
         raw_value = str(self.role_id.value or "").strip()
-        if not raw_value.isdigit():
+        role_id = self._extract_snowflake(raw_value)
+        if role_id is None:
             await interaction.response.send_message("Нужен числовой ID роли.", ephemeral=True)
             return
 
@@ -1732,19 +1762,29 @@ class ActivityRoleModal(discord.ui.Modal, title="Роль активности")
             await interaction.response.send_message("Эта настройка доступна только на сервере.", ephemeral=True)
             return
 
-        role = guild.get_role(int(raw_value))
+        role = guild.get_role(role_id)
         if role is None:
             await interaction.response.send_message("Роль с таким ID не найдена на этом сервере.", ephemeral=True)
             return
+        me = guild.me
+        if me is not None and role >= me.top_role:
+            await interaction.response.send_message(
+                "Я не смогу выдавать эту роль. Подними роль бота выше или выбери роль ниже его самой высокой роли.",
+                ephemeral=True,
+            )
+            return
 
-        await self.parent_view.cog.update_server_settings(guild.id, {"activity_role_id": role.id})
+        persisted = await self.parent_view.cog.update_server_settings(guild.id, {"activity_role_id": role.id})
         embed = await self.parent_view.cog.build_server_settings_embed(guild)
         if self.parent_view.message is not None:
             try:
                 await self.parent_view.message.edit(embed=embed, view=self.parent_view)
             except Exception:
                 pass
-        await interaction.response.send_message(f"Роль активности установлена: {role.mention}", ephemeral=True)
+        message = f"Роль активности установлена: {role.mention}"
+        if not persisted:
+            message += "\nВнимание: настройка применена только на текущий запуск. Для сохранения после рестарта нужна таблица `public.guild_settings`."
+        await interaction.response.send_message(message, ephemeral=True)
 
 
 class ServerSettingsView(discord.ui.View):
@@ -1794,9 +1834,12 @@ class ServerSettingsView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self.cog.update_server_settings(self.guild_id, {"allowed_channel_id": None})
+            persisted = await self.cog.update_server_settings(self.guild_id, {"allowed_channel_id": None})
             await self._refresh_view(interaction)
-            await interaction.followup.send("Ограничение по игровому каналу снято.", ephemeral=True)
+            message = "Ограничение по игровому каналу снято."
+            if not persisted:
+                message += " Изменение применено только до рестарта, пока `public.guild_settings` недоступна."
+            await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.button(label="Задать роль", style=discord.ButtonStyle.primary, row=1)
     async def set_role(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1807,9 +1850,12 @@ class ServerSettingsView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
-            await self.cog.update_server_settings(self.guild_id, {"activity_role_id": None})
+            persisted = await self.cog.update_server_settings(self.guild_id, {"activity_role_id": None})
             await self._refresh_view(interaction)
-            await interaction.followup.send("Роль активности отключена для сервера.", ephemeral=True)
+            message = "Роль активности отключена для сервера."
+            if not persisted:
+                message += " Изменение применено только до рестарта, пока `public.guild_settings` недоступна."
+            await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1913,6 +1959,17 @@ class UserCog(commands.Cog, name="User"):
             ),
             inline=False,
         )
+        if not db.sync_feature_enabled("guild_settings_access"):
+            reason = db.get_sync_feature_reason("guild_settings_access") or "Синхронизация guild settings сейчас недоступна."
+            embed.add_field(
+                name="⚠️ Сохранение в БД",
+                value=(
+                    "Настройки применяются в этом запуске, но могут слететь после рестарта.\n"
+                    f"Причина: {reason}\n"
+                    "Нужно накатить `public/guild_settings.sql` и убедиться, что Supabase не блокирует таблицу."
+                ),
+                inline=False,
+            )
         embed.set_footer(text="Вводи ID текстового канала и ID роли кнопками ниже.")
         return embed
 

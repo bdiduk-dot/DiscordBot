@@ -335,6 +335,11 @@ class Database:
         return feature not in cls.DISABLED_SYNC_FEATURES
 
     @classmethod
+    def get_sync_feature_reason(cls, feature: str) -> str | None:
+        reason = cls.DISABLED_SYNC_FEATURES.get(feature)
+        return str(reason) if reason else None
+
+    @classmethod
     def _sync_backoff_active(cls, feature: str) -> bool:
         until = cls.SYNC_BACKOFF_UNTIL.get(feature)
         if until is None:
@@ -901,7 +906,7 @@ class Database:
         Database.GUILD_SETTINGS_CACHE[guild_id] = state
 
         if not Database.sync_feature_enabled("guild_settings_access"):
-            return True
+            return False
 
         try:
             await asyncio.to_thread(
@@ -930,7 +935,7 @@ class Database:
                 )
             else:
                 print(f"Guild settings upsert error: {exc}")
-            return True
+            return False
 
     @staticmethod
     async def sync_battle_pass_state(user_id: int, guild_id: int, game_stats: Dict[str, Any]) -> bool:

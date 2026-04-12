@@ -153,7 +153,11 @@ class UpdatesCog(commands.Cog, name="Updates"):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
-        pass
+        if self._startup_post_sent:
+            return
+        if self._startup_task is not None and not self._startup_task.done():
+            return
+        self._startup_task = asyncio.create_task(self.ensure_startup_post())
         # if self._startup_post_sent:
         #     return
         # if self._startup_task is not None and not self._startup_task.done():
