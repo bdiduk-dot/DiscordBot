@@ -72,4 +72,23 @@ alter table if exists public.auction_bids disable row level security;
 
 grant select, insert, update on table public.auction_bids to anon, authenticated, service_role;
 
+alter table if exists public.market_guild_states
+    add column if not exists weather text;
+
+alter table if exists public.market_guild_states
+    add column if not exists time_phase text;
+
+alter table if exists public.market_guild_states
+    add column if not exists antiquary_prices jsonb not null default '{}'::jsonb;
+
+alter table if exists public.market_guild_states
+    add column if not exists updated_at timestamp with time zone not null default timezone('utc', now());
+
+create index if not exists market_guild_states_updated_at_idx
+    on public.market_guild_states (updated_at desc);
+
+alter table if exists public.market_guild_states disable row level security;
+
+grant select, insert, update on table public.market_guild_states to anon, authenticated, service_role;
+
 commit;

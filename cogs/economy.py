@@ -124,6 +124,46 @@ def _profile_house_name(user: dict[str, Any]) -> str:
     return HOUSE_PROFILE_NAMES.get(house_id, house_id.replace("_", " ").title())
 
 
+def _profile_active_effect_lines(user: dict[str, Any]) -> list[str]:
+    now = datetime.now(timezone.utc)
+    lines: list[str] = []
+
+    money_until = _utc_timestamp(user.get("buff_money_until"))
+    if money_until and money_until > now:
+        lines.append(f"💸 Денежный буст до {format_discord_deadline(money_until)}")
+
+    xp_until = _utc_timestamp(user.get("buff_xp_until"))
+    if xp_until and xp_until > now:
+        lines.append(f"✨ XP-буст до {format_discord_deadline(xp_until)}")
+
+    shield_until = _utc_timestamp(user.get("shield_until"))
+    if shield_until and shield_until > now:
+        lines.append(f"🛡️ Теневая защита до {format_discord_deadline(shield_until)}")
+
+    if not lines:
+        lines.append("Сейчас нет временных бустов или защит.")
+    return lines
+
+
+def _profile_world_lines(systems_cog: Any, guild_id: int) -> list[str]:
+    if systems_cog is None:
+        return ["Мир сервера сейчас недоступен."]
+
+    snapshot = systems_cog.get_world_snapshot(guild_id)
+    weather = snapshot.get("weather") or {}
+    event = snapshot.get("active_event")
+    lines = [
+        f"Погода: **{weather.get('name', 'Ясно')}**",
+        f"Время: **{snapshot.get('time_phase_name', 'День')}**",
+        f"Хотспот: **{snapshot.get('hotspot_name', 'Неизвестно')}**",
+    ]
+    if isinstance(event, dict):
+        lines.append(f"Ивент: **{event.get('name', 'Событие')}**")
+    else:
+        lines.append("Ивент: **спокойный цикл**")
+    return lines
+
+
 class ProfileView(discord.ui.View):
     def __init__(self, cog: "EconomyCog", user_id: int, guild_id: int, target_id: int):
         super().__init__(timeout=120)
@@ -881,6 +921,9 @@ class EconomyCog(commands.Cog, name="Economy"):
         streak_now = int(user.get("win_streak", 0) or 0)
         streak_best = int(user.get("best_streak", 0) or 0)
         games_played = int(user.get("games_played", 0) or 0)
+        systems_cog = self.bot.get_cog("Systems")
+        active_effect_lines = _profile_active_effect_lines(user)
+        world_lines = _profile_world_lines(systems_cog, guild_id)
 
         description_lines = [
             f"{rank['emoji']} **{RANK_NAMES.get(rank['name'], rank['name'])}** • {vip['emoji']} **{vip_label}**",
@@ -942,6 +985,11 @@ class EconomyCog(commands.Cog, name="Economy"):
                 f"Тир: **{tier}/20**\n"
                 f"Прогресс: **{tier_progress}/{tier_total} XP**"
             ),
+            inline=False,
+        )
+        embed.add_field(
+            name="⚡ Активно сейчас",
+            value="**Бафы**\n" + "\n".join(active_effect_lines) + "\n\n**Мир сервера**\n" + "\n".join(world_lines),
             inline=False,
         )
         if favorite_catch:

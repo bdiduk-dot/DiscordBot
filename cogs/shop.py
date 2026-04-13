@@ -69,6 +69,26 @@ def _shop_navigation_options(current_category: str, current_main_page: str = "ov
     return options
 
 
+def _shop_world_lines(shop_cog: "ShopCommandsCog", guild_id: int) -> list[str]:
+    systems_cog = shop_cog.bot.get_cog("Systems")
+    if systems_cog is None:
+        return ["Мир сервера сейчас недоступен."]
+
+    snapshot = systems_cog.get_world_snapshot(guild_id)
+    event = snapshot.get("active_event")
+    weather = snapshot.get("weather") or {}
+    lines = [
+        f"Погода: **{weather.get('name', 'Ясно')}**",
+        f"Время: **{snapshot.get('time_phase_name', 'День')}**",
+        f"Хотспот: **{snapshot.get('hotspot_name', 'Неизвестно')}**",
+    ]
+    if isinstance(event, dict):
+        lines.append(f"Ивент: **{event.get('name', 'Событие')}**")
+    else:
+        lines.append("Ивент: **спокойный цикл**")
+    return lines
+
+
 class MainCategoryView(LegacyMainShopView):
     def __init__(
         self,
@@ -144,6 +164,25 @@ class MainCategoryView(LegacyMainShopView):
             self._toggle_visibility(self.action_btn_3, False)
         elif self.active_page == "exchange":
             self._toggle_visibility(self.action_btn_3, False)
+
+    def build_embed(self) -> discord.Embed:
+        embed = super().build_embed()
+        if self.active_page == "overview":
+            embed.title = "🛍️ Витрина сервера"
+            embed.description = "Единый магазин для VIP, обмена, улучшений, серверных товаров и кастомизации."
+            embed.add_field(
+                name="Разделы витрины",
+                value=(
+                    "🏆 VIP и сезонные покупки\n"
+                    "💱 Обмен валют без лишних окон\n"
+                    "🧩 Улучшения и серверные лоты\n"
+                    "🎨 Кастомизация профиля"
+                ),
+                inline=False,
+            )
+            embed.add_field(name="Пульс сервера", value="\n".join(_shop_world_lines(self.shop_cog, self.guild_id)), inline=False)
+        embed.set_footer(text="Выбирай раздел через селект сверху, а покупки подтверждай кнопками ниже.")
+        return embed
 
     async def _on_navigation(self, interaction: discord.Interaction):
         raw = str(self.navigation_select.values[0]) if self.navigation_select.values else "main:overview"
@@ -277,7 +316,7 @@ class PropertyCategoryView(_BaseCategoryView):
         house_cog = self.shop_cog._house_core()
         snapshot = house_cog._house_snapshot(user, self.guild_id) if house_cog is not None else {"installed_count": 0, "capacity": 0}
         embed = discord.Embed(
-            title="Магазин недвижимости",
+            title="🏠 Недвижимость и подвал",
             description=(
                 f"Баланс: **{format_money(balance)}**\n"
                 f"Текущий дом: **{current_house_name}**\n"
@@ -285,6 +324,15 @@ class PropertyCategoryView(_BaseCategoryView):
             ),
             color=COLORS["info"],
         )
+        embed.add_field(
+            name="Что здесь покупают",
+            value=(
+                "Дома открывают новые уровни подвала и доступ к части систем `/house`.\n"
+                "GPU сразу усиливают подвал и пассивную добычу."
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Пульс сервера", value="\n".join(_shop_world_lines(self.shop_cog, self.guild_id)), inline=False)
         lines = []
         installed_count = int(snapshot.get("installed_count", 0) or 0)
         capacity = int(snapshot.get("capacity", 0) or 0)
@@ -323,7 +371,7 @@ class PropertyCategoryView(_BaseCategoryView):
                     f"Статус: **{status}**"
                 )
         embed.add_field(name=f"Страница {self.page + 1}/{self._max_page() + 1}", value="\n\n".join(lines), inline=False)
-        embed.set_footer(text="Дома и GPU открываются и управляются через `/house`.")
+        embed.set_footer(text="Покупка идёт здесь, а детальное управление домом и подвалом остаётся в `/house`.")
         return embed
 
     async def _rerender(self, interaction: discord.Interaction):
@@ -406,10 +454,19 @@ class GardenCategoryView(_BaseCategoryView):
         house_state = _house_state(user)
         current_can = str(((house_state.get("garden") or {}) if isinstance(house_state.get("garden"), dict) else {}).get("watering_can") or "basic")
         embed = discord.Embed(
-            title="Садоводство",
+            title="🌱 Садовая лавка",
             description=f"Баланс: **{format_money(int(user.get('balance', 0) or 0))}**\nАктивная лейка: **{WATERING_CANS.get(current_can, WATERING_CANS['basic'])['name']}**",
             color=COLORS["success"],
         )
+        embed.add_field(
+            name="Что здесь покупают",
+            value=(
+                "Семена идут в огород через `/house` → `Сад`.\n"
+                "Лейки сокращают микроменеджмент и помогают держать цикл роста под контролем."
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Пульс сервера", value="\n".join(_shop_world_lines(self.shop_cog, self.guild_id)), inline=False)
         lines = []
         for index, (item_type, item_key, item) in enumerate(self._visible_items(), start=1):
             if item_type == "seed":
@@ -425,7 +482,7 @@ class GardenCategoryView(_BaseCategoryView):
                     f"Интервал полива: **{int(item['water_interval_hours'])} ч**"
                 )
         embed.add_field(name=f"Страница {self.page + 1}/{self._max_page() + 1}", value="\n\n".join(lines), inline=False)
-        embed.set_footer(text="Семена и лейки используются через `/house` → `Сад`.")
+        embed.set_footer(text="Семена и лейки покупаются тут, а применяются уже внутри `/house` → `Сад`.")
         return embed
 
     async def _rerender(self, interaction: discord.Interaction):
@@ -493,7 +550,17 @@ class IkeaCategoryView(_BaseCategoryView):
         house_state = _house_state(user)
         owned = set(house_state.get("furniture", []))
         pending = {item_key for item_key in FURNITURE_ITEMS if count_general_items(user, item_type="home_furniture", code=item_key) > 0}
-        embed = discord.Embed(title="ИКЕА", description=f"Баланс: **{format_money(int(user.get('balance', 0) or 0))}**", color=COLORS["gold"])
+        embed = discord.Embed(
+            title="🪑 IKEA / Декор",
+            description=f"Баланс: **{format_money(int(user.get('balance', 0) or 0))}**",
+            color=COLORS["gold"],
+        )
+        embed.add_field(
+            name="Что здесь покупают",
+            value="Мебель попадает в инвентарь дома, а затем ставится уже из `/house` в подходящую комнату.",
+            inline=False,
+        )
+        embed.add_field(name="Пульс сервера", value="\n".join(_shop_world_lines(self.shop_cog, self.guild_id)), inline=False)
         lines = []
         for index, (item_key, item) in enumerate(FURNITURE_ITEMS.items(), start=1):
             status = "Уже куплено" if item_key in owned else "Можно купить"
@@ -509,7 +576,7 @@ class IkeaCategoryView(_BaseCategoryView):
                 f"Статус: **{status}**"
             )
         embed.add_field(name="Доступные предметы", value="\n\n".join(lines), inline=False)
-        embed.set_footer(text="Мебель влияет на крипту, аренду и рыбалку на этом сервере.")
+        embed.set_footer(text="Декор влияет на атмосферу дома и часть связанных систем на сервере.")
         return embed
 
     async def _rerender(self, interaction: discord.Interaction):

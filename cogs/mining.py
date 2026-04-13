@@ -260,9 +260,10 @@ def _house_state(user: dict[str, Any]) -> dict[str, Any]:
     house["garden"] = garden_state
     accepted = house.get("accepted_offers")
     if not isinstance(accepted, dict):
-        accepted = {"window": None, "keys": []}
+        accepted = {"window": None, "keys": [], "tenant_names": []}
     accepted.setdefault("window", None)
     accepted.setdefault("keys", [])
+    accepted.setdefault("tenant_names", [])
     house["accepted_offers"] = accepted
     for symbol in CRYPTO_TYPES:
         house["crypto_wallet"].setdefault(symbol, 0.0)
@@ -1087,11 +1088,17 @@ class HouseCog(commands.Cog, name="House"):
         window_start = _rental_window_start(now)
         window_key = window_start.isoformat()
         next_refresh_at = window_start + timedelta(hours=6)
-        accepted_state = house_state.get("accepted_offers", {"window": None, "keys": []})
+        accepted_state = house_state.get("accepted_offers", {"window": None, "keys": [], "tenant_names": []})
         if accepted_state.get("window") != window_key:
-            accepted_state = {"window": window_key, "keys": []}
+            accepted_state = {"window": window_key, "keys": [], "tenant_names": []}
             house_state["accepted_offers"] = accepted_state
         accepted_keys = set(accepted_state.get("keys", []))
+        accepted_tenants = set(str(name) for name in accepted_state.get("tenant_names", []))
+        active_tenants = {
+            str(rental.get("tenant_name") or "")
+            for rental in house_state.get("active_rentals", [])
+            if str(rental.get("tenant_name") or "")
+        }
 
         eligible = [
             tenant
@@ -1102,9 +1109,15 @@ class HouseCog(commands.Cog, name="House"):
             eligible = TENANT_TYPES[:2]
 
         rng = random.Random(f"{int(user.get('user_id', 0) or 0)}:{house_state.get('owned_house_id')}:{window_key}")
+        rng.shuffle(eligible)
+        tenant_pool = [tenant for tenant in eligible if str(tenant["name"]) not in accepted_tenants and str(tenant["name"]) not in active_tenants]
+        if not tenant_pool:
+            tenant_pool = [tenant for tenant in eligible if str(tenant["name"]) not in active_tenants]
+        if not tenant_pool:
+            tenant_pool = eligible[:]
+
         offers: list[dict[str, Any]] = []
-        for index in range(3):
-            tenant = rng.choice(eligible)
+        for index, tenant in enumerate(tenant_pool[:3]):
             duration_hours = rng.choice(list(tenant["durations"]))
             duration_factor = {6: 1.0, 12: 1.85, 24: 3.9}[duration_hours]
             payout = int(
@@ -1360,9 +1373,21 @@ class HouseCog(commands.Cog, name="House"):
         embed.add_field(name="Активные аренды", value="\n\n".join(ongoing_lines) or "Свободно. Можно брать новые заявки.", inline=True)
 
         offer_lines = []
+        accepted_tenant_names = set(
+            str(name)
+            for name in house_state.get("accepted_offers", {}).get("tenant_names", [])
+            if str(name)
+        )
+        active_tenant_names = {
+            str(rental.get("tenant_name") or "")
+            for rental in rental_state["ongoing_rentals"]
+            if str(rental.get("tenant_name") or "")
+        }
         for index, offer in enumerate(offers, start=1):
             if offer["id"] in accepted_keys:
                 status = "✅ Уже взято"
+            elif offer["tenant_name"] in accepted_tenant_names or offer["tenant_name"] in active_tenant_names:
+                status = "🔒 Арендатор уже занят"
             elif len(rental_state["ongoing_rentals"]) >= capacity:
                 status = "🚫 Нет свободных слотов"
             else:
@@ -1786,6 +1811,17 @@ class HouseCog(commands.Cog, name="House"):
             offer = offers[offer_index]
             if offer["id"] in accepted_keys:
                 return False, "Эта заявка уже была взята."
+            active_tenants = {
+                str(rental.get("tenant_name") or "")
+                for rental in house_state.get("active_rentals", [])
+                if str(rental.get("tenant_name") or "")
+            }
+            accepted_state = house_state.get("accepted_offers", {"window": window_key, "keys": [], "tenant_names": []})
+            if accepted_state.get("window") != window_key:
+                accepted_state = {"window": window_key, "keys": [], "tenant_names": []}
+            accepted_tenants = set(str(name) for name in accepted_state.get("tenant_names", []))
+            if offer["tenant_name"] in active_tenants or offer["tenant_name"] in accepted_tenants:
+                return False, "Этот арендатор уже занят в текущем окне."
 
             payout = int(offer["payout"] * (1 + vip_bonus["rent_bonus"]))
             now = datetime.now(timezone.utc)
@@ -1801,10 +1837,12 @@ class HouseCog(commands.Cog, name="House"):
                 }
             )
             house_state["active_rentals"] = active_rentals
-            accepted_state = house_state.get("accepted_offers", {"window": window_key, "keys": []})
+            accepted_state = house_state.get("accepted_offers", {"window": window_key, "keys": [], "tenant_names": []})
             if accepted_state.get("window") != window_key:
-                accepted_state = {"window": window_key, "keys": []}
+                accepted_state = {"window": window_key, "keys": [], "tenant_names": []}
             accepted_state["keys"].append(offer["id"])
+            accepted_state.setdefault("tenant_names", [])
+            accepted_state["tenant_names"].append(offer["tenant_name"])
             house_state["accepted_offers"] = accepted_state
             await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
 

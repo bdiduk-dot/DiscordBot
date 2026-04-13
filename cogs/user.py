@@ -1128,6 +1128,7 @@ class BattlePassView(discord.ui.View):
         self.section = section if section in {"overview", "rewards", "quests"} else "overview"
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
+        self._state_signature = ""
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -1161,6 +1162,28 @@ class BattlePassView(discord.ui.View):
         state = ensure_battle_pass_state(user)
         claimed_key = "claimed_premium" if premium else "claimed_free"
         return {int(value) for value in state.get(claimed_key, []) if str(value).isdigit()}
+
+    @staticmethod
+    def _signature(user: dict[str, Any]) -> str:
+        state = ensure_battle_pass_state(user)
+        claimed_free = ",".join(str(value) for value in sorted(int(v) for v in state.get("claimed_free", []) if str(v).isdigit()))
+        claimed_premium = ",".join(str(value) for value in sorted(int(v) for v in state.get("claimed_premium", []) if str(v).isdigit()))
+        return "|".join(
+            [
+                str(int(state.get("xp", 0) or 0)),
+                "1" if bool(state.get("premium_unlocked")) else "0",
+                claimed_free,
+                claimed_premium,
+            ]
+        )
+
+    def _set_claim_busy(self, busy: bool):
+        self.claim_free_btn.disabled = busy or self.claim_free_btn.disabled
+        self.claim_premium_btn.disabled = busy or self.claim_premium_btn.disabled
+        self.refresh_btn.disabled = busy
+        self.overview_btn.disabled = busy
+        self.rewards_btn.disabled = busy
+        self.quests_btn.disabled = busy
 
     @staticmethod
     def _mission_card_lines(mission: dict[str, Any]) -> str:
@@ -1324,6 +1347,7 @@ class BattlePassView(discord.ui.View):
         if not user:
             return discord.Embed(title="Боевой пропуск", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
+        self._state_signature = self._signature(user)
         self._sync_buttons(user)
         if self.section == "rewards":
             return self._build_rewards_embed(user)
@@ -1379,17 +1403,30 @@ class BattlePassView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
+            self._set_claim_busy(True)
+            await safe_edit_original_response(interaction, view=self)
             async with get_user_lock(self.user_id):
                 user = await db.get_user(self.user_id, self.guild_id)
                 if not user:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
                     await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if self._state_signature and self._signature(user) != self._state_signature:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
+                    await interaction.followup.send("Панель уже устарела. Я обновил Battle Pass, чтобы ты видел актуальные награды.", ephemeral=True)
                     return
                 tier = self._next_claimable_tier(user, premium=False)
                 if tier is None:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
                     await interaction.followup.send("Сейчас нет бесплатных наград для получения.", ephemeral=True)
                     return
                 success, payload = claim_battle_pass_reward(user, tier, premium=False)
                 if not success:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
                     await interaction.followup.send(str(payload), ephemeral=True)
                     return
                 await db.update_user(
@@ -1404,6 +1441,7 @@ class BattlePassView(discord.ui.View):
                         "game_stats": user.get("game_stats", {}),
                     },
                 )
+            self._set_claim_busy(False)
             await self._refresh_message(interaction)
             await interaction.followup.send(f"Получена бесплатная награда уровня {tier}: {reward_text(payload)}", ephemeral=True)
 
@@ -1412,17 +1450,30 @@ class BattlePassView(discord.ui.View):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
+            self._set_claim_busy(True)
+            await safe_edit_original_response(interaction, view=self)
             async with get_user_lock(self.user_id):
                 user = await db.get_user(self.user_id, self.guild_id)
                 if not user:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
                     await interaction.followup.send("Не удалось загрузить профиль.", ephemeral=True)
+                    return
+                if self._state_signature and self._signature(user) != self._state_signature:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
+                    await interaction.followup.send("Панель уже устарела. Я обновил Battle Pass, чтобы премиум-статус и награды были точными.", ephemeral=True)
                     return
                 tier = self._next_claimable_tier(user, premium=True)
                 if tier is None:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
                     await interaction.followup.send("Сейчас нет платных наград для получения.", ephemeral=True)
                     return
                 success, payload = claim_battle_pass_reward(user, tier, premium=True)
                 if not success:
+                    self._set_claim_busy(False)
+                    await self._refresh_message(interaction)
                     await interaction.followup.send(str(payload), ephemeral=True)
                     return
                 await db.update_user(
@@ -1437,6 +1488,7 @@ class BattlePassView(discord.ui.View):
                         "game_stats": user.get("game_stats", {}),
                     },
                 )
+            self._set_claim_busy(False)
             await self._refresh_message(interaction)
             await interaction.followup.send(f"Получена платная награда уровня {tier}: {reward_text(payload)}", ephemeral=True)
 

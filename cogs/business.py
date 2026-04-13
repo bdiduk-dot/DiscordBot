@@ -205,6 +205,27 @@ def portfolio_card_value(item: dict[str, Any]) -> str:
     )
 
 
+def build_business_world_lines(bot: commands.Bot, guild_id: int) -> tuple[list[str], float]:
+    systems_cog = bot.get_cog("Systems")
+    if systems_cog is None:
+        return ["Мир сервера сейчас недоступен."], 1.0
+
+    snapshot = systems_cog.get_world_snapshot(guild_id)
+    multiplier, active_event = systems_cog.get_reward_multiplier(guild_id, "business")
+    weather = snapshot.get("weather") or {}
+    trend = "Рост" if multiplier > 1.03 else "Просадка" if multiplier < 0.98 else "Стабильно"
+    lines = [
+        f"Тренд: **{trend} ({multiplier:.2f}x)**",
+        f"Погода: **{weather.get('name', 'Ясно')}**",
+        f"Время: **{snapshot.get('time_phase_name', 'День')}**",
+    ]
+    if isinstance(active_event, dict):
+        lines.append(f"Ивент: **{active_event.get('name', 'Событие')}**")
+    else:
+        lines.append("Ивент: **спокойный цикл**")
+    return lines, multiplier
+
+
 class BaseBusinessView(discord.ui.View):
     def __init__(self, cog: "BusinessCog", user_id: int, guild_id: int, page: int = 0):
         super().__init__(timeout=120)
@@ -958,6 +979,7 @@ class BusinessCog(commands.Cog, name="Business"):
         _, totals = await self.get_owned_summaries(user_id, guild_id, sync_table=sync_table)
         normalized_businesses = totals["normalized_businesses"]
         balance = totals["balance"]
+        world_lines, business_multiplier = build_business_world_lines(self.bot, guild_id)
 
         items = sorted(BUSINESSES.items())
         max_page = max(0, math.ceil(len(items) / BUSINESSES_PER_PAGE) - 1)
@@ -970,11 +992,18 @@ class BusinessCog(commands.Cog, name="Business"):
             description=(
                 f"Страница **{page + 1}/{max_page + 1}** • Куплено бизнесов: **{totals['total_owned']}**\n"
                 f"Баланс: **{format_money(balance)}** • Пассив/день: **{format_money(totals['total_income_per_day'])}** • Готово: **{totals['ready_total']}**\n"
-                f"Листай по 5 бизнесов и покупай кнопками ниже."
+                f"Листай по 5 бизнесов и собирай витрину под текущий рыночный темп."
             ),
             color=COLORS["purple"],
             timestamp=datetime.now(timezone.utc),
         )
+        embed.add_field(name="Пульс рынка", value="\n".join(world_lines), inline=False)
+        if business_multiplier != 1.0:
+            embed.add_field(
+                name="Текущий коэффициент бизнеса",
+                value=f"Доходные расчёты сейчас ориентируются на множитель **x{business_multiplier:.2f}**.",
+                inline=False,
+            )
 
         for slot, (business_id, business) in enumerate(page_items, start=1):
             owned_count = len(normalized_businesses.get(str(business_id), []))
@@ -984,17 +1013,13 @@ class BusinessCog(commands.Cog, name="Business"):
                 inline=False,
             )
 
-        embed.set_footer(text="Можно купить только 1 бизнес каждого типа.")
+        embed.set_footer(text="В магазине по-прежнему доступен только 1 бизнес каждого типа на игрока.")
         return embed
 
     async def build_owned_businesses_embed(self, user_id: int, guild_id: int, page: int, sync_table: bool = False) -> discord.Embed:
         summaries, totals = await self.get_owned_summaries(user_id, guild_id, sync_table=sync_table)
         state = await self.get_autocollect_state(user_id, guild_id)
-        systems_cog = self.bot.get_cog("Systems")
-        business_multiplier = 1.0
-        active_event = None
-        if systems_cog is not None:
-            business_multiplier, active_event = systems_cog.get_reward_multiplier(guild_id, "business")
+        world_lines, business_multiplier = build_business_world_lines(self.bot, guild_id)
         max_page = max(0, math.ceil(max(1, len(summaries)) / OWNED_BUSINESSES_PER_PAGE) - 1)
         page = max(0, min(page, max_page))
         start = page * OWNED_BUSINESSES_PER_PAGE
@@ -1022,12 +1047,7 @@ class BusinessCog(commands.Cog, name="Business"):
             ),
             inline=True,
         )
-        if active_event is not None and business_multiplier < 1:
-            embed.add_field(
-                name="Событие рынка",
-                value=f"**{active_event['name']}**\nДоход сейчас идёт с множителем **x{business_multiplier:.2f}**.",
-                inline=True,
-            )
+        embed.add_field(name="Пульс рынка", value="\n".join(world_lines), inline=False)
 
         if not page_items:
             embed.add_field(name="Пока пусто", value="У тебя еще нет бизнесов. Открой `/businesses` и купи первый источник пассивного дохода.", inline=False)
@@ -1061,6 +1081,8 @@ class BusinessCog(commands.Cog, name="Business"):
             color=COLORS["purple"],
             timestamp=datetime.now(timezone.utc),
         )
+        world_lines, _ = build_business_world_lines(self.bot, guild_id)
+        embed.add_field(name="Рынок и риски", value="\n".join(world_lines), inline=False)
 
         if not page_items:
             embed.add_field(name="Пока пусто", value="Сначала купи бизнес в `/businesses`.", inline=False)

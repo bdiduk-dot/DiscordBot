@@ -1563,5 +1563,243 @@ class Database:
                 print(f"Transaction fetch error: {exc}")
             return []
 
+    @staticmethod
+    async def create_auction_listing(payload: Dict[str, Any]) -> Dict[str, Any] | None:
+        if not Database.sync_feature_enabled("auction_access"):
+            return None
+
+        data = {
+            "guild_id": _safe_int(payload.get("guild_id"), 0),
+            "seller_id": _safe_int(payload.get("seller_id"), 0),
+            "buyer_id": _safe_int(payload.get("buyer_id"), 0) or None,
+            "listing_type": str(payload.get("listing_type") or "fixed_price"),
+            "status": str(payload.get("status") or "active"),
+            "item_payload": payload.get("item_payload") if isinstance(payload.get("item_payload"), dict) else {},
+            "title": str(payload.get("title") or ""),
+            "asking_price": _safe_int(payload.get("asking_price"), 0),
+            "buyout_price": _safe_int(payload.get("buyout_price"), 0) or None,
+            "current_bid": _safe_int(payload.get("current_bid"), 0),
+            "current_bidder_id": _safe_int(payload.get("current_bidder_id"), 0) or None,
+            "bid_count": _safe_int(payload.get("bid_count"), 0),
+            "duration_hours": max(1, _safe_int(payload.get("duration_hours"), 24)),
+            "ends_at": payload.get("ends_at"),
+            "created_at": payload.get("created_at") or datetime.now(timezone.utc).isoformat(),
+            "updated_at": payload.get("updated_at") or datetime.now(timezone.utc).isoformat(),
+        }
+        if data["guild_id"] <= 0 or data["seller_id"] <= 0:
+            return None
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("auction_listings").insert(data).execute()
+            )
+            rows = list(result.data or [])
+            return rows[0] if rows else None
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_listings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_listings.",
+                )
+            else:
+                print(f"Auction listing insert error: {exc}")
+            return None
+
+    @staticmethod
+    async def get_auction_listing(listing_id: int) -> Dict[str, Any] | None:
+        if not Database.sync_feature_enabled("auction_access"):
+            return None
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("auction_listings").select("*").eq("id", int(listing_id)).limit(1).execute()
+            )
+            rows = list(result.data or [])
+            return rows[0] if rows else None
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_listings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_listings.",
+                )
+            else:
+                print(f"Auction listing fetch error: {exc}")
+            return None
+
+    @staticmethod
+    async def list_auction_listings(
+        guild_id: int,
+        *,
+        status: str | None = "active",
+        seller_id: int | None = None,
+        bidder_id: int | None = None,
+        limit: int = 25,
+    ) -> List[Dict[str, Any]]:
+        if not Database.sync_feature_enabled("auction_access"):
+            return []
+        try:
+            def _query():
+                query = supabase.table("auction_listings").select("*").eq("guild_id", int(guild_id))
+                if status is not None:
+                    query = query.eq("status", str(status))
+                if seller_id is not None:
+                    query = query.eq("seller_id", int(seller_id))
+                if bidder_id is not None:
+                    query = query.eq("current_bidder_id", int(bidder_id))
+                return query.order("created_at", desc=True).limit(max(1, int(limit))).execute()
+
+            result = await asyncio.to_thread(_query)
+            return list(result.data or [])
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_listings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_listings.",
+                )
+            else:
+                print(f"Auction listing list error: {exc}")
+            return []
+
+    @staticmethod
+    async def update_auction_listing(listing_id: int, payload: Dict[str, Any]) -> bool:
+        if not Database.sync_feature_enabled("auction_access"):
+            return False
+        data = dict(payload or {})
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("auction_listings").update(data).eq("id", int(listing_id)).execute()
+            )
+            return True
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_listings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_listings.",
+                )
+            else:
+                print(f"Auction listing update error: {exc}")
+            return False
+
+    @staticmethod
+    async def list_expired_auction_listings(*, now: str | None = None, limit: int = 50) -> List[Dict[str, Any]]:
+        if not Database.sync_feature_enabled("auction_access"):
+            return []
+        current_time = now or datetime.now(timezone.utc).isoformat()
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("auction_listings")
+                .select("*")
+                .eq("status", "active")
+                .lte("ends_at", current_time)
+                .order("ends_at", desc=False)
+                .limit(max(1, int(limit)))
+                .execute()
+            )
+            return list(result.data or [])
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_listings is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_listings.",
+                )
+            else:
+                print(f"Auction expired listing fetch error: {exc}")
+            return []
+
+    @staticmethod
+    async def add_auction_bid(payload: Dict[str, Any]) -> Dict[str, Any] | None:
+        if not Database.sync_feature_enabled("auction_access"):
+            return None
+        data = {
+            "listing_id": _safe_int(payload.get("listing_id"), 0),
+            "guild_id": _safe_int(payload.get("guild_id"), 0),
+            "bidder_id": _safe_int(payload.get("bidder_id"), 0),
+            "amount": _safe_int(payload.get("amount"), 0),
+            "created_at": payload.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        }
+        if data["listing_id"] <= 0 or data["guild_id"] <= 0 or data["bidder_id"] <= 0 or data["amount"] <= 0:
+            return None
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("auction_bids").insert(data).execute()
+            )
+            rows = list(result.data or [])
+            return rows[0] if rows else None
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_bids is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_bids.",
+                )
+            else:
+                print(f"Auction bid insert error: {exc}")
+            return None
+
+    @staticmethod
+    async def list_auction_bids(listing_id: int, *, limit: int = 20) -> List[Dict[str, Any]]:
+        if not Database.sync_feature_enabled("auction_access"):
+            return []
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("auction_bids")
+                .select("*")
+                .eq("listing_id", int(listing_id))
+                .order("created_at", desc=True)
+                .limit(max(1, int(limit)))
+                .execute()
+            )
+            return list(result.data or [])
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because public.auction_bids is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "auction_access",
+                    "Auction sync is disabled for this runtime because Supabase RLS blocks access to public.auction_bids.",
+                )
+            else:
+                print(f"Auction bid list error: {exc}")
+            return []
+
 
 db = Database()

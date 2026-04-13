@@ -87,6 +87,8 @@ class CasinoBot(commands.Bot):
             "cogs.user",
             "cogs.shop",
             "cogs.inventory",
+            "cogs.adventures",
+            "cogs.auction",
         ]
 
         for cog in cogs:

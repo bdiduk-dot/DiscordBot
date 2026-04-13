@@ -590,3 +590,81 @@ def consume_case_item(user: dict[str, Any], *, case_type: str | None = None, ite
     if item is None:
         return None
     return decrement_general_item(user, int(item["id"]), 1)
+
+
+def extract_fish_item(user: dict[str, Any], item_id: int) -> dict[str, Any] | None:
+    inventory = ensure_inventory_state(user)
+    target = int(item_id)
+    fish_items = inventory.get("fish_items", [])
+    for index, item in enumerate(list(fish_items)):
+        if not isinstance(item, dict):
+            continue
+        if int(item.get("id", 0) or 0) != target:
+            continue
+        return deepcopy(fish_items.pop(index))
+    return None
+
+
+def extract_general_item(
+    user: dict[str, Any],
+    *,
+    item_id: int | None = None,
+    code: str | None = None,
+    quantity: int = 1,
+) -> dict[str, Any] | None:
+    inventory = ensure_inventory_state(user)
+    amount = max(1, int(quantity or 1))
+    general_items = inventory.get("general_items", [])
+    for index, item in enumerate(list(general_items)):
+        if not isinstance(item, dict):
+            continue
+        if item_id is not None and int(item.get("id", 0) or 0) != int(item_id):
+            continue
+        if code is not None and str(item.get("code") or "") != str(code):
+            continue
+
+        current_quantity = max(1, int(item.get("quantity", 1) or 1))
+        extracted = deepcopy(item)
+        extracted["quantity"] = min(amount, current_quantity)
+        if current_quantity <= amount:
+            general_items.pop(index)
+        else:
+            item["quantity"] = current_quantity - amount
+        return extracted
+    return None
+
+
+def restore_fish_item(user: dict[str, Any], item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    inventory = ensure_inventory_state(user)
+    used_ids = {
+        _safe_int(existing.get("id"), 0)
+        for existing in inventory.get("fish_items", []) + inventory.get("general_items", [])
+        if isinstance(existing, dict)
+    }
+    next_item_id = max(1, _safe_int(inventory.get("next_item_id"), 1))
+    normalized, next_item_id = _normalize_fish_item(item, used_ids, next_item_id)
+    if normalized is None:
+        return None
+    inventory["next_item_id"] = next_item_id
+    inventory["fish_items"].append(normalized)
+    return normalized
+
+
+def restore_general_item(user: dict[str, Any], item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    inventory = ensure_inventory_state(user)
+    used_ids = {
+        _safe_int(existing.get("id"), 0)
+        for existing in inventory.get("fish_items", []) + inventory.get("general_items", [])
+        if isinstance(existing, dict)
+    }
+    next_item_id = max(1, _safe_int(inventory.get("next_item_id"), 1))
+    normalized, next_item_id = _normalize_general_item(item, used_ids, next_item_id)
+    if normalized is None:
+        return None
+    inventory["next_item_id"] = next_item_id
+    inventory["general_items"].append(normalized)
+    return normalized

@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from adventure_content import BLACKMARKET_EQUIPMENT_OFFERS, get_equipment_definition
 from config import COLORS
 from cogs.bank import add_bank_entry
 from database import db, get_user_lock
@@ -36,8 +37,15 @@ from utils import (
     get_random_crypto,
     record_player_progress,
     safe_defer,
+    safe_edit_original_response,
     schedule_message_cleanup,
     send_wrong_channel_message,
+)
+from world_state import (
+    build_event_card_payload,
+    build_world_lines as build_market_world_lines,
+    build_world_snapshot as build_market_world_snapshot,
+    category_multiplier,
 )
 
 KYIV_TZ = get_kyiv_timezone()
@@ -615,6 +623,21 @@ class ContractsView(discord.ui.View):
                 return
             await self._refresh_view(interaction)
 
+    @discord.ui.button(label="Хаб", style=discord.ButtonStyle.secondary, row=2)
+    async def hub_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_hub(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Экипировка", style=discord.ButtonStyle.primary, row=2)
+    async def equipment_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_equipment(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Антиквар", style=discord.ButtonStyle.secondary, row=2)
+    async def antiquary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_antiquary(interaction, self.user_id, self.guild_id)
+
     async def on_timeout(self):
         for child in self.children:
             if hasattr(child, "disabled"):
@@ -840,6 +863,293 @@ class BlackMarketView(discord.ui.View):
             schedule_message_cleanup(self.message, delay_seconds=0)
 
 
+class BlackMarketHubView(discord.ui.View):
+    def __init__(self, cog: "SystemsCog", user_id: int, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню чёрного рынка открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = interaction.message or self.message
+
+    @discord.ui.button(label="🛒 Экипировка", style=discord.ButtonStyle.primary, row=0)
+    async def equipment_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_equipment(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="🃏 Контрабанда", style=discord.ButtonStyle.danger, row=0)
+    async def contraband_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_contraband(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="🏺 Антиквар", style=discord.ButtonStyle.secondary, row=0)
+    async def antiquary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_antiquary(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            embed = await self.cog.build_black_market_hub_embed(self.user_id, self.guild_id)
+            if not await safe_edit_original_response(interaction, embed=embed, view=self):
+                return
+            await self._remember_message(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+
+class BlackMarketEquipmentView(discord.ui.View):
+    def __init__(self, cog: "SystemsCog", user_id: int, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+        self.buy_buttons = [
+            self.buy_1,
+            self.buy_2,
+            self.buy_3,
+            self.buy_4,
+            self.buy_5,
+            self.buy_6,
+        ]
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню чёрного рынка открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = interaction.message or self.message
+
+    def sync_buttons(self, offers: list[dict[str, Any]]):
+        for index, button in enumerate(self.buy_buttons):
+            if index >= len(offers):
+                button.disabled = True
+                button.label = "Пусто"
+                button.emoji = None
+                continue
+            offer = offers[index]
+            button.disabled = False
+            button.label = str(offer.get("name") or f"Лот {index + 1}")[:80]
+            button.emoji = str(offer.get("emoji") or "🛒")
+
+    async def _refresh(self, interaction: discord.Interaction):
+        offers = self.cog.get_equipment_offers()
+        self.sync_buttons(offers)
+        embed = await self.cog.build_black_market_equipment_embed(self.user_id, self.guild_id)
+        if not await safe_edit_original_response(interaction, embed=embed, view=self):
+            return
+        await self._remember_message(interaction)
+
+    async def _buy(self, interaction: discord.Interaction, slot: int):
+        async with self._view_lock:
+            success, payload = await self.cog.buy_equipment_offer(self.user_id, self.guild_id, slot)
+            if isinstance(payload, discord.Embed):
+                await interaction.response.send_message(embed=payload, ephemeral=True)
+            else:
+                await interaction.response.send_message(str(payload), ephemeral=True)
+            if success and self.message is not None:
+                await self._refresh(interaction)
+
+    @discord.ui.button(label="Лот 1", style=discord.ButtonStyle.success, row=0)
+    async def buy_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._buy(interaction, 0)
+
+    @discord.ui.button(label="Лот 2", style=discord.ButtonStyle.success, row=0)
+    async def buy_2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._buy(interaction, 1)
+
+    @discord.ui.button(label="Лот 3", style=discord.ButtonStyle.success, row=0)
+    async def buy_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._buy(interaction, 2)
+
+    @discord.ui.button(label="Лот 4", style=discord.ButtonStyle.success, row=1)
+    async def buy_4(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._buy(interaction, 3)
+
+    @discord.ui.button(label="Лот 5", style=discord.ButtonStyle.success, row=1)
+    async def buy_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._buy(interaction, 4)
+
+    @discord.ui.button(label="Лот 6", style=discord.ButtonStyle.success, row=1)
+    async def buy_6(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._buy(interaction, 5)
+
+    @discord.ui.button(label="Хаб", style=discord.ButtonStyle.secondary, row=2)
+    async def hub_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_hub(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Контрабанда", style=discord.ButtonStyle.danger, row=2)
+    async def contraband_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_contraband(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Антиквар", style=discord.ButtonStyle.secondary, row=2)
+    async def antiquary_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_antiquary(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self._refresh(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+
+class AntiquarySellModal(discord.ui.Modal):
+    def __init__(self, view: "BlackMarketAntiquaryView"):
+        super().__init__(title="Продать Антиквару")
+        self.market_view = view
+        self.item_id = discord.ui.TextInput(
+            label="ID предмета",
+            placeholder="Например: 241",
+            max_length=12,
+        )
+        self.add_item(self.item_id)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.market_view.handle_sell_modal(interaction, self)
+
+
+class BlackMarketAntiquaryView(discord.ui.View):
+    def __init__(self, cog: "SystemsCog", user_id: int, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню чёрного рынка открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = interaction.message or self.message
+
+    async def _refresh(self, interaction: discord.Interaction):
+        embed = await self.cog.build_black_market_antiquary_embed(self.user_id, self.guild_id)
+        if not await safe_edit_original_response(interaction, embed=embed, view=self):
+            return
+        await self._remember_message(interaction)
+
+    async def handle_sell_modal(self, interaction: discord.Interaction, modal: AntiquarySellModal):
+        async with self._view_lock:
+            try:
+                item_id = int(str(modal.item_id.value).strip())
+            except ValueError:
+                await interaction.response.send_message("ID предмета должен быть числом.", ephemeral=True)
+                return
+            success, payload = await self.cog.sell_antiquary_item(self.user_id, self.guild_id, item_id)
+            if isinstance(payload, discord.Embed):
+                await interaction.response.send_message(embed=payload, ephemeral=True)
+            else:
+                await interaction.response.send_message(str(payload), ephemeral=True)
+            if success and self.message is not None:
+                await self._refresh(interaction)
+
+    @discord.ui.button(label="Продать по ID", style=discord.ButtonStyle.success, row=0)
+    async def sell_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await interaction.response.send_modal(AntiquarySellModal(self))
+
+    @discord.ui.button(label="Собрать Coral Idol", style=discord.ButtonStyle.primary, row=0)
+    async def coral_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            success, payload = await self.cog.assemble_antiquary_relic(self.user_id, self.guild_id, "coral_idol")
+            if isinstance(payload, discord.Embed):
+                await interaction.response.send_message(embed=payload, ephemeral=True)
+            else:
+                await interaction.response.send_message(str(payload), ephemeral=True)
+            if success and self.message is not None:
+                await self._refresh(interaction)
+
+    @discord.ui.button(label="Собрать Leviathan Sigil", style=discord.ButtonStyle.primary, row=0)
+    async def leviathan_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            success, payload = await self.cog.assemble_antiquary_relic(self.user_id, self.guild_id, "leviathan_sigil")
+            if isinstance(payload, discord.Embed):
+                await interaction.response.send_message(embed=payload, ephemeral=True)
+            else:
+                await interaction.response.send_message(str(payload), ephemeral=True)
+            if success and self.message is not None:
+                await self._refresh(interaction)
+
+    @discord.ui.button(label="Хаб", style=discord.ButtonStyle.secondary, row=1)
+    async def hub_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_hub(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Экипировка", style=discord.ButtonStyle.primary, row=1)
+    async def equipment_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_equipment(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Контрабанда", style=discord.ButtonStyle.danger, row=1)
+    async def contraband_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.cog.open_blackmarket_contraband(interaction, self.user_id, self.guild_id)
+
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self._refresh(interaction)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+
 class SystemsCog(commands.Cog, name="Systems"):
     def __init__(self, bot):
         self.bot = bot
@@ -980,12 +1290,16 @@ class SystemsCog(commands.Cog, name="Systems"):
         if not message.author.bot or not message.embeds:
             return False
         embed = message.embeds[0]
-        return isinstance(embed.title, str) and embed.title.startswith("📣 Рыночное событие:")
+        title = str(embed.title or "")
+        return title.startswith("Ивент •") or title.startswith("Ивент завершён •")
 
-    @staticmethod
-    def _event_embed_signature(event: dict[str, Any]) -> tuple[str, str]:
-        title = f"📣 Рыночное событие: {event['name']}"
-        description = f"{event['description']}\n\nЗакончится: {format_discord_deadline(event['expires_at'])}."
+    def _event_embed_signature(self, guild_id: int, event: dict[str, Any], *, state: str = "active") -> tuple[str, str]:
+        snapshot = self.get_world_snapshot(guild_id, event_override=event)
+        payload = build_event_card_payload(snapshot, state=state)
+        title = str(payload.get("title") or "Ивент • Событие")
+        description = str(payload.get("description") or "")
+        if state != "ended":
+            description = f"{description}\n\nДо конца: {format_discord_deadline(event['expires_at'])}."
         return title, description
 
     async def _pin_message(self, message: discord.Message):
@@ -1009,8 +1323,8 @@ class SystemsCog(commands.Cog, name="Systems"):
             except Exception:
                 continue
 
-    async def _find_matching_event_message(self, channel: discord.TextChannel, event: dict[str, Any]) -> discord.Message | None:
-        expected_title, expected_description = self._event_embed_signature(event)
+    async def _find_matching_event_message(self, channel: discord.TextChannel, guild_id: int, event: dict[str, Any], *, state: str = "active") -> discord.Message | None:
+        expected_title, expected_description = self._event_embed_signature(guild_id, event, state=state)
 
         try:
             pinned_messages = await channel.pins()
@@ -1055,11 +1369,14 @@ class SystemsCog(commands.Cog, name="Systems"):
             return None
         return event
 
+    def get_world_snapshot(self, guild_id: int | None, *, event_override: dict[str, Any] | None = None) -> dict[str, Any]:
+        active_event = event_override if event_override is not None else self.get_active_event(guild_id)
+        return build_market_world_snapshot(guild_id, active_event)
+
     def get_reward_multiplier(self, guild_id: int | None, category: str) -> tuple[float, dict[str, Any] | None]:
-        event = self.get_active_event(guild_id)
-        if not event:
-            return 1.0, None
-        return float(event["multipliers"].get(category, 1.0)), event
+        snapshot = self.get_world_snapshot(guild_id)
+        event = snapshot.get("active_event")
+        return category_multiplier(snapshot, category), event if isinstance(event, dict) else None
 
     async def progress_contracts(self, user_id: int, guild_id: int, contract_type: str, amount: int = 1):
         async with get_user_lock(user_id):
@@ -1490,6 +1807,92 @@ class SystemsCog(commands.Cog, name="Systems"):
         embed.set_footer(text="Выполняй контракты обычными командами бота и забирай награду кнопками ниже.")
         return embed
 
+    def get_equipment_offers(self) -> list[dict[str, Any]]:
+        return [deepcopy(item) for item in BLACKMARKET_EQUIPMENT_OFFERS]
+
+    @staticmethod
+    def _equipment_item_type(item_code: str) -> str:
+        definition = get_equipment_definition(item_code)
+        category = str((definition or {}).get("category") or "")
+        if category == "dive_tank":
+            return "dive_tank"
+        if category == "dive_gear":
+            return "dive_gear"
+        if category == "dig_tool":
+            return "dig_tool"
+        return "equipment_item"
+
+    async def buy_equipment_offer(self, user_id: int, guild_id: int, slot: int) -> tuple[bool, discord.Embed | str]:
+        offers = self.get_equipment_offers()
+        if slot < 0 or slot >= len(offers):
+            return False, "Такого слота экипировки нет."
+        offer = offers[slot]
+        item_code = str(((offer.get("grant") or {}).get("item_code")) or offer.get("code") or "")
+        definition = get_equipment_definition(item_code)
+        if not definition:
+            return False, "Данные снаряжения повреждены."
+
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return False, "Не удалось загрузить профиль."
+            price, rep_discount, event_multiplier, active_event = self._market_offer_price(user, guild_id, offer)
+            currency = str(offer.get("currency") or "money").lower()
+            if currency == "gems":
+                if int(user.get("gems", 0) or 0) < price:
+                    return False, f"Не хватает гемов. Нужно: **{price}**."
+                user["gems"] = int(user.get("gems", 0) or 0) - price
+            else:
+                if int(user.get("balance", 0) or 0) < price:
+                    return False, f"Не хватает денег. Нужно: **{format_money(price)}**."
+                user["balance"] = int(user.get("balance", 0) or 0) - price
+
+            item = add_general_item(
+                user,
+                item_type=self._equipment_item_type(item_code),
+                code=item_code,
+                name=str(definition.get("name") or offer.get("name") or item_code),
+                emoji=str(definition.get("emoji") or offer.get("emoji") or "🛒"),
+                description=str(definition.get("description") or offer.get("description") or "Снаряжение с чёрного рынка."),
+                quantity=1,
+                payload={"source": "blackmarket_equipment", "offer_code": str(offer.get("code") or item_code)},
+                stackable=True,
+            )
+            await add_bank_entry(
+                user,
+                guild_id,
+                -price,
+                "blackmarket_equipment_purchase",
+                f"Покупка снаряжения на чёрном рынке: {offer['name']}.",
+                currency="gems" if currency == "gems" else "money",
+                meta={"offer_code": str(offer.get("code") or item_code), "item_code": item_code, "price": price},
+            )
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "gems": user.get("gems", 0),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
+
+        embed = discord.Embed(
+            title="🛒 Снаряжение куплено",
+            description=(
+                f"Куплено: **{offer['name']}**\n"
+                f"Цена: **{format_money(price) if currency == 'money' else f'{price} гем.'}**\n"
+                f"Предмет отправлен в инвентарь под ID **#{item['id']}**."
+            ),
+            color=COLORS["success"],
+        )
+        if rep_discount < 1.0:
+            embed.add_field(name="Скидка", value=f"Репутационная цена: **x{rep_discount:.2f}**", inline=False)
+        if active_event is not None and event_multiplier != 1.0:
+            embed.add_field(name="Событие", value=f"На цену повлияло событие **{active_event['name']}**.", inline=False)
+        return True, embed
+
     def _market_offer_price(self, user: dict[str, Any], guild_id: int, offer: dict[str, Any]) -> tuple[int, float, float, dict[str, Any] | None]:
         base_price = int(offer.get("price", 0) or 0)
         rep_discount = black_market_discount_multiplier(get_reputation(user))
@@ -1833,10 +2236,132 @@ class SystemsCog(commands.Cog, name="Systems"):
             embed.add_field(name="Событие рынка", value=f"Цена была изменена событием **{active_event['name']}**.", inline=False)
         return True, embed
 
+    async def build_black_market_hub_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        user = await db.get_user(user_id, guild_id)
+        snapshot = self.get_world_snapshot(guild_id)
+        embed = discord.Embed(
+            title="🕶️ Чёрный рынок 2.0",
+            description=(
+                "Секретный хаб редких сделок, контрабанды и новых экспедиций.\n"
+                "Выбери раздел ниже и работай уже с профильной витриной."
+            ),
+            color=COLORS["warning"],
+            timestamp=datetime.now(timezone.utc),
+        )
+        if user:
+            embed.add_field(
+                name="Баланс",
+                value=(
+                    f"Наличные: **{format_money(user.get('balance', 0))}**\n"
+                    f"Гемы: **{int(user.get('gems', 0) or 0):,}**\n"
+                    f"Репутация: **{get_reputation(user)}** ({reputation_label(get_reputation(user))})"
+                ),
+                inline=True,
+            )
+        embed.add_field(
+            name="Разделы",
+            value=(
+                "🛒 **Экипировка** — баллоны, фонарик, набор археолога, сканер.\n"
+                "🃏 **Контрабанда** — лимитированные лоты и редкие кейсы.\n"
+                "🏺 **Антиквар** — продажа артефактов и сборка реликвий."
+            ),
+            inline=True,
+        )
+        embed.add_field(name="Мир сервера", value="\n".join(build_market_world_lines(snapshot)), inline=False)
+        active_event = snapshot.get("active_event")
+        if isinstance(active_event, dict):
+            embed.add_field(name="Активное событие", value=f"**{active_event['name']}** до {format_discord_deadline(active_event['expires_at'])}", inline=False)
+        embed.set_footer(text="BlackMarket 2.0 связан с /dive, /dig и серверной экономикой.")
+        return embed
+
+    async def build_black_market_equipment_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        user = await db.get_user(user_id, guild_id)
+        if not user:
+            return discord.Embed(title="Экипировка", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+        snapshot = self.get_world_snapshot(guild_id)
+        offers = self.get_equipment_offers()
+        embed = discord.Embed(
+            title="🛒 Экипировка",
+            description="Снаряжение для `/dive` и `/dig`. Всё уходит в инвентарь и используется уже оттуда.",
+            color=COLORS["info"],
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(
+            name="Кошелёк",
+            value=f"Наличные: **{format_money(user.get('balance', 0))}**\nГемы: **{int(user.get('gems', 0) or 0):,}**",
+            inline=True,
+        )
+        embed.add_field(name="Мир сервера", value="\n".join(build_market_world_lines(snapshot)), inline=True)
+        lines: list[str] = []
+        for index, offer in enumerate(offers, start=1):
+            price, _, _, _ = self._market_offer_price(user, guild_id, offer)
+            price_text = format_money(price) if str(offer.get("currency") or "").lower() == "money" else f"{price} гем."
+            lines.append(f"**#{index} {offer.get('emoji', '🛒')} {offer['name']}** — {price_text}")
+        embed.add_field(name="Витрина", value="\n".join(lines), inline=False)
+        embed.set_footer(text="Базовый баллон даёт 100 O2, усиленный 200 O2, титановый 300 O2.")
+        return embed
+
+    async def build_black_market_antiquary_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        adventures_cog = self.bot.get_cog("Adventures")
+        if adventures_cog is None:
+            return discord.Embed(title="Антиквар", description="Модуль приключений пока недоступен.", color=COLORS["warning"])
+        return await adventures_cog.build_antiquary_embed(user_id, guild_id)
+
+    async def sell_antiquary_item(self, user_id: int, guild_id: int, item_id: int) -> tuple[bool, discord.Embed | str]:
+        adventures_cog = self.bot.get_cog("Adventures")
+        if adventures_cog is None:
+            return False, "Модуль приключений сейчас недоступен."
+        return await adventures_cog.sell_antiquary_item(user_id, guild_id, item_id)
+
+    async def assemble_antiquary_relic(self, user_id: int, guild_id: int, relic_code: str) -> tuple[bool, discord.Embed | str]:
+        adventures_cog = self.bot.get_cog("Adventures")
+        if adventures_cog is None:
+            return False, "Модуль приключений сейчас недоступен."
+        return await adventures_cog.assemble_relic(user_id, guild_id, relic_code)
+
+    async def open_blackmarket_hub(self, interaction: discord.Interaction, user_id: int, guild_id: int):
+        view = BlackMarketHubView(self, user_id, guild_id)
+        embed = await self.build_black_market_hub_embed(user_id, guild_id)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+    async def open_blackmarket_equipment(self, interaction: discord.Interaction, user_id: int, guild_id: int):
+        view = BlackMarketEquipmentView(self, user_id, guild_id)
+        view.sync_buttons(self.get_equipment_offers())
+        embed = await self.build_black_market_equipment_embed(user_id, guild_id)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+    async def open_blackmarket_contraband(self, interaction: discord.Interaction, user_id: int, guild_id: int):
+        offers, purchased = await self.get_black_market_offers(user_id, guild_id)
+        view = BlackMarketView(self, user_id, guild_id)
+        view._sync_buttons(offers, purchased)
+        embed = await self.build_black_market_embed(user_id, guild_id)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+    async def open_blackmarket_antiquary(self, interaction: discord.Interaction, user_id: int, guild_id: int):
+        view = BlackMarketAntiquaryView(self, user_id, guild_id)
+        embed = await self.build_black_market_antiquary_embed(user_id, guild_id)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     async def build_black_market_embed(self, user_id: int, guild_id: int) -> discord.Embed:
         user = await db.get_user(user_id, guild_id)
         if not user:
-            return discord.Embed(title="Чёрный рынок", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+            return discord.Embed(title="🃏 Контрабанда", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
         state = _ensure_black_market_state(user, user_id)
         offers = list(state.get("offers", []))
@@ -1844,11 +2369,12 @@ class SystemsCog(commands.Cog, name="Systems"):
         reset_at = _next_black_market_refresh()
         reputation = get_reputation(user)
         rep_discount = black_market_discount_multiplier(reputation)
+        snapshot = self.get_world_snapshot(guild_id)
 
         embed = discord.Embed(
-            title="🕶️ Чёрный рынок",
+            title="🃏 Контрабанда",
             description=(
-                "Персональная витрина редких и полезных лотов.\n"
+                "Персональная витрина редких кейсов, расходников и рискованных сделок.\n"
                 f"Ротация обновится {format_discord_deadline(reset_at)}."
             ),
             color=COLORS["warning"],
@@ -1869,6 +2395,7 @@ class SystemsCog(commands.Cog, name="Systems"):
             ),
             inline=True,
         )
+        embed.add_field(name="Пульс рынка", value="\n".join(build_market_world_lines(snapshot)), inline=False)
         embed.add_field(
             name="Как работает",
             value=(
@@ -1905,28 +2432,36 @@ class SystemsCog(commands.Cog, name="Systems"):
         legendary_present = any(bool(offer.get("legendary")) for offer in offers)
         embed.add_field(
             name="Сегодня на рынке",
-            value="Есть легендарный слот." if legendary_present else "Открыта только обычная витрина.",
+            value="Есть легендарный слот." if legendary_present else "Сегодня открыта только обычная витрина.",
             inline=False,
         )
-        embed.set_footer(text="Покупай лоты по номеру кнопками ниже. После сделки предмет лежит в `/inventory`, пока ты сам его не активируешь.")
+        embed.set_footer(text="После сделки предмет лежит в `/inventory`, пока ты сам его не откроешь или не используешь.")
         return embed
 
-    async def _announce_event(self, guild: discord.Guild, event: dict[str, Any]):
+    async def _announce_event(self, guild: discord.Guild, event: dict[str, Any], *, state: str = "active"):
         channel = await get_preferred_guild_text_channel(self.bot, guild.id)
         if not isinstance(channel, discord.TextChannel):
             return
-        description = (
-            f"{event['description']}\n\n"
-            f"Закончится: {format_discord_deadline(event['expires_at'])}."
-        )
+        snapshot = self.get_world_snapshot(guild.id, event_override=event)
+        card = build_event_card_payload(snapshot, state=state)
+        description = str(card.get("description") or "")
+        if state != "ended":
+            description = f"{description}\n\nДо конца: {format_discord_deadline(event['expires_at'])}."
         embed = discord.Embed(
-            title=f"📣 Рыночное событие: {event['name']}",
+            title=str(card.get("title") or "Ивент • Событие"),
             description=description,
-            color=event["color"],
+            color=int(card.get("color") or event["color"]),
             timestamp=datetime.now(timezone.utc),
         )
-        existing = await self._find_matching_event_message(channel, event)
+        embed.add_field(name="Статус", value=f"`{card.get('status', 'Активно')}`", inline=True)
+        if state != "ended":
+            embed.add_field(name="Мир сервера", value="\n".join(build_market_world_lines(snapshot)), inline=False)
+        existing = await self._find_matching_event_message(channel, guild.id, event, state=state)
         if existing is not None:
+            try:
+                await existing.edit(embed=embed)
+            except Exception:
+                pass
             await self._pin_message(existing)
             await self._cleanup_old_event_pins(channel, keep_message_id=existing.id)
             return
@@ -1948,11 +2483,14 @@ class SystemsCog(commands.Cog, name="Systems"):
             event = self.active_events.pop(guild_id, None)
             if event is None:
                 continue
+            guild = self.bot.get_guild(guild_id)
             cooldown_until = event["expires_at"] + timedelta(hours=MARKET_EVENT_COOLDOWN_HOURS)
             existing = self.next_event_after.get(guild_id)
             if existing is None or cooldown_until > existing:
                 self.next_event_after[guild_id] = cooldown_until
             await self._persist_market_state(guild_id)
+            if guild is not None:
+                await self._announce_event(guild, event, state="ended")
 
         for guild in self.bot.guilds:
             if guild.id in self.active_events:
@@ -2007,12 +2545,7 @@ class SystemsCog(commands.Cog, name="Systems"):
 
         if not await safe_defer(interaction):
             return
-        offers, purchased = await self.get_black_market_offers(interaction.user.id, interaction.guild_id)
-        view = BlackMarketView(self, interaction.user.id, interaction.guild_id)
-        view._sync_buttons(offers, purchased)
-        embed = await self.build_black_market_embed(interaction.user.id, interaction.guild_id)
-        await interaction.edit_original_response(embed=embed, view=view)
-        view.message = await interaction.original_response()
+        await self.open_blackmarket_hub(interaction, interaction.user.id, interaction.guild_id)
 
 
 async def setup(bot):
