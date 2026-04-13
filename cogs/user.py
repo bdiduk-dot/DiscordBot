@@ -96,6 +96,49 @@ def _safe_component_emoji(value: Any) -> str | None:
         return None
     return cleaned
 
+
+def _guild_settings_sync_hint() -> str:
+    reason = db.get_sync_feature_reason("guild_settings_access") or ""
+    lowered = reason.lower()
+    if "row-level security" in lowered or "rls" in lowered:
+        return (
+            "Настройка применена только на текущий запуск. "
+            "Таблица `public.guild_settings` уже есть, но Supabase блокирует доступ боту. "
+            "Отключи RLS для этой таблицы или добавь политику/права для ключа бота."
+        )
+    if "not available yet" in lowered or "does not exist" in lowered or "schema cache" in lowered:
+        return (
+            "Настройка применена только на текущий запуск. "
+            "Таблица `public.guild_settings` ещё недоступна для бота."
+        )
+    if reason:
+        return (
+            "Настройка применена только на текущий запуск. "
+            f"Бот пока не может сохранить её в БД: {reason}"
+        )
+    return (
+        "Настройка применена только на текущий запуск. "
+        "Бот пока не смог подтвердить сохранение в `public.guild_settings`."
+    )
+
+
+def _guild_settings_db_help_text() -> str:
+    reason = db.get_sync_feature_reason("guild_settings_access") or ""
+    lowered = reason.lower()
+    if "row-level security" in lowered or "rls" in lowered:
+        return (
+            "Таблица `public.guild_settings` найдена, но Supabase режет доступ к ней. "
+            "Отключи RLS для таблицы или выдай политику/права для ключа, под которым работает бот."
+        )
+    if "not available yet" in lowered or "does not exist" in lowered or "schema cache" in lowered:
+        return (
+            "Бот не видит `public.guild_settings`. Проверь, что таблица создана в схеме `public` "
+            "и после этого перезапусти бота."
+        )
+    if reason:
+        return f"Сохранение в БД сейчас недоступно. Причина: {reason}"
+    return "Сохранение в БД сейчас недоступно."
+
 TITLE_SHOP_ITEMS: list[dict[str, Any]] = [
     {
         "key": "wallet_destroyer",
@@ -1737,7 +1780,7 @@ class ChannelIdModal(discord.ui.Modal, title="Игровой канал"):
                 pass
         message = f"Игровой канал установлен: {channel.mention}"
         if not persisted:
-            message += "\nВнимание: настройка применена только на текущий запуск. Для сохранения после рестарта нужна таблица `public.guild_settings`."
+            message += f"\nВнимание: {_guild_settings_sync_hint()}"
         await interaction.response.send_message(message, ephemeral=True)
 
 
@@ -1794,7 +1837,7 @@ class ActivityRoleModal(discord.ui.Modal, title="Роль активности")
                 pass
         message = f"Роль активности установлена: {role.mention}"
         if not persisted:
-            message += "\nВнимание: настройка применена только на текущий запуск. Для сохранения после рестарта нужна таблица `public.guild_settings`."
+            message += f"\nВнимание: {_guild_settings_sync_hint()}"
         await interaction.response.send_message(message, ephemeral=True)
 
 
@@ -1849,7 +1892,7 @@ class ServerSettingsView(discord.ui.View):
             await self._refresh_view(interaction)
             message = "Ограничение по игровому каналу снято."
             if not persisted:
-                message += " Изменение применено только до рестарта, пока `public.guild_settings` недоступна."
+                message += f" {_guild_settings_sync_hint()}"
             await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.button(label="Задать роль", style=discord.ButtonStyle.primary, row=1)
@@ -1865,7 +1908,7 @@ class ServerSettingsView(discord.ui.View):
             await self._refresh_view(interaction)
             message = "Роль активности отключена для сервера."
             if not persisted:
-                message += " Изменение применено только до рестарта, пока `public.guild_settings` недоступна."
+                message += f" {_guild_settings_sync_hint()}"
             await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
@@ -1971,13 +2014,11 @@ class UserCog(commands.Cog, name="User"):
             inline=False,
         )
         if not db.sync_feature_enabled("guild_settings_access"):
-            reason = db.get_sync_feature_reason("guild_settings_access") or "Синхронизация guild settings сейчас недоступна."
             embed.add_field(
                 name="⚠️ Сохранение в БД",
                 value=(
                     "Настройки применяются в этом запуске, но могут слететь после рестарта.\n"
-                    f"Причина: {reason}\n"
-                    "Нужно накатить `public/guild_settings.sql` и убедиться, что Supabase не блокирует таблицу."
+                    f"{_guild_settings_db_help_text()}"
                 ),
                 inline=False,
             )

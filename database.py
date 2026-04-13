@@ -331,6 +331,11 @@ class Database:
         cls._warn_once(f"sync-feature:{feature}", reason)
 
     @classmethod
+    def _enable_sync_feature(cls, feature: str):
+        cls.DISABLED_SYNC_FEATURES.pop(feature, None)
+        cls.SYNC_BACKOFF_UNTIL.pop(feature, None)
+
+    @classmethod
     def sync_feature_enabled(cls, feature: str) -> bool:
         return feature not in cls.DISABLED_SYNC_FEATURES
 
@@ -870,14 +875,11 @@ class Database:
             return dict(cached)
 
         default_state = Database._normalize_guild_settings(guild_id)
-        if not Database.sync_feature_enabled("guild_settings_access"):
-            Database.GUILD_SETTINGS_CACHE[guild_id] = default_state
-            return dict(default_state)
-
         try:
             result = await asyncio.to_thread(
                 lambda: supabase.table("guild_settings").select("*").eq("guild_id", guild_id).limit(1).execute()
             )
+            Database._enable_sync_feature("guild_settings_access")
             state = Database._normalize_guild_settings(guild_id, result.data[0] if result.data else None)
             Database.GUILD_SETTINGS_CACHE[guild_id] = state
             return dict(state)
@@ -905,9 +907,6 @@ class Database:
         state = Database._normalize_guild_settings(guild_id, merged)
         Database.GUILD_SETTINGS_CACHE[guild_id] = state
 
-        if not Database.sync_feature_enabled("guild_settings_access"):
-            return False
-
         try:
             await asyncio.to_thread(
                 lambda: supabase.table("guild_settings").upsert(
@@ -920,6 +919,7 @@ class Database:
                     on_conflict="guild_id",
                 ).execute()
             )
+            Database._enable_sync_feature("guild_settings_access")
             return True
         except Exception as exc:
             error_msg = str(exc).lower()
