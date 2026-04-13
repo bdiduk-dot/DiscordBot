@@ -8,6 +8,7 @@ from discord.ext import commands
 from config import COLORS
 from database import db
 from game_logic import games
+from inventory_system import add_case_item, case_display_name
 from utils import add_xp, check_channel, create_embed, safe_defer, safe_edit_original_response, send_wrong_channel_message, update_game_stats
 
 from cogs.views import BlackjackGame, BlackjackPvpInviteView, BlackjackView
@@ -194,6 +195,7 @@ class GamesCoreCog(commands.Cog, name="GamesCore"):
         won = result == "win"
         tracked_money = 0
         xp_gain = 20 if won else 0
+        case_drop_name: str | None = None
 
         if won:
             winnings = bet * multiplier
@@ -206,6 +208,16 @@ class GamesCoreCog(commands.Cog, name="GamesCore"):
             user["total_lost"] = int(user.get("total_lost", 0) or 0) + bet
             color = COLORS["error"]
 
+        case_roll = random.random()
+        if case_roll <= (0.02 if won else 0.008):
+            case_type = random.choices(
+                population=["common", "rare", "epic"],
+                weights=[72, 23, 5],
+                k=1,
+            )[0]
+            add_case_item(user, case_type, source="roulette")
+            case_drop_name = case_display_name(case_type)
+
         await db.update_user(interaction.user.id, interaction.guild_id, user)
         if xp_gain:
             level_msg = await add_xp(interaction.user.id, interaction.guild_id, xp_gain)
@@ -215,6 +227,8 @@ class GamesCoreCog(commands.Cog, name="GamesCore"):
         asyncio.create_task(self._progress_contracts(interaction.user.id, interaction.guild_id, "play", 1))
 
         description += f"\n\n💵 Баланс: `${int(user.get('balance', 0) or 0):,}`"
+        if case_drop_name:
+            description += f"\n🎁 Дополнительно выпал **{case_drop_name}**. Забрать его можно через `/inventory`."
         embed = create_embed("🎰 Рулетка", description, color)
         await interaction.response.send_message(embed=embed)
 

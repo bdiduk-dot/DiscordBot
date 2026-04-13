@@ -1492,5 +1492,76 @@ class Database:
             print(f"Lottery draw error: {exc}")
             return None
 
+    @staticmethod
+    async def add_transaction(payload: Dict[str, Any]) -> bool:
+        if not Database.sync_feature_enabled("transactions_access"):
+            return False
+
+        data = {
+            "guild_id": _safe_int(payload.get("guild_id"), 0),
+            "user_id": _safe_int(payload.get("user_id"), 0),
+            "counterparty_id": _safe_int(payload.get("counterparty_id"), 0) or None,
+            "entry_type": str(payload.get("entry_type") or "misc"),
+            "amount": int(payload.get("amount", 0) or 0),
+            "currency": str(payload.get("currency") or "money"),
+            "description": str(payload.get("description") or ""),
+            "meta": payload.get("meta") if isinstance(payload.get("meta"), dict) else {},
+            "created_at": payload.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        }
+
+        if data["guild_id"] <= 0 or data["user_id"] <= 0:
+            return False
+
+        try:
+            await asyncio.to_thread(lambda: supabase.table("transactions").insert(data).execute())
+            return True
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "transactions_access",
+                    "Transaction history sync is disabled for this runtime because public.transactions is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "transactions_access",
+                    "Transaction history sync is disabled for this runtime because Supabase RLS blocks access to public.transactions.",
+                )
+            else:
+                print(f"Transaction insert error: {exc}")
+            return False
+
+    @staticmethod
+    async def get_transactions(user_id: int, guild_id: int, *, limit: int = 15) -> List[Dict[str, Any]]:
+        if not Database.sync_feature_enabled("transactions_access"):
+            return []
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: supabase.table("transactions")
+                .select("*")
+                .eq("guild_id", guild_id)
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .limit(max(1, int(limit)))
+                .execute()
+            )
+            return list(result.data or [])
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "42p01" in error_msg or "does not exist" in error_msg or "schema cache" in error_msg:
+                Database._disable_sync_feature(
+                    "transactions_access",
+                    "Transaction history sync is disabled for this runtime because public.transactions is not available yet.",
+                )
+            elif "42501" in error_msg or "row-level security" in error_msg:
+                Database._disable_sync_feature(
+                    "transactions_access",
+                    "Transaction history sync is disabled for this runtime because Supabase RLS blocks access to public.transactions.",
+                )
+            else:
+                print(f"Transaction fetch error: {exc}")
+            return []
+
 
 db = Database()

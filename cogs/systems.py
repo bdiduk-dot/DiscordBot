@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import COLORS
+from cogs.bank import add_bank_entry
 from database import db, get_user_lock
 from inventory_system import add_general_item
 from progression import (
@@ -1584,6 +1585,21 @@ class SystemsCog(commands.Cog, name="Systems"):
 
             purchased.add(str(offer["code"]))
             state["purchased"] = sorted(purchased)
+            signed_price = -price
+            await add_bank_entry(
+                user,
+                guild_id,
+                signed_price,
+                "blackmarket_purchase",
+                f"Покупка на чёрном рынке: {offer['name']}.",
+                currency="gems" if currency == "gems" else "money",
+                meta={
+                    "offer_code": offer["code"],
+                    "price": price,
+                    "currency": currency,
+                    "legendary": bool(offer.get("legendary")),
+                },
+            )
             await db.update_user(
                 user_id,
                 guild_id,

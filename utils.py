@@ -14,7 +14,8 @@ from config import (
     WEEKLY_QUESTS_POOL,
 )
 from database import db, get_user_lock
-from progression import change_reputation, progress_battle_pass, record_weekly_progress
+from inventory_system import add_case_item, case_display_name
+from progression import change_reputation, current_week_key, progress_battle_pass, record_weekly_progress
 
 
 def get_kyiv_timezone():
@@ -39,6 +40,8 @@ DEFAULT_USER_PREFERENCES: dict[str, Any] = {
     "notify_daily_streak": True,
     "auto_casino_role": True,
 }
+
+WEEKLY_COMPLETION_CASE_TYPE = "rare"
 
 
 def _parse_quest_timestamp(raw_value: str | None) -> Optional[datetime]:
@@ -433,6 +436,35 @@ async def check_quest_progress(user_id: int, guild_id: int, quest_type: str, amo
                     user["balance"] += quest.get("reward_money", 0)
                     user["gems"] += quest.get("reward_gems", 0)
                     completed_quests.append(("weekly", quest))
+
+        weekly_quests = [quest for quest in user.get("weekly_quests", []) if isinstance(quest, dict)]
+        if weekly_quests and all(bool(quest.get("completed")) for quest in weekly_quests):
+            game_stats = user.get("game_stats")
+            if not isinstance(game_stats, dict):
+                game_stats = {}
+                user["game_stats"] = game_stats
+            systems_state = game_stats.setdefault("_systems", {})
+            weekly_case_state = systems_state.setdefault("weekly_case_reward", {})
+            current_week = current_week_key()
+            if str(weekly_case_state.get("week") or "") != current_week:
+                add_case_item(
+                    user,
+                    WEEKLY_COMPLETION_CASE_TYPE,
+                    source="weekly_quests",
+                )
+                weekly_case_state["week"] = current_week
+                weekly_case_state["case_type"] = WEEKLY_COMPLETION_CASE_TYPE
+                completed_quests.append(
+                    (
+                        "weekly_bonus_case",
+                        {
+                            "name": "Недельный комплект закрыт",
+                            "reward_money": 0,
+                            "reward_gems": 0,
+                            "case_name": case_display_name(WEEKLY_COMPLETION_CASE_TYPE),
+                        },
+                    )
+                )
 
         user["quest_progress"] = quest_progress
         await db.update_user(user_id, guild_id, user)

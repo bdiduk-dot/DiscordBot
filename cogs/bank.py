@@ -140,8 +140,105 @@ def build_bank_embed(
     if read_only:
         embed.set_footer(text="Чужой банковский счёт доступен только для просмотра.")
     else:
-        embed.set_footer(text="Депозит открывается с банковского счёта.")
+        embed.set_footer(text="Кнопка `📜 История` показывает последние переводы, депозиты и движения по банку.")
     return embed
+
+
+def _bank_history_state(user: dict[str, Any]) -> list[dict[str, Any]]:
+    game_stats = user.get("game_stats")
+    if not isinstance(game_stats, dict):
+        game_stats = {}
+        user["game_stats"] = game_stats
+    systems = game_stats.setdefault("_systems", {})
+    history = systems.get("bank_history")
+    if not isinstance(history, list):
+        history = []
+        systems["bank_history"] = history
+    return history
+
+
+def _entry_icon(entry_type: str) -> str:
+    return {
+        "bank_deposit": "🏦",
+        "bank_withdraw": "💸",
+        "deposit_open": "🔒",
+        "deposit_claim": "✅",
+        "deposit_break": "⚠️",
+        "transfer_sent": "📤",
+        "transfer_received": "📥",
+        "crypto_sale": "💠",
+        "legacy_wallet": "🧰",
+        "blackmarket_purchase": "🕶️",
+        "auction_trade": "🪙",
+    }.get(str(entry_type or ""), "📜")
+
+
+def _append_local_bank_history(user: dict[str, Any], entry: dict[str, Any]) -> None:
+    history = _bank_history_state(user)
+    history.insert(0, entry)
+    del history[20:]
+
+
+def _local_bank_history(user: dict[str, Any], *, limit: int = 15) -> list[dict[str, Any]]:
+    history = _bank_history_state(user)
+    return [dict(entry) for entry in history[: max(1, int(limit))] if isinstance(entry, dict)]
+
+
+def build_bank_history_embed(entries: list[dict[str, Any]]) -> discord.Embed:
+    embed = discord.Embed(
+        title="📜 История банка",
+        description="Последние значимые операции по банку, депозитам и переводам.",
+        color=COLORS["info"],
+        timestamp=datetime.now(timezone.utc),
+    )
+    if not entries:
+        embed.add_field(name="Пока пусто", value="Записей ещё нет. Как только начнутся переводы, вклады и движения по банку, они появятся здесь.", inline=False)
+        return embed
+
+    lines: list[str] = []
+    for entry in entries[:15]:
+        entry_type = str(entry.get("entry_type") or "misc")
+        icon = _entry_icon(entry_type)
+        amount = int(entry.get("amount", 0) or 0)
+        currency = str(entry.get("currency") or "money").lower()
+        sign = "+" if amount > 0 else ""
+        if currency == "gems":
+            amount_text = f"{sign}{amount:,} гем."
+        else:
+            amount_text = f"{sign}{format_money(amount)}"
+        created_at = parse_utc(entry.get("created_at"))
+        when = format_discord_deadline(created_at) if created_at is not None else "только что"
+        description = str(entry.get("description") or "Операция")
+        lines.append(f"{icon} **{amount_text}** • {description}\n{when}")
+
+    embed.add_field(name="Последние операции", value="\n\n".join(lines), inline=False)
+    return embed
+
+
+async def add_bank_entry(
+    user: dict[str, Any],
+    guild_id: int,
+    amount: int,
+    entry_type: str,
+    description: str,
+    *,
+    counterparty_id: int | None = None,
+    currency: str = "money",
+    meta: dict[str, Any] | None = None,
+) -> None:
+    entry = {
+        "guild_id": guild_id,
+        "user_id": int(user.get("user_id", 0) or 0),
+        "counterparty_id": counterparty_id,
+        "entry_type": entry_type,
+        "amount": int(amount or 0),
+        "currency": currency,
+        "description": description,
+        "meta": meta or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _append_local_bank_history(user, entry)
+    await db.add_transaction(entry)
 
 
 class BankAmountModal(discord.ui.Modal):
@@ -200,6 +297,13 @@ class BankAmountModal(discord.ui.Modal):
                     f"Наличные: **{format_money(user['balance'])}**\n"
                     f"Банк: **{format_money(user['bank'])}**"
                 )
+                await add_bank_entry(
+                    user,
+                    self.bank_view.guild_id,
+                    amount,
+                    "bank_deposit",
+                    "Пополнение банковского счёта с наличных.",
+                )
             else:
                 if int(user.get("bank", 0) or 0) < amount:
                     await interaction.response.send_message("В банке недостаточно денег.", ephemeral=True)
@@ -212,11 +316,18 @@ class BankAmountModal(discord.ui.Modal):
                     f"Наличные: **{format_money(user['balance'])}**\n"
                     f"Банк: **{format_money(user['bank'])}**"
                 )
+                await add_bank_entry(
+                    user,
+                    self.bank_view.guild_id,
+                    -amount,
+                    "bank_withdraw",
+                    "Снятие денег с банковского счёта в наличные.",
+                )
 
             await db.update_user(
                 self.bank_view.user_id,
                 self.bank_view.guild_id,
-                {"balance": user["balance"], "bank": user["bank"]},
+                {"balance": user["balance"], "bank": user["bank"], "game_stats": user.get("game_stats", {})},
             )
             self.bank_view.user_data = user
 
@@ -275,6 +386,14 @@ class DepositCreateModal(discord.ui.Modal):
             user["deposit_rate"] = float(term["rate"])
             user["deposit_days"] = int(term["days"])
             user["deposit_start"] = datetime.now(timezone.utc).isoformat()
+            await add_bank_entry(
+                user,
+                self.parent_view.guild_id,
+                -amount,
+                "deposit_open",
+                f"Открыт депозит на {term['label']} под {int(term['rate'] * 100)}%.",
+                meta={"term_key": self.term_key},
+            )
 
             await db.update_user(
                 self.parent_view.user_id,
@@ -285,6 +404,7 @@ class DepositCreateModal(discord.ui.Modal):
                     "deposit_rate": user["deposit_rate"],
                     "deposit_days": user["deposit_days"],
                     "deposit_start": user["deposit_start"],
+                    "game_stats": user.get("game_stats", {}),
                 },
             )
             self.parent_view.user_data = user
@@ -457,6 +577,14 @@ class BankView(discord.ui.View):
                 )
                 color = COLORS["warning"]
                 title = "Депозит выведен досрочно"
+                await add_bank_entry(
+                    user,
+                    self.guild_id,
+                    payout,
+                    "deposit_break",
+                    "Досрочное закрытие депозита с потерей процентов.",
+                    meta={"penalty": snapshot["early_penalty"]},
+                )
             else:
                 payout = snapshot["normal_payout"]
                 description = (
@@ -465,6 +593,14 @@ class BankView(discord.ui.View):
                 )
                 color = COLORS["success"]
                 title = "Депозит закрыт"
+                await add_bank_entry(
+                    user,
+                    self.guild_id,
+                    payout,
+                    "deposit_claim",
+                    "Созревший депозит зачислен обратно на банковский счёт.",
+                    meta={"profit": snapshot["normal_profit"]},
+                )
 
             user["bank"] = int(user.get("bank", 0) or 0) + payout
             user["deposit_amount"] = 0
@@ -481,6 +617,7 @@ class BankView(discord.ui.View):
                     "deposit_rate": 0,
                     "deposit_days": 0,
                     "deposit_start": None,
+                    "game_stats": user.get("game_stats", {}),
                 },
             )
             self.user_data = user
@@ -541,6 +678,14 @@ class BankView(discord.ui.View):
             self.sync_buttons()
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
             self.message = await remember_interaction_message(interaction, self.message)
+
+    @discord.ui.button(label="📜 История", style=discord.ButtonStyle.secondary, row=1)
+    async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            await self.reload_user()
+            remote_entries = await db.get_transactions(self.user_id, self.guild_id, limit=15)
+            entries = remote_entries or _local_bank_history(self.user_data, limit=15)
+            await interaction.response.send_message(embed=build_bank_history_embed(entries), ephemeral=True)
 
     async def on_timeout(self):
         for child in self.children:
@@ -613,8 +758,32 @@ class BankCog(commands.Cog, name="Bank"):
 
                 sender["balance"] = int(sender.get("balance", 0) or 0) - amount
                 receiver["balance"] = int(receiver.get("balance", 0) or 0) + amount
-                await db.update_user(interaction.user.id, interaction.guild_id, {"balance": sender["balance"]})
-                await db.update_user(recipient.id, interaction.guild_id, {"balance": receiver["balance"]})
+                await add_bank_entry(
+                    sender,
+                    interaction.guild_id,
+                    -amount,
+                    "transfer_sent",
+                    f"Перевод игроку {recipient.display_name}.",
+                    counterparty_id=recipient.id,
+                )
+                await add_bank_entry(
+                    receiver,
+                    interaction.guild_id,
+                    amount,
+                    "transfer_received",
+                    f"Перевод от игрока {interaction.user.display_name}.",
+                    counterparty_id=interaction.user.id,
+                )
+                await db.update_user(
+                    interaction.user.id,
+                    interaction.guild_id,
+                    {"balance": sender["balance"], "game_stats": sender.get("game_stats", {})},
+                )
+                await db.update_user(
+                    recipient.id,
+                    interaction.guild_id,
+                    {"balance": receiver["balance"], "game_stats": receiver.get("game_stats", {})},
+                )
 
         embed = discord.Embed(
             title="Перевод выполнен",

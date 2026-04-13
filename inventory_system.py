@@ -14,6 +14,25 @@ LEGACY_ZONE_NAME_TO_KEY = {
     "Бездна Левиафана": "abyss_trench",
 }
 
+CASE_ITEM_TEMPLATES: dict[str, dict[str, str]] = {
+    "common": {
+        "name": "Обычный кейс",
+        "emoji": "🎁",
+    },
+    "rare": {
+        "name": "Редкий кейс",
+        "emoji": "🎀",
+    },
+    "epic": {
+        "name": "Эпический кейс",
+        "emoji": "🎗️",
+    },
+    "legendary": {
+        "name": "Легендарный кейс",
+        "emoji": "👑",
+    },
+}
+
 
 def _system_state(user: dict[str, Any]) -> dict[str, Any]:
     game_stats = user.get("game_stats")
@@ -33,6 +52,13 @@ def _empty_inventory_state() -> dict[str, Any]:
         "general_items": [],
         "next_item_id": 1,
     }
+
+
+def case_display_name(case_type: str) -> str:
+    case_meta = CASE_ITEM_TEMPLATES.get(str(case_type) or "")
+    if not isinstance(case_meta, dict):
+        return "Кейс"
+    return str(case_meta.get("name") or "Кейс")
 
 
 def _payload_signature(payload: dict[str, Any] | None) -> str:
@@ -402,6 +428,34 @@ def add_general_item(
     }
     inventory["general_items"].append(item)
     return item
+
+
+def add_case_item(
+    user: dict[str, Any],
+    case_type: str,
+    *,
+    quantity: int = 1,
+    source: str | None = None,
+) -> dict[str, Any]:
+    normalized_case_type = str(case_type or "common")
+    case_meta = CASE_ITEM_TEMPLATES.get(normalized_case_type, CASE_ITEM_TEMPLATES["common"])
+    description = "Открывается через `/inventory`."
+    if source:
+        description += f" Источник: {source}."
+    payload = {"case_type": normalized_case_type}
+    if source:
+        payload["source"] = source
+    return add_general_item(
+        user,
+        item_type="case",
+        code=normalized_case_type,
+        name=str(case_meta.get("name") or "Кейс"),
+        description=description,
+        quantity=quantity,
+        emoji=str(case_meta.get("emoji") or "🎁"),
+        payload=payload,
+        stackable=True,
+    )
 
 
 def get_fish_items(user: dict[str, Any]) -> list[dict[str, Any]]:

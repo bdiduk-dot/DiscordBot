@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from inventory_system import add_case_item, case_display_name
+
 
 def _kyiv_timezone():
     try:
@@ -95,43 +97,43 @@ SEASON_FREE_REWARDS: list[dict[str, Any]] = [
     {"type": "buff_xp", "hours": 1},
     {"type": "money", "amount": 10_000},
     {"type": "title", "key": "neon_runner"},
-    {"type": "gems", "amount": 12},
+    {"type": "case", "case_type": "common", "quantity": 1},
     {"type": "buff_money", "hours": 1},
     {"type": "money", "amount": 15_000},
     {"type": "reputation", "amount": 6},
-    {"type": "gems", "amount": 15},
+    {"type": "case", "case_type": "rare", "quantity": 1},
     {"type": "money", "amount": 20_000},
     {"type": "buff_xp", "hours": 2},
     {"type": "title", "key": "tideborn"},
     {"type": "gems", "amount": 20},
-    {"type": "buff_money", "hours": 2},
+    {"type": "case", "case_type": "epic", "quantity": 1},
     {"type": "money", "amount": 30_000},
     {"type": "reputation", "amount": 10},
     {"type": "gems", "amount": 25},
     {"type": "title", "key": "astral_angler"},
-    {"type": "money", "amount": 50_000},
+    {"type": "case", "case_type": "legendary", "quantity": 1},
 ]
 
 SEASON_PREMIUM_REWARDS: list[dict[str, Any]] = [
     {"type": "money", "amount": 12_000},
-    {"type": "gems", "amount": 16},
+    {"type": "case", "case_type": "common", "quantity": 1},
     {"type": "buff_xp", "hours": 2},
     {"type": "money", "amount": 18_000},
     {"type": "reputation", "amount": 10},
     {"type": "gems", "amount": 24},
     {"type": "buff_money", "hours": 2},
-    {"type": "title", "key": "shadow_broker"},
+    {"type": "case", "case_type": "rare", "quantity": 1},
     {"type": "money", "amount": 28_000},
     {"type": "gems", "amount": 30},
     {"type": "buff_xp", "hours": 4},
     {"type": "title", "key": "vault_lord"},
     {"type": "money", "amount": 40_000},
-    {"type": "gems", "amount": 35},
+    {"type": "case", "case_type": "epic", "quantity": 1},
     {"type": "buff_money", "hours": 4},
     {"type": "reputation", "amount": 14},
     {"type": "money", "amount": 55_000},
     {"type": "title", "key": "glitch_master"},
-    {"type": "gems", "amount": 45},
+    {"type": "case", "case_type": "legendary", "quantity": 1},
     {"type": "title", "key": "void_monarch"},
 ]
 
@@ -566,6 +568,9 @@ def reward_text(reward: dict[str, Any]) -> str:
         return f"Тема: {theme['name']}"
     if reward_type == "reputation":
         return f"Репутация +{int(reward['amount'])}"
+    if reward_type == "case":
+        quantity = max(1, int(reward.get("quantity", 1) or 1))
+        return f"{case_display_name(str(reward.get('case_type') or 'common'))} x{quantity}"
     return "Награда"
 
 
@@ -602,6 +607,13 @@ def apply_season_reward(user: dict[str, Any], reward: dict[str, Any]):
         unlock_theme(user, str(reward["key"]))
     elif reward_type == "reputation":
         change_reputation(user, int(reward["amount"]))
+    elif reward_type == "case":
+        add_case_item(
+            user,
+            str(reward.get("case_type") or "common"),
+            quantity=max(1, int(reward.get("quantity", 1) or 1)),
+            source=f"battle_pass:{SEASON_ID}",
+        )
 
 
 def progress_battle_pass(

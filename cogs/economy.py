@@ -11,7 +11,7 @@ from discord.ext import commands
 from economy_events import CRIME_POOL, SLUT_POOL, WORK_POOL
 from config import ADMIN_IDS, BUSINESSES, COLORS, get_rank, get_vip_level
 from database import db, get_user_lock
-from inventory_system import find_fish_item, get_fish_items
+from inventory_system import add_case_item, case_display_name, find_fish_item, get_fish_items
 from progression import (
     PROFILE_THEMES,
     PROFILE_TITLES,
@@ -60,6 +60,13 @@ VIP_NAMES = {
     "Silver VIP": "Серебряный VIP",
     "Gold VIP": "Золотой VIP",
     "Diamond VIP": "Алмазный VIP",
+}
+
+DAILY_STREAK_CASE_MILESTONES = {
+    7: "common",
+    14: "rare",
+    21: "epic",
+    28: "legendary",
 }
 
 HOUSE_PROFILE_NAMES = {
@@ -1337,6 +1344,11 @@ class EconomyCog(commands.Cog, name="Economy"):
                 streak_multiplier = 2
 
             final_bonus = int(bonus * streak_multiplier)
+            streak_case_type = DAILY_STREAK_CASE_MILESTONES.get(int(user.get("daily_streak", 0) or 0))
+            streak_case_name: str | None = None
+            if streak_case_type is not None:
+                add_case_item(user, streak_case_type, source=f"daily_streak:{int(user.get('daily_streak', 0) or 0)}")
+                streak_case_name = case_display_name(streak_case_type)
             from legacy.easter_archive import grant_easter_drops
 
             user["balance"] += final_bonus
@@ -1374,7 +1386,17 @@ class EconomyCog(commands.Cog, name="Economy"):
             inline=False,
         )
         if streak_multiplier > 1:
-            embed.add_field(name="Бонус серии", value="Это **7-й daily** в серии, поэтому денежная часть награды удвоена.", inline=False)
+            embed.add_field(
+                name="Бонус серии",
+                value="Это daily на milestone серии, кратной **7**, поэтому денежная часть награды удвоена.",
+                inline=False,
+            )
+        if streak_case_name:
+            embed.add_field(
+                name="Кейс за серию",
+                value=f"За milestone серии ты получил **{streak_case_name}**. Открыть его можно через `/inventory`.",
+                inline=False,
+            )
         if active_event:
             embed.add_field(name="Событие", value=f"`{active_event['name']}`", inline=False)
         embed.add_field(name="Новый баланс", value=f"**{format_money(user['balance'])}**", inline=False)

@@ -15,6 +15,7 @@ from cogs.mining import (
     GPU_MODELS,
     GPU_ORDER,
     WATERING_CANS,
+    _house_basement_upgrade_cost,
     _gpu_breakdown,
     _gpu_entry_id,
     _gpu_entry_resale_price,
@@ -27,6 +28,7 @@ from cogs.mining import (
     format_money,
 )
 from config import COLORS, CRYPTO_TYPES
+from cogs.bank import add_bank_entry
 from database import db, get_user_lock
 from inventory_system import add_general_item, consume_general_item, count_general_items
 from utils import (
@@ -413,7 +415,7 @@ class HouseV2View(discord.ui.View):
             ("Сад", "garden"),
             ("Крипта", "crypto"),
             ("Аренда", "rent"),
-            ("Обустройство", "decor"),
+            ("Улучшения", "upgrades"),
         ]
         for label, value in buttons:
             button = discord.ui.Button(
@@ -438,8 +440,8 @@ class HouseV2View(discord.ui.View):
             self._build_crypto_controls()
         elif self.tab == "rent":
             self._build_rent_controls()
-        elif self.tab == "decor":
-            self._build_refresh_only()
+        elif self.tab == "upgrades":
+            self._build_upgrade_controls()
         else:
             self._build_refresh_only()
 
@@ -621,9 +623,8 @@ class HouseV2View(discord.ui.View):
 
         collect_btn = discord.ui.Button(label="Собрать", style=discord.ButtonStyle.success, row=3)
         sell_all_btn = discord.ui.Button(label="Продать всё", style=discord.ButtonStyle.primary, row=3)
-        sell_one_btn = discord.ui.Button(label="Продать по монете", style=discord.ButtonStyle.secondary, row=3)
-        upgrade_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.secondary, row=4)
-        legacy_btn = discord.ui.Button(label="Забрать старый кошелёк", style=discord.ButtonStyle.secondary, row=4)
+        sell_one_btn = discord.ui.Button(label="Продать выбранную", style=discord.ButtonStyle.secondary, row=3)
+        refresh_btn = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=4)
         back_btn = discord.ui.Button(label="Назад к дому", style=discord.ButtonStyle.secondary, row=4)
         sell_one_btn.disabled = current_focus is None
 
@@ -655,36 +656,24 @@ class HouseV2View(discord.ui.View):
                 await self._swap(interaction, selected_symbol=target_symbol, crypto_section="coins")
                 await self._send_payload(interaction, payload[1])
 
-        async def upgrade_callback(interaction: discord.Interaction):
-            async with self._view_lock:
-                if not await safe_defer(interaction):
-                    return
-                house_cog = self.cog._house_core()
-                payload = await house_cog.upgrade_basement(self.user_id, self.guild_id) if house_cog is not None else (False, "Система дома недоступна.")
-                await self._swap(interaction, crypto_section="coins")
-                await self._send_payload(interaction, payload[1])
-
         async def back_callback(interaction: discord.Interaction):
             async with self._view_lock:
                 if not await safe_defer(interaction):
                     return
                 await self._swap(interaction, tab="home")
 
-        async def legacy_callback(interaction: discord.Interaction):
+        async def refresh_callback(interaction: discord.Interaction):
             async with self._view_lock:
                 if not await safe_defer(interaction):
                     return
-                payload = await self.cog.withdraw_legacy_wallet(self.user_id, self.guild_id)
                 await self._swap(interaction, crypto_section="coins")
-                await self._send_payload(interaction, payload[1])
 
         collect_btn.callback = collect_callback
         sell_all_btn.callback = sell_all_callback
         sell_one_btn.callback = sell_one_callback
-        upgrade_btn.callback = upgrade_callback
-        legacy_btn.callback = legacy_callback
+        refresh_btn.callback = refresh_callback
         back_btn.callback = back_callback
-        for item in (collect_btn, sell_all_btn, sell_one_btn, upgrade_btn, legacy_btn, back_btn):
+        for item in (collect_btn, sell_all_btn, sell_one_btn, refresh_btn, back_btn):
             self.add_item(item)
 
     def _build_crypto_gpu_controls(self):
@@ -713,7 +702,6 @@ class HouseV2View(discord.ui.View):
         install_btn = discord.ui.Button(label="Поставить", style=discord.ButtonStyle.success, row=3)
         store_btn = discord.ui.Button(label="Убрать в сарай", style=discord.ButtonStyle.secondary, row=3)
         sell_btn = discord.ui.Button(label="Продать", style=discord.ButtonStyle.primary, row=3)
-        upgrade_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.secondary, row=4)
         refresh_btn = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=4)
         back_btn = discord.ui.Button(label="Назад к дому", style=discord.ButtonStyle.secondary, row=4)
 
@@ -741,15 +729,6 @@ class HouseV2View(discord.ui.View):
                 await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
                 await self._send_payload(interaction, payload[1])
 
-        async def upgrade_callback(interaction: discord.Interaction):
-            async with self._view_lock:
-                if not await safe_defer(interaction):
-                    return
-                house_cog = self.cog._house_core()
-                payload = await house_cog.upgrade_basement(self.user_id, self.guild_id) if house_cog is not None else (False, "Система дома недоступна.")
-                await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
-                await self._send_payload(interaction, payload[1])
-
         async def refresh_callback(interaction: discord.Interaction):
             async with self._view_lock:
                 if not await safe_defer(interaction):
@@ -765,10 +744,51 @@ class HouseV2View(discord.ui.View):
         install_btn.callback = install_callback
         store_btn.callback = store_callback
         sell_btn.callback = sell_callback
-        upgrade_btn.callback = upgrade_callback
         refresh_btn.callback = refresh_callback
         back_btn.callback = back_callback
-        for item in (install_btn, store_btn, sell_btn, upgrade_btn, refresh_btn, back_btn):
+        for item in (install_btn, store_btn, sell_btn, refresh_btn, back_btn):
+            self.add_item(item)
+
+    def _build_upgrade_controls(self):
+        basement_btn = discord.ui.Button(label="Улучшить подвал", style=discord.ButtonStyle.success, row=1)
+        legacy_btn = discord.ui.Button(label="Забрать старый кошелёк", style=discord.ButtonStyle.primary, row=1)
+        refresh_btn = discord.ui.Button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
+        back_btn = discord.ui.Button(label="Назад к дому", style=discord.ButtonStyle.secondary, row=2)
+
+        async def basement_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                house_cog = self.cog._house_core()
+                payload = await house_cog.upgrade_basement(self.user_id, self.guild_id) if house_cog is not None else (False, "Система дома недоступна.")
+                await self._swap(interaction, tab="upgrades")
+                await self._send_payload(interaction, payload[1])
+
+        async def legacy_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                payload = await self.cog.withdraw_legacy_wallet(self.user_id, self.guild_id)
+                await self._swap(interaction, tab="upgrades")
+                await self._send_payload(interaction, payload[1])
+
+        async def refresh_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, tab="upgrades")
+
+        async def back_callback(interaction: discord.Interaction):
+            async with self._view_lock:
+                if not await safe_defer(interaction):
+                    return
+                await self._swap(interaction, tab="home")
+
+        basement_btn.callback = basement_callback
+        legacy_btn.callback = legacy_callback
+        refresh_btn.callback = refresh_callback
+        back_btn.callback = back_callback
+        for item in (basement_btn, legacy_btn, refresh_btn, back_btn):
             self.add_item(item)
 
     def _build_rent_controls(self):
@@ -854,8 +874,8 @@ class HouseV2View(discord.ui.View):
             )
         if self.tab == "rent":
             return await self.cog.build_rent_embed(self.user_id, self.guild_id)
-        if self.tab == "decor":
-            return await self.cog.build_decor_embed(self.user_id, self.guild_id)
+        if self.tab == "upgrades":
+            return await self.cog.build_upgrades_embed(self.user_id, self.guild_id)
         return await self.cog.build_home_embed(self.user_id, self.guild_id)
 
     async def on_timeout(self):
@@ -1057,7 +1077,7 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
                 f"Дом: **{house_data['name']}**\n"
                 f"Установлено: **{int(snapshot.get('installed_count', 0) or 0)}/{int(snapshot.get('capacity', 0) or 0)}**\n"
                 f"В сарае: **{sum(stored_counts.values())}**\n"
-                f"Доход дают только установленные карты: **{format_money(int(snapshot.get('hourly_income', 0) or 0))} в час**"
+                f"Доход в час: **{format_money(int(snapshot.get('hourly_income', 0) or 0))}**"
             )
             embed.add_field(
                 name=f"Выбрана карта: {selected_meta['emoji']} {selected_meta['name']}",
@@ -1072,16 +1092,16 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             embed.add_field(name="Установленные", value="\n".join(installed_lines), inline=False)
             embed.add_field(name="Сарай", value="\n".join(stored_lines), inline=False)
             embed.add_field(
-                name="Как это работает",
+                name="Быстрые действия",
                 value=(
-                    "Новая GPU покупается как обычно и сразу ставится в подвал.\n"
-                    "Кнопка `Убрать в сарай` снимает карту без продажи.\n"
-                    "Кнопка `Поставить` возвращает карту из сарая обратно в подвал.\n"
-                    "Продажа возвращает **30%** от цены покупки конкретной карты."
+                    "`Поставить` возвращает карту из сарая в подвал.\n"
+                    "`Убрать в сарай` снимает карту без продажи.\n"
+                    "`Продать` отдаёт **30%** от цены конкретной карты.\n"
+                    "Все общие апгрейды дома переехали во вкладку **Улучшения**."
                 ),
                 inline=False,
             )
-            embed.set_footer(text="Карты в сарае считаются твоими активами, но не занимают слоты и не дают доход, пока не установлены.")
+            embed.set_footer(text="Во вкладке Крипта остались только действия, которые относятся к картам и кошельку.")
             return embed
 
         market_rows, _ = _current_market_rows()
@@ -1123,11 +1143,12 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
         if "gaming_chair" in furniture:
             embed.description += "\n🎮 Геймерское кресло даёт **+2%** к добыче."
         embed.add_field(
-            name="Как это работает",
+            name="Управление кошельком",
             value=(
                 f"{focus_hint}\n"
-                "Купить новые GPU можно в `/shop` → `Недвижимость`.\n"
-                "Кнопка `Продать по монете` использует текущий фокус."
+                "`Собрать` распределяет готовый доход по рынку.\n"
+                "`Продать выбранную` использует текущий фокус.\n"
+                "Общие апгрейды дома и старый кошелёк переехали во вкладку **Улучшения**."
             ),
             inline=False,
         )
@@ -1143,7 +1164,64 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
             inline=False,
         )
         embed.add_field(name="Курсы", value="\n".join(market_lines), inline=False)
-        embed.set_footer(text="`Собрать` распределяет накопленный эквивалент по рынку. Фокус только повышает шанс выбранной монеты.")
+        embed.set_footer(text="Вкладка Крипта теперь отвечает только за монеты и видеокарты. Все общие улучшения вынесены отдельно.")
+        return embed
+
+    async def build_upgrades_embed(self, user_id: int, guild_id: int) -> discord.Embed:
+        user, house_state = await self._load_user(user_id, guild_id)
+        if not user or not house_state:
+            return discord.Embed(title="Улучшения", description="Не удалось загрузить профиль.", color=COLORS["warning"])
+
+        house_data = _house_current_data(house_state)
+        embed = discord.Embed(title="Улучшения", color=COLORS["gold"])
+        if house_data is None:
+            embed.description = "Улучшения дома откроются после покупки недвижимости."
+            return embed
+
+        house_cog = self._house_core()
+        snapshot = house_cog._house_snapshot(user, guild_id) if house_cog is not None else {}
+        vip_bonus = _house_vip_bonus(user)
+        current_level = max(1, int(house_state.get("basement_level", 1) or 1))
+        max_level = int(house_data.get("max_basement_level", current_level) or current_level)
+        next_cost = None
+        if current_level < max_level:
+            next_cost = _house_basement_upgrade_cost(house_data, current_level, vip_bonus)
+        legacy_wallet = int(house_state.get("legacy_mining_wallet", 0) or 0)
+        basement_lines = [
+            f"Текущий уровень: **{current_level}/{max_level}**",
+            f"Доход в час: **{format_money(int(snapshot.get('hourly_income', 0) or 0))}**",
+        ]
+        if next_cost is not None:
+            basement_lines.append(f"Следующий апгрейд: **{format_money(next_cost)}**")
+        else:
+            basement_lines.append("Подвал уже упёрся в максимум для этого дома.")
+        furniture_keys = [key for key in house_state.get("furniture", []) if key in FURNITURE_ITEMS]
+        furniture_lines = [
+            f"{FURNITURE_ITEMS[key]['emoji']} **{FURNITURE_ITEMS[key]['name']}** — {FURNITURE_BUFFS.get(key, 'Домовой бонус активен.')}"
+            for key in furniture_keys
+        ] or ["Постоянной мебели пока нет."]
+
+        embed.description = (
+            f"Дом: **{house_data['name']}**\n"
+            f"Подвал: **{current_level}/{max_level}**\n"
+            f"GPU-слоты: **{int(snapshot.get('capacity', 0) or 0)}**\n"
+            f"Грядки: **{int(house_state.get('max_garden_level', 0) or 0)}**"
+        )
+        embed.add_field(
+            name="Подвал и майнинг",
+            value="\n".join(basement_lines),
+            inline=False,
+        )
+        embed.add_field(
+            name="Служебные действия",
+            value=(
+                f"Старый кошелёк: **{format_money(legacy_wallet)}**\n"
+                "Сюда переехали house-wide кнопки, чтобы вкладка `Крипта` оставалась простой и понятной."
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Активные бонусы дома", value="\n".join(furniture_lines[:6]), inline=False)
+        embed.set_footer(text="GPU, монеты и рыночные действия остались во вкладке `Крипта`, а house-wide улучшения живут здесь.")
         return embed
 
     async def build_rent_embed(self, user_id: int, guild_id: int) -> discord.Embed:
@@ -1453,6 +1531,20 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
                 return False, "Продавать пока нечего."
             user["balance"] = int(user.get("balance", 0) or 0) + total_money
             house_state["crypto_wallet"] = wallet
+            sold_summary = ", ".join(
+                line.split(":")[0].replace("**", "").strip()
+                for line in sold_lines[:3]
+            )
+            if len(sold_lines) > 3:
+                sold_summary += f" и ещё {len(sold_lines) - 3}"
+            await add_bank_entry(
+                user,
+                guild_id,
+                total_money,
+                "crypto_sale",
+                f"Продажа крипты из домашнего кошелька: {sold_summary}.",
+                meta={"symbols": symbols if symbol else "all"},
+            )
             await db.update_user(
                 user_id,
                 guild_id,
@@ -1475,6 +1567,13 @@ class HouseCommandsCog(commands.Cog, name="HouseUI"):
                 return False, "Старый кошелёк уже пуст."
             house_state["legacy_mining_wallet"] = 0
             user["balance"] = int(user.get("balance", 0) or 0) + legacy_wallet
+            await add_bank_entry(
+                user,
+                guild_id,
+                legacy_wallet,
+                "legacy_wallet",
+                "Вывод денег из старого кошелька майнинга.",
+            )
             await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
         return True, discord.Embed(title="Старый кошелёк выведен", description=f"На баланс переведено **{format_money(legacy_wallet)}**.\nБаланс: **{format_money(user['balance'])}**", color=COLORS["success"])
 

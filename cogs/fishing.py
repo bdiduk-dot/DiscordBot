@@ -190,7 +190,6 @@ SPECIES_DISPLAY_NAMES = {
 SHOP_PAGE_SIZE = 3
 INVENTORY_FISH_PAGE_SIZE = 6
 INVENTORY_GENERAL_PAGE_SIZE = 5
-WORLD_EVENT_PIN_FOOTER = "Рыболовное событие"
 BAIT_SHOP_ROTATION_HOURS = 2
 BAIT_SHOP_OFFER_COUNT = 6
 BAIT_SHOP_ALWAYS_AVAILABLE = ("worms",)
@@ -810,7 +809,7 @@ class FishingCastView(discord.ui.View):
             await self.cog.select_fishing_zone(self.user_id, self.guild_id, select.values[0])
             await self._refresh_view(interaction)
 
-    @discord.ui.button(label="Закинуть удочку", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="🎣 Закинуть", style=discord.ButtonStyle.success, row=1)
     async def cast(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -825,17 +824,87 @@ class FishingCastView(discord.ui.View):
                 await self._refresh_view(interaction)
                 return
             await self.cog._play_cast_animation(interaction, fishing_state)
-            await safe_edit_original_response(interaction, embed=payload, view=None)
-            self.message = interaction.message or self.message
-            schedule_message_cleanup(self.message)
+            result_view = FishingCatchResultView(self.cog, self.user_id, self.guild_id)
+            if not await safe_edit_original_response(interaction, embed=payload, view=result_view):
+                return
+            await result_view._remember_message(interaction)
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Обновить экран", style=discord.ButtonStyle.secondary, row=1)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
             await self._refresh_view(interaction)
 
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+            schedule_message_cleanup(self.message, delay_seconds=0)
+
+
+class FishingCatchResultView(discord.ui.View):
+    def __init__(self, cog: "FishingCog", user_id: int, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+        self._view_lock = asyncio.Lock()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Это меню улова открыто не тобой.", ephemeral=True)
+            return False
+        return True
+
+    async def _remember_message(self, interaction: discord.Interaction):
+        try:
+            self.message = await interaction.original_response()
+        except Exception:
+            self.message = interaction.message or self.message
+
+    @discord.ui.button(label="🎣 Закинуть снова", style=discord.ButtonStyle.success, row=0)
+    async def cast_again(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            fishing_state = await self.cog.get_fishing_profile(self.user_id, self.guild_id)
+            success, payload = await self.cog.perform_fishing_cast(self.user_id, self.guild_id)
+            if not success:
+                if isinstance(payload, discord.Embed):
+                    await interaction.followup.send(embed=payload, ephemeral=True)
+                else:
+                    await interaction.followup.send(str(payload), ephemeral=True)
+                return
+            await self.cog._play_cast_animation(interaction, fishing_state)
+            result_view = FishingCatchResultView(self.cog, self.user_id, self.guild_id)
+            if not await safe_edit_original_response(interaction, embed=payload, view=result_view):
+                return
+            await result_view._remember_message(interaction)
+
+    @discord.ui.button(label="↩️ К экрану рыбалки", style=discord.ButtonStyle.secondary, row=0)
+    async def back_to_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            view = FishingCastView(self.cog, self.user_id, self.guild_id)
+            embed = await self.cog.build_fishing_menu_embed(self.user_id, self.guild_id)
+            state = await self.cog.get_fishing_profile(self.user_id, self.guild_id)
+            current_zone = str(state.get("selected_zone", "river_bank") or "river_bank")
+            view.zone_select.options = [
+                discord.SelectOption(label=FISHING_ZONES[key]["name"][:100], value=key, default=key == current_zone)
+                for key in state.get("unlocked_zones", ["river_bank"])
+            ]
+            if not await safe_edit_original_response(interaction, embed=embed, view=view):
+                return
+            await view._remember_message(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -885,8 +954,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             if message.id == keep_message_id or message.author.id != self.bot.user.id:
                 continue
             embed = message.embeds[0] if message.embeds else None
-            footer_text = embed.footer.text if embed and embed.footer else ""
-            if footer_text.startswith(WORLD_EVENT_PIN_FOOTER):
+            title = str(embed.title or "") if embed else ""
+            if title.startswith("Ивент • ") or title.startswith("Ивент завершён • "):
                 try:
                     await message.unpin(reason="Refreshing fishing world event pin")
                 except Exception:
@@ -908,21 +977,13 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         next_window = next_event_window()
         if ended:
-            title = f"🌘 Ивент-окно завершено: {event['name']}"
-            description = f"{event['description']}\n\nОкно рыбалки закончилось."
+            title = f"Ивент завершён • {event['name']}"
+            description = "Окно рыбалки закончилось. Эффект события больше не действует."
             color = COLORS["warning"]
         else:
-            title = f"🌊 Ивент-окно рыбалки: {event['name']}"
-            description = (
-                f"{event['description']}\n\n"
-                f"Активно до: {format_discord_deadline(event['end_at'].astimezone(timezone.utc))}."
-            )
+            title = f"Ивент • {event['name']}"
+            description = "Глобальное окно для рыбалки обновилось. В это время редкости, цены или споты могут вести себя иначе."
             color = COLORS["info"]
-
-        if next_window is not None and ended:
-            start_at = next_window.get("start_at")
-            if isinstance(start_at, datetime):
-                description += f"\nСледующее окно: {next_window.get('name', 'неизвестно')} {format_discord_deadline(start_at.astimezone(timezone.utc))}."
 
         embed = discord.Embed(
             title=title,
@@ -930,10 +991,31 @@ class FishingCog(commands.Cog, name="Fishing"):
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text="Рыболовное событие")
+        embed.add_field(name="Эффект", value=event["description"], inline=False)
+        if ended:
+            embed.add_field(name="Статус", value="`Завершено`", inline=True)
+        else:
+            embed.add_field(name="Статус", value="`Активно`", inline=True)
+            embed.add_field(
+                name="До конца",
+                value=format_discord_deadline(event["end_at"].astimezone(timezone.utc)),
+                inline=True,
+            )
+        if next_window is not None:
+            start_at = next_window.get("start_at")
+            if isinstance(start_at, datetime):
+                embed.add_field(
+                    name="Следующее окно",
+                    value=f"**{next_window.get('name', 'неизвестно')}** • {format_discord_deadline(start_at.astimezone(timezone.utc))}",
+                    inline=False,
+                )
 
         existing = await self._find_matching_world_event_message(channel, title)
         if existing is not None:
+            try:
+                await existing.edit(embed=embed)
+            except Exception:
+                pass
             await self._pin_message(existing)
             await self._cleanup_old_world_event_pins(channel, keep_message_id=existing.id)
             return
@@ -1391,33 +1473,50 @@ class FishingCog(commands.Cog, name="Fishing"):
         tackle = FISHING_TACKLES.get(fishing.get("equipped_tackle", "starter"), FISHING_TACKLES["starter"])
         bait_text = FISHING_BAITS[bait_key]["name"] if bait_key in FISHING_BAITS else "Без наживки"
         world_state = get_world_state()
-
-        embed = discord.Embed(
-            title="Рыбалка",
-            description=(
-                f"Удочка: **{FISHING_RODS[current_rod]['name']}**\n"
-                f"Снасть: **{tackle['name']}**\n"
-                f"Наживка: **{bait_text}**\n"
-                f"Спот: **{zone['name']}**"
-            ),
-            color=COLORS["info"],
-        )
-        embed.add_field(name="Особенности спота", value=zone["description"], inline=False)
-        embed.add_field(name="Мир рыбалки", value="\n".join(describe_world_lines(world_state)), inline=False)
-        event_multiplier, event = self._market_multiplier(guild_id, "fish")
-        if event is not None:
-            embed.add_field(name="Событие рынка", value=f"Сейчас действует **{event['name']}**.", inline=False)
-
         cooldown_minutes = self._fish_cooldown_minutes(user)
+        ready_text = "**Готово**"
         if user.get("last_fish"):
             last_fish = datetime.fromisoformat(user["last_fish"]).replace(tzinfo=timezone.utc)
             ready_at = last_fish + timedelta(minutes=cooldown_minutes)
-            if datetime.now(timezone.utc) < ready_at:
-                embed.add_field(name="Следующий заброс", value=format_discord_deadline(ready_at), inline=False)
-            else:
-                embed.add_field(name="Следующий заброс", value="**Готово**", inline=False)
-        else:
-            embed.add_field(name="Следующий заброс", value="**Готово**", inline=False)
+            ready_text = format_discord_deadline(ready_at) if datetime.now(timezone.utc) < ready_at else "**Готово**"
+        last_catch = fishing.get("last_catch") if isinstance(fishing.get("last_catch"), dict) else None
+        last_catch_text = "Последний улов ещё не сохранён."
+        if last_catch:
+            last_catch_text = (
+                f"{last_catch.get('emoji', '🐟')} **{last_catch.get('name', 'Улов')}**\n"
+                f"Редкость: **{last_catch.get('rarity_name', 'Обычная')}**\n"
+                f"Цена: **{format_money(int(last_catch.get('price', 0) or 0))}**"
+            )
+
+        embed = discord.Embed(
+            title=f"🎣 Рыбалка • {zone['name']}",
+            description=zone["description"],
+            color=COLORS["info"],
+        )
+        embed.add_field(
+            name="Снаряжение",
+            value=(
+                f"Удочка: **{FISHING_RODS[current_rod]['name']}**\n"
+                f"Снасть: **{tackle['name']}**\n"
+                f"Наживка: **{bait_text}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Статус заброса",
+            value=(
+                f"Следующий заброс: {ready_text}\n"
+                f"Всего уловов: **{int(fishing.get('total_catches', 0) or 0)}**\n"
+                f"Спот: **{zone['name']}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(name="Последний улов", value=last_catch_text, inline=False)
+        embed.add_field(name="Мир рыбалки", value="\n".join(describe_world_lines(world_state)), inline=False)
+        event_multiplier, event = self._market_multiplier(guild_id, "fish")
+        if event is not None:
+            embed.add_field(name="Ивент", value=f"Сейчас активно окно **{event['name']}**.", inline=False)
+        embed.set_footer(text="Выбери спот, проверь снасть и жми `🎣 Закинуть`. После улова появится кнопка быстрого повтора.")
         return embed
 
     async def _legacy_perform_fishing_cast_autosell(self, user_id: int, guild_id: int):
@@ -2507,9 +2606,13 @@ class FishingCog(commands.Cog, name="Fishing"):
         asyncio.create_task(self._progress_contracts(user_id, guild_id, "fish", 1))
         asyncio.create_task(record_player_progress(user_id, guild_id, action="fish", amount=1))
 
-        result = discord.Embed(title="🎣 Улов сохранён!", color=fish_data["color"])
+        result = discord.Embed(
+            title=f"🎣 Улов • {rarity_name}",
+            description=f"Ты вытащил {fish_data['emoji']} **{fish_name}** и сохранил добычу в инвентарь.",
+            color=fish_data["color"],
+        )
         result.add_field(
-            name=f"{fish_data['emoji']} {fish_name}",
+            name="Карточка улова",
             value=(
                 f"ID: **#{fish_item['id']}**\n"
                 f"Редкость: **{rarity_name}**\n"
@@ -2538,7 +2641,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             result.add_field(name="Рынок", value=f"На рыбу сейчас действует бонус от события **{event['name']}**.", inline=False)
         if easter_lines or pond_lines:
             result.add_field(name="Пасха 2026", value="\n".join([*easter_lines, *pond_lines]), inline=False)
-        result.set_footer(text=f"Улов сохранён в /inventory под ID #{fish_item['id']}. Там его можно продать или залочить.")
+        result.set_footer(text=f"Улов сохранён в /inventory под ID #{fish_item['id']}. Кнопка ниже позволяет сразу закинуть снова.")
         return True, result
 
     async def open_legacy_inventory(self, interaction: discord.Interaction):

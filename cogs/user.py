@@ -1120,10 +1120,12 @@ class _BaseShopView(discord.ui.View):
             schedule_message_cleanup(self.message, delay_seconds=0)
 
 class BattlePassView(discord.ui.View):
-    def __init__(self, user_id: int, guild_id: int):
+    def __init__(self, bot: commands.Bot, user_id: int, guild_id: int, *, section: str = "overview"):
         super().__init__(timeout=120)
+        self.bot = bot
         self.user_id = user_id
         self.guild_id = guild_id
+        self.section = section if section in {"overview", "rewards", "quests"} else "overview"
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
 
@@ -1137,7 +1139,11 @@ class BattlePassView(discord.ui.View):
         self.message = await _remember_interaction_message(interaction, self.message)
 
     async def _get_user(self) -> dict[str, Any]:
-        return await db.get_user(self.user_id, self.guild_id) or {}
+        user = await db.get_user(self.user_id, self.guild_id) or {}
+        stats_cog = self.bot.get_cog("Stats")
+        if user and stats_cog is not None:
+            user = await stats_cog.ensure_quest_rotation(self.user_id, self.guild_id, user) or user
+        return user
 
     @staticmethod
     def _next_claimable_tier(user: dict[str, Any], *, premium: bool = False) -> int | None:
@@ -1150,13 +1156,49 @@ class BattlePassView(discord.ui.View):
                 return tier
         return None
 
+    @staticmethod
+    def _claimed_tiers(user: dict[str, Any], *, premium: bool = False) -> set[int]:
+        state = ensure_battle_pass_state(user)
+        claimed_key = "claimed_premium" if premium else "claimed_free"
+        return {int(value) for value in state.get(claimed_key, []) if str(value).isdigit()}
+
+    @staticmethod
+    def _mission_card_lines(mission: dict[str, Any]) -> str:
+        progress = int(mission.get("progress", 0) or 0)
+        target = max(1, int(mission.get("target", 1) or 1))
+        status = "✅" if mission.get("completed") else "🕒"
+        return (
+            f"{status} **{mission.get('name', 'Задание')}**\n"
+            f"{mission.get('description', 'Без описания')}\n"
+            f"`{build_progress_bar(progress, target, length=8)}` **{progress}/{target}** • +{int(mission.get('xp_reward', 0) or 0)} XP"
+        )
+
+    @staticmethod
+    def _server_quest_lines(quests: list[dict[str, Any]], progress_map: dict[str, Any], *, limit: int = 3) -> list[str]:
+        lines: list[str] = []
+        for quest in quests[:limit]:
+            progress = int(progress_map.get(quest.get("id"), 0) or 0)
+            target = max(1, int(quest.get("target", 1) or 1))
+            status = "✅" if quest.get("completed") else "🕒"
+            reward_money = int(quest.get("reward_money", 0) or 0)
+            reward_gems = int(quest.get("reward_gems", 0) or 0)
+            lines.append(
+                f"{status} **{quest.get('name', 'Квест')}**\n"
+                f"`{build_progress_bar(progress, target, length=8)}` **{progress}/{target}** • ${reward_money:,} + {reward_gems} гем."
+            )
+        return lines
+
     def _sync_buttons(self, user: dict[str, Any]):
         state = ensure_battle_pass_state(user)
         premium_open = bool(state.get("premium_unlocked"))
         next_free = self._next_claimable_tier(user, premium=False)
         next_premium = self._next_claimable_tier(user, premium=True)
 
-        self.buy_premium_btn.label = "Покупка в /shop" if not premium_open else "Премиум открыт"
+        self.overview_btn.style = discord.ButtonStyle.primary if self.section == "overview" else discord.ButtonStyle.secondary
+        self.rewards_btn.style = discord.ButtonStyle.primary if self.section == "rewards" else discord.ButtonStyle.secondary
+        self.quests_btn.style = discord.ButtonStyle.primary if self.section == "quests" else discord.ButtonStyle.secondary
+
+        self.buy_premium_btn.label = "Открыть премиум" if not premium_open else "Премиум уже открыт"
         self.buy_premium_btn.style = discord.ButtonStyle.success if not premium_open else discord.ButtonStyle.secondary
         self.buy_premium_btn.disabled = premium_open
 
@@ -1164,153 +1206,130 @@ class BattlePassView(discord.ui.View):
         self.claim_premium_btn.disabled = (not premium_open) or next_premium is None
         self.claim_premium_btn.style = discord.ButtonStyle.primary if premium_open and next_premium is not None else discord.ButtonStyle.secondary
 
+    def _build_overview_embed(self, user: dict[str, Any]) -> discord.Embed:
+        state = ensure_battle_pass_state(user)
+        unlocked = battle_pass_tier(user)
+        tier_progress, tier_total = battle_pass_progress_to_next(user)
+        premium_open = bool(state.get("premium_unlocked"))
+        total_xp = int(state.get("xp", 0) or 0)
+        max_xp = SEASON_MAX_TIERS * 100
+        next_free = self._next_claimable_tier(user, premium=False)
+        preview_index = min(max(unlocked, 0), SEASON_MAX_TIERS - 1)
+        completed_daily = sum(1 for mission in state.get("daily_missions", []) if mission.get("completed"))
+
+        embed = discord.Embed(
+            title=f"{SEASON_NAME} • Боевой пропуск",
+            description=(
+                f"`{build_progress_bar(total_xp, max_xp, length=14)}` **{total_xp}/{max_xp} XP**\n"
+                "Компактный сезонный экран с понятным разделением на обзор, награды и квесты."
+            ),
+            color=COLORS["gold"],
+        )
+        embed.add_field(
+            name="Обзор сезона",
+            value=(
+                f"Уровень: **{unlocked}/{SEASON_MAX_TIERS}**\n"
+                f"До следующего: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
+                f"Премиум: **{'Открыт' if premium_open else 'Закрыт'}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Ближайшие награды",
+            value=(
+                f"FREE: **{reward_text(SEASON_FREE_REWARDS[preview_index])}**\n"
+                f"PREMIUM: **{reward_text(SEASON_PREMIUM_REWARDS[preview_index])}**\n"
+                f"Следующая FREE: **{('уровень ' + str(next_free)) if next_free else 'всё получено'}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Квесты",
+            value=(
+                f"Daily выполнено: **{completed_daily}/{len(state.get('daily_missions', []))}**\n"
+                "Кнопка **🎖️ Квесты** открывает отдельную панель daily/weekly.\n"
+                "Полный weekly-комплект теперь может дать кейс."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Премиум-ветка",
+            value=f"Цена открытия: **{format_money(SEASON_PREMIUM_COST)}**\nПокупка остаётся через `/shop`.",
+            inline=False,
+        )
+        embed.set_footer(text="Панель: Обзор.")
+        return embed
+
+    def _build_rewards_embed(self, user: dict[str, Any]) -> discord.Embed:
+        unlocked = battle_pass_tier(user)
+        premium_open = bool(ensure_battle_pass_state(user).get("premium_unlocked"))
+        claimed_free = self._claimed_tiers(user, premium=False)
+        claimed_premium = self._claimed_tiers(user, premium=True)
+        start_tier = max(1, unlocked - 1)
+        end_tier = min(SEASON_MAX_TIERS, max(unlocked + 4, 5))
+        preview_lines: list[str] = []
+        for tier in range(start_tier, end_tier + 1):
+            free_status = "✅" if tier in claimed_free else "🎁" if tier <= unlocked else "🔒"
+            premium_status = "✅" if tier in claimed_premium else "🎁" if premium_open and tier <= unlocked else "🔒"
+            preview_lines.append(
+                f"**Уровень {tier}**\n"
+                f"{free_status} FREE: {reward_text(SEASON_FREE_REWARDS[tier - 1])}\n"
+                f"{premium_status} PREMIUM: {reward_text(SEASON_PREMIUM_REWARDS[tier - 1])}"
+            )
+
+        embed = discord.Embed(
+            title=f"{SEASON_NAME} • Награды",
+            description="Показываем ближайшие уровни вокруг текущего прогресса, без длинной стены текста.",
+            color=COLORS["gold"],
+        )
+        embed.add_field(name="Лента наград", value="\n\n".join(preview_lines), inline=False)
+        embed.add_field(name="Легенда", value="`✅` забрано • `🎁` доступно сейчас • `🔒` уровень ещё закрыт", inline=False)
+        embed.set_footer(text="Панель: Награды.")
+        return embed
+
+    def _build_quests_embed(self, user: dict[str, Any]) -> discord.Embed:
+        state = ensure_battle_pass_state(user)
+        progress_map = user.get("quest_progress") if isinstance(user.get("quest_progress"), dict) else {}
+        daily_quest_lines = [self._mission_card_lines(mission) for mission in state.get("daily_missions", [])[:3]]
+        weekly_quest_lines = self._server_quest_lines(
+            [quest for quest in user.get("weekly_quests", []) if isinstance(quest, dict)],
+            progress_map,
+            limit=3,
+        )
+        embed = discord.Embed(
+            title=f"{SEASON_NAME} • 🎖️ Квесты",
+            description="Отдельная панель прогресса: здесь видно и BP-daily, и weekly-цели сервера.",
+            color=COLORS["purple"],
+        )
+        embed.add_field(
+            name="Battle Pass • Daily",
+            value="\n\n".join(daily_quest_lines) if daily_quest_lines else "Сегодня BP-миссий нет.",
+            inline=False,
+        )
+        embed.add_field(
+            name="Server • Weekly",
+            value="\n\n".join(weekly_quest_lines) if weekly_quest_lines else "Weekly-квесты ещё не готовы. Открой `/quest`, чтобы прогреть панель.",
+            inline=False,
+        )
+        embed.add_field(
+            name="Что нового",
+            value="За полное закрытие weekly-комплекта теперь можно получить **редкий кейс**. Все кейсы открываются через `/inventory`.",
+            inline=False,
+        )
+        embed.set_footer(text="Панель: Квесты.")
+        return embed
+
     async def build_embed(self) -> discord.Embed:
         user = await self._get_user()
         if not user:
             return discord.Embed(title="Боевой пропуск", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
         self._sync_buttons(user)
-        state = ensure_battle_pass_state(user)
-        unlocked = battle_pass_tier(user)
-        tier_progress, tier_total = battle_pass_progress_to_next(user)
-        premium_open = bool(state.get("premium_unlocked"))
-        next_free = self._next_claimable_tier(user, premium=False)
-        next_premium = self._next_claimable_tier(user, premium=True)
-        total_xp = int(state.get("xp", 0) or 0)
-        max_xp = SEASON_MAX_TIERS * 100
-        pass_status = "ПРЕМИУМ" if premium_open else "БЕСПЛАТНО"
-
-        embed = discord.Embed(
-            title=f"{SEASON_NAME} • {pass_status}",
-            description=(
-                "Сезонный пропуск с ежедневными заданиями, бесплатной и платной веткой наград.\n"
-                f"`{build_progress_bar(total_xp, max_xp, length=12)}` **{total_xp}/{max_xp} XP**"
-            ),
-            color=COLORS["gold"],
-        )
-        embed.add_field(
-            name="Прогресс",
-            value=(
-                f"Уровень: **{unlocked}/{SEASON_MAX_TIERS}**\n"
-                f"До следующего: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
-                f"Статус пропуска: **{pass_status}**"
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="Следующие награды",
-            value=(
-                f"БЕСПЛАТНО: **{reward_text(SEASON_FREE_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**\n"
-                f"ПРЕМИУМ: **{reward_text(SEASON_PREMIUM_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**"
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="Платная ветка",
-            value=(
-                f"Цена открытия: **{format_money(SEASON_PREMIUM_COST)}**\n"
-                "Покупка доступна только через `/shop`."
-            ),
-            inline=False,
-        )
-
-        mission_lines: list[str] = []
-        for mission in state.get("daily_missions", []):
-            marker = "Готово" if mission.get("completed") else "В процессе"
-            mission_lines.append(
-                f"{marker} • {mission.get('description', 'Задание')} "
-                f"({int(mission.get('progress', 0) or 0)}/{int(mission.get('target', 0) or 0)}) "
-                f"+{int(mission.get('xp_reward', 0) or 0)} XP"
-            )
-        embed.add_field(name="Ежедневные задания", value="\n".join(mission_lines) or "Сегодня заданий нет.", inline=False)
-
-        preview_lines: list[str] = []
-        start_tier = min(SEASON_MAX_TIERS, max(1, unlocked + 1 if next_free is None else next_free))
-        for tier in range(start_tier, min(SEASON_MAX_TIERS, start_tier + 4) + 1):
-            free_reward = reward_text(SEASON_FREE_REWARDS[tier - 1])
-            premium_reward = reward_text(SEASON_PREMIUM_REWARDS[tier - 1])
-            preview_lines.append(f"Уровень {tier}: FREE {free_reward} | PREMIUM {premium_reward}")
-        embed.add_field(name="Ближайшие уровни", value="\n".join(preview_lines), inline=False)
-        embed.set_footer(
-            text=(
-                f"Следующая бесплатная награда: {'уровень ' + str(next_free) if next_free else 'всё получено'} | "
-                f"следующая премиум-награда: {'уровень ' + str(next_premium) if next_premium else 'нет доступных'}"
-            )
-        )
-        return embed
-
-        user = await self._get_user()
-        if not user:
-            return discord.Embed(title="Боевой пропуск", description="Не удалось загрузить профиль.", color=COLORS["warning"])
-
-        self._sync_buttons(user)
-        state = ensure_battle_pass_state(user)
-        unlocked = battle_pass_tier(user)
-        tier_progress, tier_total = battle_pass_progress_to_next(user)
-        premium_open = bool(state.get("premium_unlocked"))
-        next_free = self._next_claimable_tier(user, premium=False)
-        next_premium = self._next_claimable_tier(user, premium=True)
-        total_xp = int(state.get("xp", 0) or 0)
-        max_xp = SEASON_MAX_TIERS * 100
-
-        embed = discord.Embed(
-            title=f"{SEASON_NAME} - боевой пропуск",
-            description=(
-                "Бесплатная и платная ветка с ежедневными заданиями, бустами, косметикой и гемами.\n"
-                f"`{build_progress_bar(total_xp, max_xp, length=12)}` **{total_xp}/{max_xp} XP**"
-            ),
-            color=COLORS["gold"],
-        )
-        embed.add_field(
-            name="Прогресс",
-            value=(
-                f"Уровень: **{unlocked}/{SEASON_MAX_TIERS}**\n"
-                f"До следующего: `{build_progress_bar(tier_progress, tier_total)}` **{tier_progress}/{tier_total}**\n"
-                f"Платная ветка: **{'Открыта' if premium_open else 'Закрыта'}**"
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="Следующие награды",
-            value=(
-                f"Бесплатно: **{reward_text(SEASON_FREE_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**\n"
-                f"Платно: **{reward_text(SEASON_PREMIUM_REWARDS[min(max(unlocked, 0), SEASON_MAX_TIERS - 1)])}**"
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="Платная ветка",
-            value=(
-                f"Цена открытия: **{format_money(SEASON_PREMIUM_COST)}**\n"
-                "Покупка доступна только через `/shop`."
-            ),
-            inline=False,
-        )
-
-        mission_lines: list[str] = []
-        for mission in state.get("daily_missions", []):
-            marker = "Выполнено" if mission.get("completed") else "В процессе"
-            mission_lines.append(
-                f"{marker} {mission.get('description', 'Задание')} "
-                f"({int(mission.get('progress', 0) or 0)}/{int(mission.get('target', 0) or 0)}) "
-                f"+{int(mission.get('xp_reward', 0) or 0)} XP"
-            )
-        embed.add_field(name="Ежедневные задания", value="\n".join(mission_lines) or "Сегодня заданий нет.", inline=False)
-
-        preview_lines: list[str] = []
-        start_tier = min(SEASON_MAX_TIERS, max(1, unlocked + 1 if next_free is None else next_free))
-        for tier in range(start_tier, min(SEASON_MAX_TIERS, start_tier + 4) + 1):
-            free_reward = reward_text(SEASON_FREE_REWARDS[tier - 1])
-            premium_reward = reward_text(SEASON_PREMIUM_REWARDS[tier - 1])
-            preview_lines.append(f"Уровень {tier}: бесплатно {free_reward} | платно {premium_reward}")
-        embed.add_field(name="Ближайшие уровни", value="\n".join(preview_lines), inline=False)
-        embed.set_footer(
-            text=(
-                f"Следующая бесплатная награда: {'уровень ' + str(next_free) if next_free else 'всё получено'} | "
-                f"следующая платная: {'уровень ' + str(next_premium) if next_premium else 'нет доступных'}"
-            )
-        )
-        return embed
+        if self.section == "rewards":
+            return self._build_rewards_embed(user)
+        if self.section == "quests":
+            return self._build_quests_embed(user)
+        return self._build_overview_embed(user)
 
     async def _refresh_message(self, interaction: discord.Interaction):
         embed = await self.build_embed()
@@ -1319,7 +1338,31 @@ class BattlePassView(discord.ui.View):
         await self._remember_message(interaction)
         return True
 
-    @discord.ui.button(label="Открыть премиум", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Обзор", style=discord.ButtonStyle.primary, row=0)
+    async def overview_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            self.section = "overview"
+            await self._refresh_message(interaction)
+
+    @discord.ui.button(label="Награды", style=discord.ButtonStyle.secondary, row=0)
+    async def rewards_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            self.section = "rewards"
+            await self._refresh_message(interaction)
+
+    @discord.ui.button(label="🎖️ Квесты", style=discord.ButtonStyle.secondary, row=0)
+    async def quests_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            self.section = "quests"
+            await self._refresh_message(interaction)
+
+    @discord.ui.button(label="Открыть премиум", style=discord.ButtonStyle.success, row=2)
     async def buy_premium_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1331,7 +1374,7 @@ class BattlePassView(discord.ui.View):
                 return
             await view._remember_message(interaction)
 
-    @discord.ui.button(label="Забрать бесплатную", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Забрать FREE", style=discord.ButtonStyle.primary, row=1)
     async def claim_free_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1357,13 +1400,14 @@ class BattlePassView(discord.ui.View):
                         "gems": user.get("gems", 0),
                         "buff_xp_until": user.get("buff_xp_until"),
                         "buff_money_until": user.get("buff_money_until"),
+                        "inventory": user.get("inventory"),
                         "game_stats": user.get("game_stats", {}),
                     },
                 )
             await self._refresh_message(interaction)
             await interaction.followup.send(f"Получена бесплатная награда уровня {tier}: {reward_text(payload)}", ephemeral=True)
 
-    @discord.ui.button(label="Забрать премиум", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Забрать PREMIUM", style=discord.ButtonStyle.primary, row=1)
     async def claim_premium_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -1389,20 +1433,21 @@ class BattlePassView(discord.ui.View):
                         "gems": user.get("gems", 0),
                         "buff_xp_until": user.get("buff_xp_until"),
                         "buff_money_until": user.get("buff_money_until"),
+                        "inventory": user.get("inventory"),
                         "game_stats": user.get("game_stats", {}),
                     },
                 )
             await self._refresh_message(interaction)
             await interaction.followup.send(f"Получена платная награда уровня {tier}: {reward_text(payload)}", ephemeral=True)
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
                 return
             await self._refresh_message(interaction)
 
-    @discord.ui.button(label="Назад в магазин", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Назад в магазин", style=discord.ButtonStyle.secondary, row=3)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             if not await safe_defer(interaction):
@@ -2403,7 +2448,7 @@ class UserCog(commands.Cog, name="User"):
             await send_wrong_channel_message(interaction)
             return
 
-        view = BattlePassView(interaction.user.id, interaction.guild_id)
+        view = BattlePassView(self.bot, interaction.user.id, interaction.guild_id)
         await interaction.response.send_message(embed=await view.build_embed(), view=view)
         view.message = await interaction.original_response()
 
