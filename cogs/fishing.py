@@ -190,7 +190,7 @@ SPECIES_DISPLAY_NAMES = {
 SHOP_PAGE_SIZE = 3
 INVENTORY_FISH_PAGE_SIZE = 6
 INVENTORY_GENERAL_PAGE_SIZE = 5
-WORLD_EVENT_PIN_FOOTER = "Рыболовное ивент-окно"
+WORLD_EVENT_PIN_FOOTER = "Рыболовное событие"
 BAIT_SHOP_ROTATION_HOURS = 2
 BAIT_SHOP_OFFER_COUNT = 6
 BAIT_SHOP_ALWAYS_AVAILABLE = ("worms",)
@@ -892,14 +892,12 @@ class FishingCog(commands.Cog, name="Fishing"):
                 except Exception:
                     pass
 
-    async def _find_matching_world_event_message(self, channel: discord.TextChannel, event_key: str, ended: bool) -> discord.Message | None:
-        target_footer = f"{WORLD_EVENT_PIN_FOOTER}:{event_key}:{'ended' if ended else 'active'}"
+    async def _find_matching_world_event_message(self, channel: discord.TextChannel, title: str) -> discord.Message | None:
         async for message in channel.history(limit=40):
             if message.author.id != self.bot.user.id or not message.embeds:
                 continue
             embed = message.embeds[0]
-            footer_text = embed.footer.text if embed.footer else ""
-            if footer_text == target_footer:
+            if str(embed.title or "") == title:
                 return message
         return None
 
@@ -932,9 +930,9 @@ class FishingCog(commands.Cog, name="Fishing"):
             color=color,
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text=f"{WORLD_EVENT_PIN_FOOTER}:{event['key']}:{'ended' if ended else 'active'}")
+        embed.set_footer(text="Рыболовное событие")
 
-        existing = await self._find_matching_world_event_message(channel, str(event["key"]), ended)
+        existing = await self._find_matching_world_event_message(channel, title)
         if existing is not None:
             await self._pin_message(existing)
             await self._cleanup_old_world_event_pins(channel, keep_message_id=existing.id)

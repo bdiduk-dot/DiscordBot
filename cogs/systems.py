@@ -1909,8 +1909,6 @@ class SystemsCog(commands.Cog, name="Systems"):
             color=event["color"],
             timestamp=datetime.now(timezone.utc),
         )
-        embed.set_footer(text="Следи за /contracts, /blackmarket, /fish, /house и /mybusinesses.")
-
         existing = await self._find_matching_event_message(channel, event)
         if existing is not None:
             await self._pin_message(existing)

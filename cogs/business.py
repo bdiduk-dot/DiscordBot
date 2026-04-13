@@ -970,8 +970,7 @@ class BusinessCog(commands.Cog, name="Business"):
             description=(
                 f"Страница **{page + 1}/{max_page + 1}** • Куплено бизнесов: **{totals['total_owned']}**\n"
                 f"Баланс: **{format_money(balance)}** • Пассив/день: **{format_money(totals['total_income_per_day'])}** • Готово: **{totals['ready_total']}**\n"
-                f"Листай по 5 бизнесов и покупай кнопками ниже.\n"
-                f"Управление купленными бизнесами находится в `/mybusinesses`."
+                f"Листай по 5 бизнесов и покупай кнопками ниже."
             ),
             color=COLORS["purple"],
             timestamp=datetime.now(timezone.utc),
@@ -985,7 +984,7 @@ class BusinessCog(commands.Cog, name="Business"):
                 inline=False,
             )
 
-        embed.set_footer(text="Можно купить только 1 бизнес каждого типа. Управление находится в /mybusinesses.")
+        embed.set_footer(text="Можно купить только 1 бизнес каждого типа.")
         return embed
 
     async def build_owned_businesses_embed(self, user_id: int, guild_id: int, page: int, sync_table: bool = False) -> discord.Embed:
