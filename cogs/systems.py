@@ -970,13 +970,14 @@ class BlackMarketEquipmentView(discord.ui.View):
 
     async def _buy(self, interaction: discord.Interaction, slot: int):
         async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
             success, payload = await self.cog.buy_equipment_offer(self.user_id, self.guild_id, slot)
+            await self._refresh(interaction)
             if isinstance(payload, discord.Embed):
-                await interaction.response.send_message(embed=payload, ephemeral=True)
+                await interaction.followup.send(embed=payload, ephemeral=True)
             else:
-                await interaction.response.send_message(str(payload), ephemeral=True)
-            if success and self.message is not None:
-                await self._refresh(interaction)
+                await interaction.followup.send(str(payload), ephemeral=True)
 
     @discord.ui.button(label="Лот 1", style=discord.ButtonStyle.success, row=0)
     async def buy_1(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1813,7 +1814,7 @@ class SystemsCog(commands.Cog, name="Systems"):
     @staticmethod
     def _equipment_item_type(item_code: str) -> str:
         definition = get_equipment_definition(item_code)
-        category = str((definition or {}).get("category") or "")
+        category = str((definition or {}).get("kind") or (definition or {}).get("category") or "")
         if category == "dive_tank":
             return "dive_tank"
         if category == "dive_gear":
@@ -2454,8 +2455,10 @@ class SystemsCog(commands.Cog, name="Systems"):
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Статус", value=f"`{card.get('status', 'Активно')}`", inline=True)
+        embed.add_field(name="Эффект", value=str(event.get("description") or "Бонусы сервера уже применяются."), inline=False)
         if state != "ended":
             embed.add_field(name="Мир сервера", value="\n".join(build_market_world_lines(snapshot)), inline=False)
+        embed.set_footer(text="Открой /blackmarket, /business или /fish, чтобы увидеть влияние события на экономику.")
         existing = await self._find_matching_event_message(channel, guild.id, event, state=state)
         if existing is not None:
             try:

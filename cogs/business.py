@@ -235,10 +235,14 @@ class BaseBusinessView(discord.ui.View):
         self.page = page
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
+        self._view_version = self.cog.current_view_version(user_id, guild_id)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("Это меню открыто не тобой.", ephemeral=True)
+            return False
+        if self._view_version != self.cog.current_view_version(self.user_id, self.guild_id):
+            await interaction.response.send_message("Это окно уже устарело. Открой `/businesses` или `/mybusinesses`, чтобы получить свежую панель.", ephemeral=True)
             return False
         return True
 
@@ -248,6 +252,7 @@ class BaseBusinessView(discord.ui.View):
                 child.disabled = True
 
     async def _remember_message(self, interaction: discord.Interaction):
+        self._view_version = self.cog.current_view_version(self.user_id, self.guild_id)
         try:
             self.message = await interaction.original_response()
         except Exception:
@@ -352,6 +357,8 @@ class BusinessShopView(BaseBusinessView):
             if not await safe_defer(interaction):
                 return
             success, payload = await self.cog.purchase_business(interaction.user.id, interaction.guild_id, business_id)
+            if success:
+                self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
             await self._refresh_from_interaction(interaction)
 
             if isinstance(payload, discord.Embed):
@@ -459,6 +466,8 @@ class OwnedBusinessesView(BaseBusinessView):
             if not await safe_defer(interaction):
                 return
             success, payload = await self.cog.collect_business_income(interaction.user.id, interaction.guild_id)
+            if success:
+                self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
             await self._refresh_from_interaction(interaction)
             if isinstance(payload, discord.Embed):
                 await interaction.followup.send(embed=payload, ephemeral=True)
@@ -701,6 +710,8 @@ class AutoCollectView(BaseBusinessView):
                 await interaction.followup.send("Сначала купи апгрейд автосбора в `/shop`.", ephemeral=True)
                 return
             collected, payload = await self.cog.collect_business_income(self.user_id, self.guild_id)
+            if collected:
+                self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
             await self.cog.update_autocollect_state(
                 self.user_id,
                 self.guild_id,
@@ -737,6 +748,20 @@ class AutoCollectView(BaseBusinessView):
 class BusinessCog(commands.Cog, name="Business"):
     def __init__(self, bot):
         self.bot = bot
+        self._view_versions: dict[tuple[int, int], int] = {}
+
+    @staticmethod
+    def _view_key(user_id: int, guild_id: int) -> tuple[int, int]:
+        return int(user_id), int(guild_id)
+
+    def current_view_version(self, user_id: int, guild_id: int) -> int:
+        return self._view_versions.get(self._view_key(user_id, guild_id), 0)
+
+    def bump_view_version(self, user_id: int, guild_id: int) -> int:
+        key = self._view_key(user_id, guild_id)
+        next_version = self._view_versions.get(key, 0) + 1
+        self._view_versions[key] = next_version
+        return next_version
 
     async def cog_load(self):
         if not self.autocollect_loop.is_running():
@@ -1182,6 +1207,11 @@ class BusinessCog(commands.Cog, name="Business"):
             user["businesses"] = normalized_businesses
             await db.update_user(user_id, guild_id, user)
             await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
+            confirmed_user = await db.get_user(user_id, guild_id)
+            confirmed_businesses = (confirmed_user or {}).get("businesses", {}) if isinstance(confirmed_user, dict) else {}
+            if not isinstance(confirmed_businesses, dict) or not confirmed_businesses.get(str(business_id)):
+                return False, "Покупка не сохранилась в профиле. Попробуй ещё раз."
+            user = confirmed_user
 
         asyncio.create_task(check_quest_progress(user_id, guild_id, "business", 1))
 
@@ -1274,6 +1304,10 @@ class BusinessCog(commands.Cog, name="Business"):
             user["quest_progress"]["collect_business"] = user["quest_progress"].get("collect_business", 0) + collected_instances
             await db.update_user(user_id, guild_id, user)
             await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
+            confirmed_user = await db.get_user(user_id, guild_id)
+            if not isinstance(confirmed_user, dict):
+                return False, "Не удалось подтвердить сбор дохода. Попробуй ещё раз."
+            user = confirmed_user
             if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
                 easter_lines.extend(await easter_cog.apply_server_progress(guild_id, int(easter_payload.get("server_points", 0) or 0)))
 

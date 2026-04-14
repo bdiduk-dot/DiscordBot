@@ -400,12 +400,16 @@ class HouseV2View(discord.ui.View):
         self.selected_gpu = selected_gpu if selected_gpu in GPU_MODELS else GPU_ORDER[0]
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
+        self._view_version = self.cog.current_view_version(user_id, guild_id)
         self._build_static_tabs()
         self._build_tab_controls()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("Это не твой экран дома.", ephemeral=True)
+            return False
+        if self._view_version != self.cog.current_view_version(self.user_id, self.guild_id):
+            await interaction.response.send_message("Это окно уже устарело. Открой `/house`, чтобы получить свежий экран.", ephemeral=True)
             return False
         return True
 
@@ -710,6 +714,8 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.install_stored_gpu(self.user_id, self.guild_id, self.selected_gpu)
+                if payload[0]:
+                    self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
                 await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
                 await self._send_payload(interaction, payload[1])
 
@@ -718,6 +724,8 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.store_gpu(self.user_id, self.guild_id, self.selected_gpu)
+                if payload[0]:
+                    self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
                 await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
                 await self._send_payload(interaction, payload[1])
 
@@ -726,6 +734,8 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.sell_owned_gpu(self.user_id, self.guild_id, self.selected_gpu)
+                if payload[0]:
+                    self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
                 await self._swap(interaction, crypto_section="gpus", selected_gpu=self.selected_gpu)
                 await self._send_payload(interaction, payload[1])
 
@@ -812,6 +822,8 @@ class HouseV2View(discord.ui.View):
                 if not await safe_defer(interaction):
                     return
                 payload = await self.cog.collect_rent(self.user_id, self.guild_id)
+                if payload[0]:
+                    self._view_version = self.cog.bump_view_version(self.user_id, self.guild_id)
                 await self._swap(interaction)
                 await self._send_payload(interaction, payload[1])
 
@@ -893,6 +905,20 @@ class HouseV2View(discord.ui.View):
 class HouseCommandsCog(commands.Cog, name="HouseUI"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._view_versions: dict[tuple[int, int], int] = {}
+
+    @staticmethod
+    def _view_key(user_id: int, guild_id: int) -> tuple[int, int]:
+        return int(user_id), int(guild_id)
+
+    def current_view_version(self, user_id: int, guild_id: int) -> int:
+        return self._view_versions.get(self._view_key(user_id, guild_id), 0)
+
+    def bump_view_version(self, user_id: int, guild_id: int) -> int:
+        key = self._view_key(user_id, guild_id)
+        next_version = self._view_versions.get(key, 0) + 1
+        self._view_versions[key] = next_version
+        return next_version
 
     def _house_core(self):
         return self.bot.get_cog("House")

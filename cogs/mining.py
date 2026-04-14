@@ -1651,6 +1651,11 @@ class HouseCog(commands.Cog, name="House"):
             if gpu_entry is None:
                 return False, f"У тебя не установлена **{GPU_MODELS[gpu_id]['name']}**."
             installed.pop(store_index)
+            before_total = sum(
+                1
+                for entry in list(house_state.get("stored_gpus", [])) + list(house_state.get("installed_gpus", []))
+                if _gpu_entry_id(entry) == gpu_id
+            )
             stored = list(house_state.get("stored_gpus", []))
             stored.append(gpu_entry)
             house_state["installed_gpus"] = installed
@@ -1735,6 +1740,16 @@ class HouseCog(commands.Cog, name="House"):
 
             user["balance"] = int(user.get("balance", 0) or 0) + resale_value
             await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+            confirmed_user = await db.get_user(user_id, guild_id)
+            confirmed_house = _house_state(confirmed_user) if isinstance(confirmed_user, dict) else {}
+            after_total = sum(
+                1
+                for entry in list(confirmed_house.get("stored_gpus", [])) + list(confirmed_house.get("installed_gpus", []))
+                if _gpu_entry_id(entry) == gpu_id
+            )
+            if not isinstance(confirmed_user, dict) or after_total >= before_total:
+                return False, "Продажа видеокарты не сохранилась. Попробуй ещё раз."
+            user = confirmed_user
 
         gpu = GPU_MODELS[gpu_id]
         embed = discord.Embed(
@@ -1845,6 +1860,9 @@ class HouseCog(commands.Cog, name="House"):
             accepted_state["tenant_names"].append(offer["tenant_name"])
             house_state["accepted_offers"] = accepted_state
             await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+            house_ui_cog = self.bot.get_cog("HouseUI")
+            if house_ui_cog is not None and hasattr(house_ui_cog, "bump_view_version"):
+                house_ui_cog.bump_view_version(user_id, guild_id)
 
         embed = discord.Embed(
             title="🛎 Аренда оформлена",
@@ -1869,6 +1887,9 @@ class HouseCog(commands.Cog, name="House"):
             house_state["active_rentals"] = [rental for rental in house_state.get("active_rentals", []) if rental.get("id") not in ready_ids]
             user["balance"] = int(user.get("balance", 0) or 0) + total_value
             await db.update_user(user_id, guild_id, {"balance": user["balance"], "game_stats": user.get("game_stats", {})})
+            house_ui_cog = self.bot.get_cog("HouseUI")
+            if house_ui_cog is not None and hasattr(house_ui_cog, "bump_view_version"):
+                house_ui_cog.bump_view_version(user_id, guild_id)
 
         await check_quest_progress(user_id, guild_id, "rent", len(ready_rentals))
         asyncio.create_task(

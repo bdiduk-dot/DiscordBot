@@ -393,6 +393,55 @@ def _fishing_state(user: dict[str, Any]) -> dict[str, Any]:
     return fishing
 
 
+def _normalize_fishing_preferences(fishing: dict[str, Any]) -> bool:
+    changed = False
+    unlocked_zones = [
+        zone_key
+        for zone_key in fishing.get("unlocked_zones", [])
+        if zone_key in FISHING_ZONES and zone_key != EASTER_POND_ZONE_KEY
+    ] or ["river_bank"]
+    if fishing.get("unlocked_zones") != unlocked_zones:
+        fishing["unlocked_zones"] = unlocked_zones
+        changed = True
+
+    selected_zone = str(fishing.get("selected_zone", "river_bank") or "river_bank")
+    if (
+        selected_zone not in FISHING_ZONES
+        or selected_zone == EASTER_POND_ZONE_KEY
+        or (selected_zone != "river_bank" and selected_zone not in set(unlocked_zones))
+    ):
+        fishing["selected_zone"] = "river_bank"
+        changed = True
+
+    bait_stock = _normalize_bait_stock(fishing.get("bait_stock"))
+    if fishing.get("bait_stock") != bait_stock:
+        fishing["bait_stock"] = bait_stock
+        changed = True
+
+    bait_aliases = {
+        "easter_festive": "festive",
+        "easter_glow": "glow",
+    }
+    equipped_bait = fishing.get("equipped_bait")
+    if equipped_bait in {"", "none"}:
+        equipped_bait = None
+    if isinstance(equipped_bait, str):
+        normalized_bait = bait_aliases.get(equipped_bait, equipped_bait)
+        if normalized_bait != equipped_bait:
+            equipped_bait = normalized_bait
+            changed = True
+    if equipped_bait is not None:
+        bait_key = str(equipped_bait)
+        if bait_key not in FISHING_BAITS or int(bait_stock.get(bait_key, 0) or 0) <= 0:
+            equipped_bait = None
+            changed = True
+    if fishing.get("equipped_bait") != equipped_bait:
+        fishing["equipped_bait"] = equipped_bait
+        changed = True
+
+    return changed
+
+
 def _rod_description(rod_key: str) -> str:
     return FISHING_ROD_DESCRIPTIONS.get(rod_key, "Надёжная удочка для уверенной рыбалки.")
 
@@ -978,11 +1027,11 @@ class FishingCog(commands.Cog, name="Fishing"):
         next_window = next_event_window()
         if ended:
             title = f"Ивент завершён • {event['name']}"
-            description = "Окно рыбалки закончилось. Эффект события больше не действует."
+            description = "Рыболовное окно закрылось. Бонусы события больше не влияют на споты, цены и редкость улова."
             color = COLORS["warning"]
         else:
             title = f"Ивент • {event['name']}"
-            description = "Глобальное окно для рыбалки обновилось. В это время редкости, цены или споты могут вести себя иначе."
+            description = "На сервере открылось особое рыболовное окно. Во время него клёв, редкость и стоимость улова могут меняться заметнее обычного."
             color = COLORS["info"]
 
         embed = discord.Embed(
@@ -1009,6 +1058,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                     value=f"**{next_window.get('name', 'неизвестно')}** • {format_discord_deadline(start_at.astimezone(timezone.utc))}",
                     inline=False,
                 )
+        embed.set_footer(text="Открой /fish, чтобы проверить текущий спот, наживку и бонусы окна.")
 
         existing = await self._find_matching_world_event_message(channel, title)
         if existing is not None:
@@ -1137,8 +1187,25 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return
             await asyncio.sleep(0.45 + index * 0.15)
 
+    async def _load_normalized_fishing_user(
+        self,
+        user_id: int,
+        guild_id: int,
+        *,
+        persist: bool = True,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        async with get_user_lock(user_id):
+            user = await db.get_user(user_id, guild_id)
+            if not user:
+                return None, None
+            fishing = _fishing_state(user)
+            changed = _normalize_fishing_preferences(fishing)
+            if changed and persist:
+                await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+            return user, fishing
+
     async def get_fishing_profile(self, user_id: int, guild_id: int) -> dict[str, Any]:
-        user = await db.get_user(user_id, guild_id)
+        user, state = await self._load_normalized_fishing_user(user_id, guild_id)
         if not user:
             return {
                 "fishing_rod": "none",
@@ -1152,7 +1219,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 "total_catches": 0,
                 "last_catch": None,
             }
-        state = _fishing_state(user)
+        assert state is not None
         state["fishing_rod"] = user.get("fishing_rod", "none")
         return state
 
@@ -1378,7 +1445,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             return True, discord.Embed(title="Спот открыт", description=f"Открыт и выбран **{_display_zone_name(item_key)}**.", color=COLORS["success"])
 
     async def build_fishshop_embed_v2(self, user_id: int, guild_id: int, active_tab: str = "rods", page: int = 0) -> discord.Embed:
-        user = await db.get_user(user_id, guild_id)
+        user, fishing = await self._load_normalized_fishing_user(user_id, guild_id)
         if not user:
             return discord.Embed(title="Рыболовный магазин", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
@@ -1465,7 +1532,6 @@ class FishingCog(commands.Cog, name="Fishing"):
         if not user:
             return discord.Embed(title="Рыбалка", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
-        fishing = _fishing_state(user)
         current_rod = str(user.get("fishing_rod", "none") or "none")
         bait_key = fishing.get("equipped_bait")
         zone_key = str(fishing.get("selected_zone", "river_bank") or "river_bank")
@@ -1526,6 +1592,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return False, "Не удалось загрузить профиль."
 
             fishing = _fishing_state(user)
+            _normalize_fishing_preferences(fishing)
             current_rod = str(user.get("fishing_rod", "none") or "none")
             rod = FISHING_RODS.get(current_rod, FISHING_RODS["none"])
             now = datetime.now(timezone.utc)
@@ -1784,7 +1851,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         view.message = await interaction.original_response()
 
     async def _inventory_snapshot(self, user_id: int, guild_id: int) -> tuple[dict[str, Any] | None, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
-        user = await db.get_user(user_id, guild_id)
+        user, fishing = await self._load_normalized_fishing_user(user_id, guild_id)
         if not user:
             return None, {}, {}, [], []
         migrated_decor = migrate_legacy_easter_decor_inventory(user)
@@ -1798,7 +1865,6 @@ class FishingCog(commands.Cog, name="Fishing"):
                     "game_stats": user.get("game_stats", {}),
                 },
             )
-        fishing = _fishing_state(user)
         inventory = _inventory_state(user)
         fish_items = sorted(get_fish_items(user), key=lambda item: int(item.get("id", 0) or 0), reverse=True)
         general_items = sorted(get_general_items(user), key=lambda item: int(item.get("id", 0) or 0), reverse=True)
@@ -1864,7 +1930,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 else:
                     empty_text += " Покупай кейсы, чёрный рынок и специальные предметы."
                 embed.add_field(name="Хранилище", value=empty_text, inline=False)
-                embed.set_footer(text="Использование предметов по ID доступно только на этой вкладке.")
+                embed.set_footer(text="Выбирай предмет прямо в меню ниже. Урожай вынесен во вкладку `Урожай`.")
                 return embed
 
             start = page * INVENTORY_GENERAL_PAGE_SIZE
@@ -1886,7 +1952,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             if archived_general_items:
                 embed.add_field(name=EASTER_ARCHIVE_CATEGORY, value="\n".join(archive_summary_lines(archived_general_items)), inline=False)
             general_max_page = max(0, (len(active_general_items) - 1) // INVENTORY_GENERAL_PAGE_SIZE) if active_general_items else 0
-            embed.set_footer(text=f"Страница {page + 1}/{general_max_page + 1}. Использование предметов по ID доступно только для активных предметов. Урожай вынесен во вкладку `Урожай`.")
+            embed.set_footer(text=f"Страница {page + 1}/{general_max_page + 1}. Выбирай предмет в выпадающем меню и запускай действие кнопкой ниже. Урожай вынесен во вкладку `Урожай`.")
             return embed
 
         if tab == "harvest":
@@ -2239,6 +2305,29 @@ class FishingCog(commands.Cog, name="Fishing"):
             return False, (
                 "Это архивный предмет Easter 2026. Ивент уже завершён: яйца автоматически обменяны, "
                 "памятные трофеи остаются в инвентаре, а оставшиеся пасхальные предметы больше не активируются вручную."
+            )
+
+        if item_type in {"dive_tank", "dive_gear", "dig_tool"}:
+            item_name = str(preview_item.get("name") or "Снаряжение")
+            if item_type == "dive_tank":
+                description = (
+                    f"**{item_name}** готов к погружению.\n"
+                    "Он не тратится вручную в инвентаре и списывается только при старте `/dive`."
+                )
+            elif item_type == "dive_gear":
+                description = (
+                    f"**{item_name}** уже учитывается для погружений.\n"
+                    "Достаточно запустить `/dive` — команда сама увидит это снаряжение."
+                )
+            else:
+                description = (
+                    f"**{item_name}** привязан к раскопкам.\n"
+                    "Расходный набор спишется только при старте `/dig`, а постоянный инструмент просто учитывается командой."
+                )
+            return True, discord.Embed(
+                title="Снаряжение готово",
+                description=description,
+                color=COLORS["info"],
             )
 
         if item_type not in {
@@ -2728,6 +2817,7 @@ class InventoryView(discord.ui.View):
         self.guild_id = guild_id
         self.active_tab = "general"
         self.page = 0
+        self.selected_general_item_id: int | None = None
         self.message: discord.Message | None = None
         self._view_lock = asyncio.Lock()
         self._build_items()
@@ -2810,8 +2900,18 @@ class InventoryView(discord.ui.View):
         self.next_btn = discord.ui.Button(label="Дальше", style=discord.ButtonStyle.secondary, row=4)
         self.next_btn.callback = self._on_next
 
+        self.general_select = discord.ui.Select(
+            placeholder="Выбери предмет",
+            row=1,
+            options=[discord.SelectOption(label="Нет предметов", value="item:none", default=True)],
+        )
+        self.general_select.callback = self._on_general_item_select
+        self.use_id_btn.row = 2
+        self.use_id_btn.label = "Использовать"
+
         self._static_items = (self.general_btn, self.fish_btn, self.harvest_btn, self.gear_btn)
         self._dynamic_items = (
+            self.general_select,
             self.use_id_btn,
             self.sell_harvest_btn,
             self.sell_all_btn,
@@ -2856,6 +2956,42 @@ class InventoryView(discord.ui.View):
             return str(values[0])
         return None
 
+    @staticmethod
+    def _parse_general_item_value(value: str | None) -> int | None:
+        if not value or not value.startswith("item:"):
+            return None
+        try:
+            return int(value.split(":", 1)[1])
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _general_item_action_config(item: dict[str, Any] | None) -> tuple[str, discord.ButtonStyle, bool]:
+        if not item:
+            return "Выбери предмет", discord.ButtonStyle.secondary, True
+        item_type = str(item.get("item_type") or "")
+        if item_type == "case":
+            return "Открыть кейс", discord.ButtonStyle.success, False
+        if item_type in {
+            "bait_bundle",
+            "shield_card",
+            "cash_bundle",
+            "house_wallet_cache",
+            "crypto_cache",
+            "cosmetic_pack",
+            "home_furniture",
+            "event_pass",
+            "event_chest",
+        }:
+            return "Использовать", discord.ButtonStyle.success, False
+        if item_type == "event_trophy":
+            return "Осмотреть", discord.ButtonStyle.secondary, False
+        if item_type in {"dive_tank", "dive_gear"}:
+            return "К /dive", discord.ButtonStyle.primary, False
+        if item_type == "dig_tool":
+            return "К /dig", discord.ButtonStyle.primary, False
+        return "Недоступно", discord.ButtonStyle.secondary, True
+
     def sync_buttons(self, user: dict[str, Any] | None, fish_items: list[dict[str, Any]], general_items: list[dict[str, Any]]):
         self.general_btn.style = discord.ButtonStyle.primary if self.active_tab == "general" else discord.ButtonStyle.secondary
         self.fish_btn.style = discord.ButtonStyle.primary if self.active_tab == "fish" else discord.ButtonStyle.secondary
@@ -2894,6 +3030,54 @@ class InventoryView(discord.ui.View):
         self.page = min(self.page, max_page)
         self.prev_btn.disabled = self.page <= 0
         self.next_btn.disabled = self.page >= max_page
+
+        general_start = self.page * INVENTORY_GENERAL_PAGE_SIZE
+        general_visible = regular_general_items[general_start:general_start + INVENTORY_GENERAL_PAGE_SIZE]
+        general_selected: dict[str, Any] | None = None
+        if general_visible:
+            general_selected = next(
+                (
+                    item for item in general_visible
+                    if int(item.get("id", 0) or 0) == self.selected_general_item_id
+                ),
+                None,
+            )
+            if general_selected is None:
+                general_selected = general_visible[0]
+            self.selected_general_item_id = int(general_selected.get("id", 0) or 0)
+            general_options: list[discord.SelectOption] = []
+            for item in general_visible:
+                item_id = int(item.get("id", 0) or 0)
+                item_type = str(item.get("item_type") or "")
+                quantity = int(item.get("quantity", 1) or 1)
+                if item_type == "case":
+                    description = f"Кейс • x{quantity}"
+                elif item_type in {"dive_tank", "dive_gear"}:
+                    description = f"Для /dive • x{quantity}"
+                elif item_type == "dig_tool":
+                    description = f"Для /dig • x{quantity}"
+                else:
+                    description = f"x{quantity} • {item_type or 'предмет'}"
+                general_options.append(
+                    discord.SelectOption(
+                        label=str(item.get("name") or f"Item #{item_id}")[:100],
+                        value=f"item:{item_id}",
+                        default=item_id == self.selected_general_item_id,
+                        description=description[:100],
+                        emoji=str(item.get("emoji") or "") or None,
+                    )
+                )
+            self.general_select.options = general_options[:25]
+            self.general_select.disabled = False
+        else:
+            self.selected_general_item_id = None
+            self.general_select.options = [discord.SelectOption(label="Нет предметов", value="item:none", default=True)]
+            self.general_select.disabled = True
+
+        action_label, action_style, action_disabled = self._general_item_action_config(general_selected)
+        self.use_id_btn.label = action_label
+        self.use_id_btn.style = action_style
+        self.use_id_btn.disabled = action_disabled
 
         current_rod = str(user.get("fishing_rod", "none") or "none") if user else "none"
         current_tackle = str(fishing.get("equipped_tackle", "starter") or "starter")
@@ -2994,6 +3178,7 @@ class InventoryView(discord.ui.View):
             return
 
         if self.active_tab == "general":
+            self._toggle_item(self.general_select, True)
             self._toggle_item(self.use_id_btn, True)
             self._toggle_item(self.prev_btn, True)
             self._toggle_item(self.refresh_btn, True)
@@ -3101,7 +3286,34 @@ class InventoryView(discord.ui.View):
         if self.active_tab != "general":
             await interaction.response.send_message("Использование предметов по ID доступно только во вкладке Общее.", ephemeral=True)
             return
-        await interaction.response.send_modal(InventoryIdModal(self, "use"))
+        if self.selected_general_item_id is None:
+            await interaction.response.send_message("Сначала выбери предмет из списка.", ephemeral=True)
+            return
+        async with self._view_lock:
+            if not await safe_defer(interaction):
+                return
+            success, payload = await self.cog.use_inventory_general_item(
+                interaction,
+                self.user_id,
+                self.guild_id,
+                self.selected_general_item_id,
+            )
+            await self.refresh(interaction)
+            await self._send_payload(interaction, payload)
+            if not success and payload is None:
+                await interaction.followup.send("Не удалось выполнить действие с предметом.", ephemeral=True)
+
+    async def _on_general_item_select(self, interaction: discord.Interaction):
+        async with self._view_lock:
+            if self.active_tab != "general":
+                await interaction.response.send_message("Выбор предмета доступен только во вкладке `Общее`.", ephemeral=True)
+                return
+            item_id = self._parse_general_item_value(self._selected_value(interaction, self.general_select))
+            if item_id is None:
+                await interaction.response.send_message("Не удалось прочитать выбранный предмет. Попробуй ещё раз.", ephemeral=True)
+                return
+            self.selected_general_item_id = item_id
+            await self._edit_live_message(interaction)
 
     async def _on_sell_harvest(self, interaction: discord.Interaction):
         async with self._view_lock:
