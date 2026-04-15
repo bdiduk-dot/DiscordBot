@@ -444,7 +444,17 @@ class CrimeChoiceView(discord.ui.View):
             )
             easter_lines = list(easter_payload["lines"])
             user["last_crime"] = now.isoformat()
-            await db.update_user(self.user_id, self.guild_id, user)
+            await db.update_user(
+                self.user_id,
+                self.guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "gems": user.get("gems", 0),
+                    "last_crime": user.get("last_crime"),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
             if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
                 easter_lines.extend(await easter_cog.apply_server_progress(self.guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
@@ -850,7 +860,16 @@ class EconomyCog(commands.Cog, name="Economy"):
             )
             easter_lines = list(easter_payload["lines"])
             user["last_work"] = now.isoformat()
-            await db.update_user(user_id, guild_id, user)
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "last_work": user.get("last_work"),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
             if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
                 easter_lines.extend(await easter_cog.apply_server_progress(guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
@@ -1409,7 +1428,18 @@ class EconomyCog(commands.Cog, name="Economy"):
             )
             easter_lines = list(easter_payload["lines"])
             user["last_daily"] = now.isoformat()
-            await db.update_user(interaction.user.id, interaction.guild_id, user)
+            await db.update_user(
+                interaction.user.id,
+                interaction.guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "gems": user.get("gems", 0),
+                    "daily_streak": user.get("daily_streak", 1),
+                    "last_daily": user.get("last_daily"),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
             if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
                 easter_lines.extend(await easter_cog.apply_server_progress(interaction.guild_id, int(easter_payload.get("server_points", 0) or 0)))
 
@@ -1617,7 +1647,16 @@ class EconomyCog(commands.Cog, name="Economy"):
             )
             easter_lines = list(easter_payload["lines"])
             user["last_slut"] = now.isoformat()
-            await db.update_user(interaction.user.id, interaction.guild_id, user)
+            await db.update_user(
+                interaction.user.id,
+                interaction.guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "last_slut": user.get("last_slut"),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
             if easter_cog and int(easter_payload.get("server_points", 0) or 0) > 0:
                 easter_lines.extend(await easter_cog.apply_server_progress(interaction.guild_id, int(easter_payload.get("server_points", 0) or 0)))
             asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "slut", 1))
@@ -1687,7 +1726,15 @@ class EconomyCog(commands.Cog, name="Economy"):
             user["balance"] += bonus
             user["gems"] += gems
             user["last_hourly"] = now.isoformat()
-            await db.update_user(interaction.user.id, interaction.guild_id, user)
+            await db.update_user(
+                interaction.user.id,
+                interaction.guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "gems": user.get("gems", 0),
+                    "last_hourly": user.get("last_hourly"),
+                },
+            )
 
         asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "hourly", 1))
         asyncio.create_task(check_quest_progress(interaction.user.id, interaction.guild_id, "earn", bonus))

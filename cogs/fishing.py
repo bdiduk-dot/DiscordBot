@@ -464,6 +464,18 @@ def _display_zone_name(zone_key: str) -> str:
     return ZONE_DISPLAY_NAMES.get(zone_key, FISHING_ZONES.get(zone_key, {}).get("name", "Спот"))
 
 
+def _legacy_inventory_item_type(item_type: str, code: str) -> str:
+    if item_type != "equipment_item":
+        return item_type
+    if code in {"scuba_basic", "scuba_reinforced", "scuba_titan"}:
+        return "dive_tank"
+    if code == "abyss_lamp":
+        return "dive_gear"
+    if code in {"excavation_kit", "signal_scanner"}:
+        return "dig_tool"
+    return item_type
+
+
 def _shop_visible_zone_items() -> list[tuple[str, dict[str, Any]]]:
     return [
         (key, value)
@@ -1288,6 +1300,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return False, "Не удалось загрузить профиль."
 
             fishing = _fishing_state(user)
+            _normalize_fishing_preferences(fishing)
             bait_stock = fishing.get("bait_stock", {})
             if bait_key in (None, "none"):
                 fishing["equipped_bait"] = None
@@ -1322,6 +1335,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return False, "Не удалось загрузить профиль."
 
             fishing = _fishing_state(user)
+            _normalize_fishing_preferences(fishing)
             unlocked_zones = set(fishing.get("unlocked_zones", ["river_bank"]))
             if zone_key not in FISHING_ZONES:
                 return False, "Такого спота нет."
@@ -1449,7 +1463,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         if not user:
             return discord.Embed(title="Рыболовный магазин", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
-        fishing = _fishing_state(user)
+        assert fishing is not None
         current_rod = user.get("fishing_rod", "none")
         equipped_tackle = fishing.get("equipped_tackle", "starter")
         equipped_bait = fishing.get("equipped_bait")
@@ -1528,10 +1542,11 @@ class FishingCog(commands.Cog, name="Fishing"):
         return embed
 
     async def build_fishing_menu_embed(self, user_id: int, guild_id: int) -> discord.Embed:
-        user = await db.get_user(user_id, guild_id)
+        user, fishing = await self._load_normalized_fishing_user(user_id, guild_id)
         if not user:
             return discord.Embed(title="Рыбалка", description="Не удалось загрузить профиль.", color=COLORS["warning"])
 
+        assert fishing is not None
         current_rod = str(user.get("fishing_rod", "none") or "none")
         bait_key = fishing.get("equipped_bait")
         zone_key = str(fishing.get("selected_zone", "river_bank") or "river_bank")
@@ -1769,10 +1784,10 @@ class FishingCog(commands.Cog, name="Fishing"):
             return True, discord.Embed(title="Зона открыта", description=f"Открыта и активирована зона **{zone['name']}**.", color=COLORS["success"])
 
     async def build_fishshop_embed(self, user_id: int, guild_id: int, active_tab: str = "rods", page: int = 0) -> discord.Embed:
-        user = await db.get_user(user_id, guild_id)
+        user, fishing = await self._load_normalized_fishing_user(user_id, guild_id)
         if not user:
             return discord.Embed(title="🎣 Рыболовный магазин", description="Не удалось загрузить профиль.", color=COLORS["warning"])
-        fishing = _fishing_state(user)
+        assert fishing is not None
         current_rod = user.get("fishing_rod", "none")
         equipped_tackle = fishing.get("equipped_tackle", "starter")
         equipped_bait = fishing.get("equipped_bait")
@@ -2237,7 +2252,10 @@ class FishingCog(commands.Cog, name="Fishing"):
         if preview_item is None:
             return False, "Предмет с таким ID не найден."
 
-        item_type = str(preview_item.get("item_type") or "")
+        item_type = _legacy_inventory_item_type(
+            str(preview_item.get("item_type") or ""),
+            str(preview_item.get("code") or ""),
+        )
         if item_type == "case":
             success, message = await open_case_from_inventory(
                 interaction,
@@ -2472,6 +2490,9 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return False, "Не удалось загрузить профиль."
 
             fishing = _fishing_state(user)
+            normalized = _normalize_fishing_preferences(fishing)
+            if normalized:
+                await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
             current_rod = str(user.get("fishing_rod", "none") or "none")
             rod = FISHING_RODS.get(current_rod, FISHING_RODS["none"])
             now = datetime.now(timezone.utc)
@@ -2969,7 +2990,10 @@ class InventoryView(discord.ui.View):
     def _general_item_action_config(item: dict[str, Any] | None) -> tuple[str, discord.ButtonStyle, bool]:
         if not item:
             return "Выбери предмет", discord.ButtonStyle.secondary, True
-        item_type = str(item.get("item_type") or "")
+        item_type = _legacy_inventory_item_type(
+            str(item.get("item_type") or ""),
+            str(item.get("code") or ""),
+        )
         if item_type == "case":
             return "Открыть кейс", discord.ButtonStyle.success, False
         if item_type in {

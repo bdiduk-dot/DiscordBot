@@ -1205,7 +1205,14 @@ class BusinessCog(commands.Cog, name="Business"):
             user["balance"] -= business["cost"]
             normalized_businesses.setdefault(str(business_id), []).append(create_business_instance(now))
             user["businesses"] = normalized_businesses
-            await db.update_user(user_id, guild_id, user)
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "businesses": normalized_businesses,
+                },
+            )
             await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
             confirmed_user = await db.get_user(user_id, guild_id)
             confirmed_businesses = (confirmed_user or {}).get("businesses", {}) if isinstance(confirmed_user, dict) else {}
@@ -1302,7 +1309,17 @@ class BusinessCog(commands.Cog, name="Business"):
             easter_lines = list(easter_payload["lines"])
             user.setdefault("quest_progress", {})
             user["quest_progress"]["collect_business"] = user["quest_progress"].get("collect_business", 0) + collected_instances
-            await db.update_user(user_id, guild_id, user)
+            await db.update_user(
+                user_id,
+                guild_id,
+                {
+                    "balance": user.get("balance", 0),
+                    "businesses": normalized_businesses,
+                    "quest_progress": user.get("quest_progress", {}),
+                    "inventory": user.get("inventory"),
+                    "game_stats": user.get("game_stats", {}),
+                },
+            )
             await db.sync_server_businesses(user_id, guild_id, normalized_businesses)
             confirmed_user = await db.get_user(user_id, guild_id)
             if not isinstance(confirmed_user, dict):

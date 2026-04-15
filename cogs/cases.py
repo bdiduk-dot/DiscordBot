@@ -123,9 +123,23 @@ def apply_prize_to_user(user: dict, prize: dict, *, now: datetime | None = None)
 
 
 async def apply_prize(user_id: int, guild_id: int, prize: dict):
-    user = await db.get_user(user_id, guild_id)
-    apply_prize_to_user(user, prize)
-    await db.update_user(user_id, guild_id, user)
+    async with get_user_lock(user_id):
+        user = await db.get_user(user_id, guild_id)
+        if not user:
+            return
+        apply_prize_to_user(user, prize)
+        await db.update_user(
+            user_id,
+            guild_id,
+            {
+                "balance": user.get("balance", 0),
+                "gems": user.get("gems", 0),
+                "vip_level": user.get("vip_level", 0),
+                "buff_xp_until": user.get("buff_xp_until"),
+                "buff_money_until": user.get("buff_money_until"),
+                "temp_vip_until": user.get("temp_vip_until"),
+            },
+        )
 
 
 def roll_case_prize(case_id: str) -> dict:
@@ -603,31 +617,42 @@ class CasesCog(commands.Cog, name="Кейсы"):
             await send_wrong_channel_message(interaction)
             return
 
-        user = await db.get_user(interaction.user.id, interaction.guild_id)
-        now = datetime.now(timezone.utc)
-        now_kyiv = now.astimezone(KYIV_TZ)
-
-        if user.get('last_wheel'):
-            try:
-                last_spin = datetime.fromisoformat(user['last_wheel'])
-                if last_spin.tzinfo is None:
-                    last_spin = last_spin.replace(tzinfo=timezone.utc)
-                else:
-                    last_spin = last_spin.astimezone(timezone.utc)
-            except ValueError:
-                last_spin = None
-
-            if last_spin and last_spin.astimezone(KYIV_TZ).date() == now_kyiv.date():
-                next_spin = datetime.combine(
-                    now_kyiv.date() + timedelta(days=1),
-                    datetime.min.time(),
-                    tzinfo=KYIV_TZ,
-                )
-                await interaction.response.send_message(
-                    embed=build_wheel_cooldown_embed(next_spin),
-                    ephemeral=True,
-                )
+        async with get_user_lock(interaction.user.id):
+            user = await db.get_user(interaction.user.id, interaction.guild_id)
+            if not user:
+                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
                 return
+            now = datetime.now(timezone.utc)
+            now_kyiv = now.astimezone(KYIV_TZ)
+
+            if user.get('last_wheel'):
+                try:
+                    last_spin = datetime.fromisoformat(user['last_wheel'])
+                    if last_spin.tzinfo is None:
+                        last_spin = last_spin.replace(tzinfo=timezone.utc)
+                    else:
+                        last_spin = last_spin.astimezone(timezone.utc)
+                except ValueError:
+                    last_spin = None
+
+                if last_spin and last_spin.astimezone(KYIV_TZ).date() == now_kyiv.date():
+                    next_spin = datetime.combine(
+                        now_kyiv.date() + timedelta(days=1),
+                        datetime.min.time(),
+                        tzinfo=KYIV_TZ,
+                    )
+                    await interaction.response.send_message(
+                        embed=build_wheel_cooldown_embed(next_spin),
+                        ephemeral=True,
+                    )
+                    return
+
+            user['last_wheel'] = now.isoformat()
+            await db.update_user(
+                interaction.user.id,
+                interaction.guild_id,
+                {"last_wheel": user.get("last_wheel")},
+            )
 
         await interaction.response.defer()
 
@@ -671,9 +696,6 @@ class CasesCog(commands.Cog, name="Кейсы"):
                 pass
 
         await asyncio.sleep(0.8)
-
-        user['last_wheel'] = now.isoformat()
-        await db.update_user(interaction.user.id, interaction.guild_id, user)
 
         await apply_prize(interaction.user.id, interaction.guild_id, won_prize)
         await check_quest_progress(interaction.user.id, interaction.guild_id, 'wheel', 1)

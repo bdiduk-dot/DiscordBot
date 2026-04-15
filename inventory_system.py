@@ -14,6 +14,15 @@ LEGACY_ZONE_NAME_TO_KEY = {
     "Бездна Левиафана": "abyss_trench",
 }
 
+LEGACY_EXPEDITION_ITEM_TYPES = {
+    "scuba_basic": "dive_tank",
+    "scuba_reinforced": "dive_tank",
+    "scuba_titan": "dive_tank",
+    "abyss_lamp": "dive_gear",
+    "excavation_kit": "dig_tool",
+    "signal_scanner": "dig_tool",
+}
+
 CASE_ITEM_TEMPLATES: dict[str, dict[str, str]] = {
     "common": {
         "name": "Обычный кейс",
@@ -151,6 +160,8 @@ def _normalize_general_item(
     item_id, next_item_id = _reserve_normalized_id(item, used_ids, next_item_id)
     item_type = str(item.get("item_type") or item.get("type") or "legacy_item")
     code = str(item.get("code") or item.get("symbol") or item_type or f"item_{item_id}")
+    if item_type == "equipment_item":
+        item_type = LEGACY_EXPEDITION_ITEM_TYPES.get(code, item_type)
     payload = item.get("payload")
     if not isinstance(payload, dict):
         payload = {}
