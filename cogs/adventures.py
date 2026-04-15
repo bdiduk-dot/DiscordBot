@@ -27,13 +27,13 @@ from utils import (
     format_discord_deadline,
     safe_defer,
     safe_edit_original_response,
-    schedule_message_cleanup,
     send_wrong_channel_message,
 )
 from world_state import build_world_lines, build_world_snapshot, category_multiplier
 
 DIVE_TIMEOUT_HOURS = 2
 DIG_TIMEOUT_HOURS = 2
+ADVENTURE_VIEW_TIMEOUT_SECONDS = max(DIVE_TIMEOUT_HOURS, DIG_TIMEOUT_HOURS) * 3600
 
 
 def format_money(value: int | float) -> str:
@@ -342,7 +342,7 @@ def _new_dig_target(zone_code: str, *, scanner: bool) -> dict[str, Any]:
 
 class _AdventureBaseView(discord.ui.View):
     def __init__(self, cog: "AdventuresCog", user_id: int, guild_id: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=ADVENTURE_VIEW_TIMEOUT_SECONDS)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -370,7 +370,6 @@ class _AdventureBaseView(discord.ui.View):
                 await self.message.edit(view=self)
             except Exception:
                 pass
-            schedule_message_cleanup(self.message, delay_seconds=0)
 
 
 class DiveStartView(_AdventureBaseView):
@@ -392,11 +391,6 @@ class DiveStartView(_AdventureBaseView):
             button.callback = callback
             self.add_item(button)
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
-    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._view_lock:
-            await self.cog.render_dive(interaction, self.user_id, self.guild_id)
-
 
 class DiveRunView(_AdventureBaseView):
     @discord.ui.button(label="Плыть глубже", style=discord.ButtonStyle.primary, row=0)
@@ -404,12 +398,12 @@ class DiveRunView(_AdventureBaseView):
         async with self._view_lock:
             await self.cog.handle_dive_action(interaction, self.user_id, self.guild_id, "descend")
 
-    @discord.ui.button(label="Осмотреть", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Осмотреть обломки", style=discord.ButtonStyle.secondary, row=0)
     async def search_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             await self.cog.handle_dive_action(interaction, self.user_id, self.guild_id, "search")
 
-    @discord.ui.button(label="Открыть находку", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Вскрыть тайник", style=discord.ButtonStyle.secondary, row=0)
     async def open_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             await self.cog.handle_dive_action(interaction, self.user_id, self.guild_id, "open")
@@ -418,11 +412,6 @@ class DiveRunView(_AdventureBaseView):
     async def surface_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             await self.cog.handle_dive_action(interaction, self.user_id, self.guild_id, "surface")
-
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
-    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._view_lock:
-            await self.cog.render_dive(interaction, self.user_id, self.guild_id)
 
 
 class DigStartView(_AdventureBaseView):
@@ -444,11 +433,6 @@ class DigStartView(_AdventureBaseView):
             button.callback = callback
             self.add_item(button)
 
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=2)
-    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._view_lock:
-            await self.cog.render_dig(interaction, self.user_id, self.guild_id)
-
 
 class DigRunView(_AdventureBaseView):
     @discord.ui.button(label="Сканировать", style=discord.ButtonStyle.primary, row=0)
@@ -466,7 +450,7 @@ class DigRunView(_AdventureBaseView):
         async with self._view_lock:
             await self.cog.handle_dig_action(interaction, self.user_id, self.guild_id, "extract")
 
-    @discord.ui.button(label="Сменить сектор", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Новый сектор", style=discord.ButtonStyle.secondary, row=1)
     async def shift_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             await self.cog.handle_dig_action(interaction, self.user_id, self.guild_id, "shift")
@@ -475,11 +459,6 @@ class DigRunView(_AdventureBaseView):
     async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with self._view_lock:
             await self.cog.handle_dig_action(interaction, self.user_id, self.guild_id, "leave")
-
-    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, row=1)
-    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._view_lock:
-            await self.cog.render_dig(interaction, self.user_id, self.guild_id)
 
 
 class AdventuresCog(commands.Cog, name="Adventures"):
@@ -493,6 +472,31 @@ class AdventuresCog(commands.Cog, name="Adventures"):
         systems_cog = self._systems_cog()
         active_event = systems_cog.get_active_event(guild_id) if systems_cog is not None else None
         return build_world_snapshot(guild_id, active_event)
+
+    async def _send_ephemeral_notice(self, interaction: discord.Interaction, content: str) -> None:
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(content, ephemeral=True)
+            else:
+                await interaction.response.send_message(content, ephemeral=True)
+        except (discord.NotFound, discord.HTTPException):
+            return
+
+    async def _show_adventure_result(
+        self,
+        interaction: discord.Interaction,
+        embed: discord.Embed,
+        *,
+        kind: str,
+        user_id: int,
+        guild_id: int,
+    ) -> None:
+        view: discord.ui.View = DiveStartView(self, user_id, guild_id) if kind == "dive" else DigStartView(self, user_id, guild_id)
+        if not await safe_defer(interaction):
+            return
+        if not await safe_edit_original_response(interaction, embed=embed, view=view):
+            return
+        await view._remember_message(interaction)
 
     async def _resolve_dive_timeout(self, user_id: int, guild_id: int) -> discord.Embed | None:
         async with get_user_lock(user_id):
@@ -604,6 +608,16 @@ class AdventuresCog(commands.Cog, name="Adventures"):
         )
         if session.get("last_story"):
             embed.add_field(name="Последнее событие", value=str(session.get("last_story")), inline=False)
+        embed.add_field(
+            name="Что делают кнопки",
+            value=(
+                "**Плыть глубже** — двигает маршрут дальше и расходует O2.\n"
+                "**Осмотреть обломки** — более осторожный поиск добычи.\n"
+                "**Вскрыть тайник** — риск выше, но награды обычно жирнее.\n"
+                "**Всплыть** — сразу завершает ходку и сохраняет текущую добычу."
+            ),
+            inline=False,
+        )
         embed.add_field(name="Добыча на руках", value="\n".join(loot_lines), inline=False)
         embed.add_field(name="Мир сервера", value="\n".join(build_world_lines(snapshot)), inline=False)
         embed.set_footer(text="Успей нажать «Всплыть» до того, как кислород уйдёт в ноль.")
@@ -621,98 +635,115 @@ class AdventuresCog(commands.Cog, name="Adventures"):
         await view._remember_message(interaction)
 
     async def start_dive(self, interaction: discord.Interaction, user_id: int, guild_id: int, location_code: str):
+        if not await safe_defer(interaction):
+            return
+        notice: str | None = None
+        should_render = False
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-                return
+                notice = "Не удалось загрузить профиль."
+            else:
+                dive_state = _adventure_state(user, "dive")
+                if isinstance(dive_state.get("session"), dict):
+                    notice = "У тебя уже есть активное погружение. Заверши его или всплывай."
+                else:
+                    location = DIVE_LOCATIONS.get(location_code)
+                    if not location:
+                        notice = "Такой локации погружения нет."
+                    elif dive_state["level"] < int(location.get("min_level", 1) or 1):
+                        notice = f"Для этой зоны нужен уровень дайвера **{location.get('min_level', 1)}**."
+                    elif location.get("requires") and _equipment_count(user, item_type="dive_gear", code=str(location["requires"])) <= 0:
+                        notice = "Для этой глубины нужен фонарик бездны из чёрного рынка."
+                    else:
+                        tank_pick = _pick_best_tank(user)
+                        if tank_pick is None:
+                            notice = "Сначала купи акваланг на чёрном рынке."
+                        else:
+                            tank_code, tank = tank_pick
+                            if consume_general_item(user, item_type="dive_tank", code=tank_code, quantity=1) is None:
+                                notice = "Не удалось подготовить баллон. Попробуй ещё раз."
+                            else:
+                                dive_state["session"] = {
+                                    "location_code": location_code,
+                                    "tank_code": tank_code,
+                                    "oxygen_max": int(tank["oxygen"]),
+                                    "oxygen_left": int(tank["oxygen"]),
+                                    "steps": 0,
+                                    "cash_found": 0,
+                                    "loot": [],
+                                    "started_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_action_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_story": f"Старт погружения: **{location['name']}**. Воздух свистит в баллоне, а под водой тихо.",
+                                }
+                                await db.update_user(
+                                    user_id,
+                                    guild_id,
+                                    {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})},
+                                )
+                                should_render = True
 
-            dive_state = _adventure_state(user, "dive")
-            if isinstance(dive_state.get("session"), dict):
-                await interaction.response.send_message("У тебя уже есть активное погружение. Заверши его или всплывай.", ephemeral=True)
-                return
-
-            location = DIVE_LOCATIONS.get(location_code)
-            if not location:
-                await interaction.response.send_message("Такой локации погружения нет.", ephemeral=True)
-                return
-            if dive_state["level"] < int(location.get("min_level", 1) or 1):
-                await interaction.response.send_message(
-                    f"Для этой зоны нужен уровень дайвера **{location.get('min_level', 1)}**.",
-                    ephemeral=True,
-                )
-                return
-            if location.get("requires") and _equipment_count(user, item_type="dive_gear", code=str(location["requires"])) <= 0:
-                await interaction.response.send_message("Для этой глубины нужен фонарик бездны из чёрного рынка.", ephemeral=True)
-                return
-
-            tank_pick = _pick_best_tank(user)
-            if tank_pick is None:
-                await interaction.response.send_message("Сначала купи акваланг на чёрном рынке.", ephemeral=True)
-                return
-            tank_code, tank = tank_pick
-            if consume_general_item(user, item_type="dive_tank", code=tank_code, quantity=1) is None:
-                await interaction.response.send_message("Не удалось подготовить баллон. Попробуй ещё раз.", ephemeral=True)
-                return
-
-            dive_state["session"] = {
-                "location_code": location_code,
-                "tank_code": tank_code,
-                "oxygen_max": int(tank["oxygen"]),
-                "oxygen_left": int(tank["oxygen"]),
-                "steps": 0,
-                "cash_found": 0,
-                "loot": [],
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "last_action_at": datetime.now(timezone.utc).isoformat(),
-                "last_story": f"Старт погружения: **{location['name']}**. Воздух свистит в баллоне, а под водой тихо.",
-            }
-            await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
-
-        await self.render_dive(interaction, user_id, guild_id)
+        if should_render:
+            await self.render_dive(interaction, user_id, guild_id)
+            return
+        if notice:
+            await self._send_ephemeral_notice(interaction, notice)
 
     async def handle_dive_action(self, interaction: discord.Interaction, user_id: int, guild_id: int, action: str):
+        if not await safe_defer(interaction):
+            return
+        notice: str | None = None
+        result_embed: discord.Embed | None = None
+        should_render = False
+        refresh_panel = False
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-                return
-            dive_state = _adventure_state(user, "dive")
-            session = dive_state.get("session")
-            if not isinstance(session, dict):
-                await interaction.response.send_message("Активного погружения сейчас нет.", ephemeral=True)
-                return
-
-            if _session_expired(session, timeout_hours=DIVE_TIMEOUT_HOURS):
-                await self._finish_dive_locked(user_id, guild_id, user, rescue=True, timed_out=True)
-            elif action == "surface":
-                await self._finish_dive_locked(user_id, guild_id, user, rescue=False, timed_out=False)
+                notice = "Не удалось загрузить профиль."
             else:
-                snapshot = self._world_snapshot(guild_id)
-                result = _describe_dive_roll(str(session.get("location_code") or "coral_reef"), action, snapshot)
-                oxygen_cost = int(result.get("oxygen_cost", 0) or 0) + int(result.get("danger_cost", 0) or 0)
-                session["oxygen_left"] = max(0, int(session.get("oxygen_left", 0) or 0) - oxygen_cost)
-                session["steps"] = int(session.get("steps", 0) or 0) + 1
-                session["last_action_at"] = datetime.now(timezone.utc).isoformat()
-                story_parts = [str(result.get("text") or "Под водой становится тревожно.")]
-                if result.get("loot_code"):
-                    appended = _append_loot(session, str(result["loot_code"]), int(result.get("loot_value", 0) or 0))
-                    if appended is not None:
-                        story_parts.append(
-                            f"Найдена добыча: {appended.get('emoji', '🏺')} **{appended.get('name', 'Находка')}**."
-                        )
-                if int(result.get("cash_found", 0) or 0) > 0:
-                    session["cash_found"] = int(session.get("cash_found", 0) or 0) + int(result["cash_found"])
-                    story_parts.append(f"Поднято наличными: **{format_money(result['cash_found'])}**.")
-                if result.get("danger_text"):
-                    story_parts.append(str(result["danger_text"]))
-                story_parts.append(f"Расход O2: **-{oxygen_cost}**.")
-                session["last_story"] = " ".join(story_parts)
-                await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
-                if int(session.get("oxygen_left", 0) or 0) <= 0:
-                    await self._finish_dive_locked(user_id, guild_id, user, rescue=True, timed_out=False)
+                dive_state = _adventure_state(user, "dive")
+                session = dive_state.get("session")
+                if not isinstance(session, dict):
+                    notice = "Активного погружения сейчас нет."
+                    refresh_panel = True
+                elif _session_expired(session, timeout_hours=DIVE_TIMEOUT_HOURS):
+                    result_embed = await self._finish_dive_locked(user_id, guild_id, user, rescue=True, timed_out=True)
+                elif action == "surface":
+                    result_embed = await self._finish_dive_locked(user_id, guild_id, user, rescue=False, timed_out=False)
+                else:
+                    snapshot = self._world_snapshot(guild_id)
+                    result = _describe_dive_roll(str(session.get("location_code") or "coral_reef"), action, snapshot)
+                    oxygen_cost = int(result.get("oxygen_cost", 0) or 0) + int(result.get("danger_cost", 0) or 0)
+                    session["oxygen_left"] = max(0, int(session.get("oxygen_left", 0) or 0) - oxygen_cost)
+                    session["steps"] = int(session.get("steps", 0) or 0) + 1
+                    session["last_action_at"] = datetime.now(timezone.utc).isoformat()
+                    story_parts = [str(result.get("text") or "Под водой становится тревожно.")]
+                    if result.get("loot_code"):
+                        appended = _append_loot(session, str(result["loot_code"]), int(result.get("loot_value", 0) or 0))
+                        if appended is not None:
+                            story_parts.append(
+                                f"Найдена добыча: {appended.get('emoji', '🏺')} **{appended.get('name', 'Находка')}**."
+                            )
+                    if int(result.get("cash_found", 0) or 0) > 0:
+                        session["cash_found"] = int(session.get("cash_found", 0) or 0) + int(result["cash_found"])
+                        story_parts.append(f"Поднято наличными: **{format_money(result['cash_found'])}**.")
+                    if result.get("danger_text"):
+                        story_parts.append(str(result["danger_text"]))
+                    story_parts.append(f"Расход O2: **-{oxygen_cost}**.")
+                    session["last_story"] = " ".join(story_parts)
+                    await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+                    if int(session.get("oxygen_left", 0) or 0) <= 0:
+                        result_embed = await self._finish_dive_locked(user_id, guild_id, user, rescue=True, timed_out=False)
+                    else:
+                        should_render = True
 
-        await self.render_dive(interaction, user_id, guild_id)
+        if result_embed is not None:
+            await self._show_adventure_result(interaction, result_embed, kind="dive", user_id=user_id, guild_id=guild_id)
+            return
+        if should_render or refresh_panel:
+            await self.render_dive(interaction, user_id, guild_id)
+        if notice:
+            await self._send_ephemeral_notice(interaction, notice)
 
     async def _finish_dive_locked(
         self,
@@ -853,13 +884,15 @@ class AdventuresCog(commands.Cog, name="Adventures"):
         session = dig_state.get("session") or {}
         zone = DIG_ZONES.get(str(session.get("zone_code") or ""), {})
         target = session.get("target") if isinstance(session.get("target"), dict) else {}
+        threshold = max(1, int(target.get("threshold", 0) or 0))
+        progress = max(0, min(int(target.get("progress", 0) or 0), threshold))
         loot_lines = _compact_loot_lines(list(session.get("secured_loot", [])))
         secured_value = _session_value({"loot": session.get("secured_loot", []), "cash_found": session.get("cash_found", 0)})
         embed = discord.Embed(
             title=f"⛏️ {zone.get('name', 'Раскопки')}",
             description=(
                 f"Сигнал: **{int(target.get('signal', 0) or 0)}%**\n"
-                f"Прогресс точки: **{int(target.get('progress', 0) or 0)}/{int(target.get('threshold', 0) or 0)}**\n"
+                f"Прогресс точки: **{progress}/{threshold}**\n"
                 f"Ходов: **{int(session.get('actions', 0) or 0)}**\n"
                 f"Оценка добычи: **{format_money(secured_value)}**"
             ),
@@ -868,6 +901,16 @@ class AdventuresCog(commands.Cog, name="Adventures"):
         )
         if session.get("last_story"):
             embed.add_field(name="Последнее событие", value=str(session.get("last_story")), inline=False)
+        embed.add_field(
+            name="Как работать с точкой",
+            value=(
+                "**Сканировать** — поднимает сигнал и помогает понять, стоит ли копать.\n"
+                "**Копать глубже** — двигает прогресс текущей точки.\n"
+                "**Извлечь** — срабатывает, когда прогресс заполнен.\n"
+                "**Новый сектор** — сбрасывает текущую точку и создаёт новую."
+            ),
+            inline=False,
+        )
         embed.add_field(name="Уже извлечено", value="\n".join(loot_lines), inline=False)
         embed.add_field(name="Мир сервера", value="\n".join(build_world_lines(snapshot)), inline=False)
         embed.set_footer(text="Сканируй, копай глубже и извлекай находку до ухода из экспедиции.")
@@ -885,122 +928,153 @@ class AdventuresCog(commands.Cog, name="Adventures"):
         await view._remember_message(interaction)
 
     async def start_dig(self, interaction: discord.Interaction, user_id: int, guild_id: int, zone_code: str):
+        if not await safe_defer(interaction):
+            return
+        notice: str | None = None
+        should_render = False
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-                return
-            dig_state = _adventure_state(user, "dig")
-            if isinstance(dig_state.get("session"), dict):
-                await interaction.response.send_message("У тебя уже идёт активная экспедиция.", ephemeral=True)
-                return
-            zone = DIG_ZONES.get(zone_code)
-            if not zone:
-                await interaction.response.send_message("Такой зоны раскопок нет.", ephemeral=True)
-                return
-            if dig_state["level"] < int(zone.get("min_level", 1) or 1):
-                await interaction.response.send_message(
-                    f"Для этой зоны нужен уровень копателя **{zone.get('min_level', 1)}**.",
-                    ephemeral=True,
-                )
-                return
-            if consume_general_item(user, item_type="dig_tool", code="excavation_kit", quantity=1) is None:
-                await interaction.response.send_message("Для старта нужен Набор археолога из чёрного рынка.", ephemeral=True)
-                return
+                notice = "Не удалось загрузить профиль."
+            else:
+                dig_state = _adventure_state(user, "dig")
+                if isinstance(dig_state.get("session"), dict):
+                    notice = "У тебя уже идёт активная экспедиция."
+                else:
+                    zone = DIG_ZONES.get(zone_code)
+                    if not zone:
+                        notice = "Такой зоны раскопок нет."
+                    elif dig_state["level"] < int(zone.get("min_level", 1) or 1):
+                        notice = f"Для этой зоны нужен уровень копателя **{zone.get('min_level', 1)}**."
+                    elif consume_general_item(user, item_type="dig_tool", code="excavation_kit", quantity=1) is None:
+                        notice = "Для старта нужен Набор археолога из чёрного рынка."
+                    else:
+                        has_scanner = _equipment_count(user, item_type="dig_tool", code="signal_scanner") > 0
+                        dig_state["session"] = {
+                            "zone_code": zone_code,
+                            "scanner": has_scanner,
+                            "target": _new_dig_target(zone_code, scanner=has_scanner),
+                            "secured_loot": [],
+                            "cash_found": 0,
+                            "actions": 0,
+                            "started_at": datetime.now(timezone.utc).isoformat(),
+                            "last_action_at": datetime.now(timezone.utc).isoformat(),
+                            "last_story": f"Ты разбил лагерь в зоне **{zone['name']}** и приготовился к первой точке.",
+                        }
+                        await db.update_user(
+                            user_id,
+                            guild_id,
+                            {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})},
+                        )
+                        should_render = True
 
-            has_scanner = _equipment_count(user, item_type="dig_tool", code="signal_scanner") > 0
-            dig_state["session"] = {
-                "zone_code": zone_code,
-                "scanner": has_scanner,
-                "target": _new_dig_target(zone_code, scanner=has_scanner),
-                "secured_loot": [],
-                "cash_found": 0,
-                "actions": 0,
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "last_action_at": datetime.now(timezone.utc).isoformat(),
-                "last_story": f"Ты разбил лагерь в зоне **{zone['name']}** и приготовился к первой точке.",
-            }
-            await db.update_user(user_id, guild_id, {"inventory": user.get("inventory"), "game_stats": user.get("game_stats", {})})
-
-        await self.render_dig(interaction, user_id, guild_id)
+        if should_render:
+            await self.render_dig(interaction, user_id, guild_id)
+            return
+        if notice:
+            await self._send_ephemeral_notice(interaction, notice)
 
     async def handle_dig_action(self, interaction: discord.Interaction, user_id: int, guild_id: int, action: str):
+        if not await safe_defer(interaction):
+            return
+        notice: str | None = None
+        result_embed: discord.Embed | None = None
+        should_render = False
+        refresh_panel = False
         async with get_user_lock(user_id):
             user = await db.get_user(user_id, guild_id)
             if not user:
-                await interaction.response.send_message("Не удалось загрузить профиль.", ephemeral=True)
-                return
-            dig_state = _adventure_state(user, "dig")
-            session = dig_state.get("session")
-            if not isinstance(session, dict):
-                await interaction.response.send_message("Активной экспедиции сейчас нет.", ephemeral=True)
-                return
-
-            if _session_expired(session, timeout_hours=DIG_TIMEOUT_HOURS):
-                await self._finish_dig_locked(user_id, guild_id, user, timed_out=True)
-            elif action == "leave":
-                await self._finish_dig_locked(user_id, guild_id, user, timed_out=False)
+                notice = "Не удалось загрузить профиль."
             else:
-                target = session.get("target")
-                if not isinstance(target, dict):
-                    target = _new_dig_target(str(session.get("zone_code") or "dusty_fields"), scanner=bool(session.get("scanner")))
-                    session["target"] = target
-                snapshot = self._world_snapshot(guild_id)
-                action_lines: list[str] = []
-                session["actions"] = int(session.get("actions", 0) or 0) + 1
-                session["last_action_at"] = datetime.now(timezone.utc).isoformat()
-                if action == "scan":
-                    scan_boost = random.randint(12, 26) + (10 if session.get("scanner") else 0)
-                    target["signal"] = min(100, int(target.get("signal", 0) or 0) + scan_boost)
-                    action_lines.append(f"Сканер поднимает сигнал до **{int(target['signal'])}%**.")
-                elif action == "excavate":
-                    target["progress"] = int(target.get("progress", 0) or 0) + 1
-                    action_lines.append(f"Раскоп продвинулся: **{target['progress']}/{target['threshold']}**.")
-                    if random.random() < 0.18:
-                        target["progress"] = max(0, int(target.get("progress", 0) or 0) - 1)
-                        action_lines.append("Стена осыпалась и один этап пришлось делать заново.")
-                elif action == "extract":
-                    if int(target.get("progress", 0) or 0) < int(target.get("threshold", 0) or 0):
-                        action_lines.append("Точка ещё не готова к извлечению. Нужно копать глубже.")
-                    else:
-                        loot_code = str(target.get("loot_code") or "")
-                        multiplier = category_multiplier(snapshot, "dig")
-                        cash_found = int(target.get("cash_found", 0) or 0)
-                        if loot_code:
-                            definition = get_antiquary_definition(loot_code) or {}
-                            base_price = int(snapshot.get("antiquary_prices", {}).get(loot_code, definition.get("base_value", 0)) or 0)
-                            value = max(1, int(round(base_price * multiplier)))
-                            secured = session.setdefault("secured_loot", [])
-                            matched = None
-                            for entry in secured:
-                                if isinstance(entry, dict) and str(entry.get("code") or "") == loot_code:
-                                    matched = entry
-                                    break
-                            if matched is None:
-                                matched = {
-                                    "code": loot_code,
-                                    "name": str(definition.get("name") or loot_code),
-                                    "emoji": str(definition.get("emoji") or "🏺"),
-                                    "quantity": 0,
-                                    "value": value,
-                                    "item_type": str(definition.get("item_type") or "antiquary_loot"),
-                                }
-                                secured.append(matched)
-                            matched["quantity"] = max(1, int(matched.get("quantity", 0) or 0) + 1)
-                            action_lines.append(f"Извлечено: {matched['emoji']} **{matched['name']}**.")
-                        if cash_found > 0:
-                            cash_found = max(1, int(round(cash_found * multiplier)))
-                            session["cash_found"] = int(session.get("cash_found", 0) or 0) + cash_found
-                            action_lines.append(f"Найдено наличными: **{format_money(cash_found)}**.")
+                dig_state = _adventure_state(user, "dig")
+                session = dig_state.get("session")
+                if not isinstance(session, dict):
+                    notice = "Активной экспедиции сейчас нет."
+                    refresh_panel = True
+                elif _session_expired(session, timeout_hours=DIG_TIMEOUT_HOURS):
+                    result_embed = await self._finish_dig_locked(user_id, guild_id, user, timed_out=True)
+                elif action == "leave":
+                    result_embed = await self._finish_dig_locked(user_id, guild_id, user, timed_out=False)
+                else:
+                    target = session.get("target")
+                    if not isinstance(target, dict):
+                        target = _new_dig_target(str(session.get("zone_code") or "dusty_fields"), scanner=bool(session.get("scanner")))
+                        session["target"] = target
+                    snapshot = self._world_snapshot(guild_id)
+                    action_lines: list[str] = []
+                    session["actions"] = int(session.get("actions", 0) or 0) + 1
+                    session["last_action_at"] = datetime.now(timezone.utc).isoformat()
+                    threshold = max(1, int(target.get("threshold", 0) or 0))
+                    progress = max(0, int(target.get("progress", 0) or 0))
+                    if action == "scan":
+                        scan_boost = random.randint(12, 26) + (10 if session.get("scanner") else 0)
+                        target["signal"] = min(100, int(target.get("signal", 0) or 0) + scan_boost)
+                        action_lines.append(f"Сканер поднимает сигнал до **{int(target['signal'])}%**.")
+                    elif action == "excavate":
+                        if progress >= threshold:
+                            target["progress"] = threshold
+                            action_lines.append("Точка уже готова. Теперь можно нажать **Извлечь**.")
+                        else:
+                            progress = min(threshold, progress + 1)
+                            target["progress"] = progress
+                            if random.random() < 0.18:
+                                progress = max(0, progress - 1)
+                                target["progress"] = progress
+                                action_lines.append("Стена осыпалась и один этап пришлось делать заново.")
+                            action_lines.append(f"Раскоп продвинулся: **{progress}/{threshold}**.")
+                    elif action == "extract":
+                        if progress < threshold:
+                            action_lines.append("Точка ещё не готова к извлечению. Нужно копать глубже.")
+                        else:
+                            loot_code = str(target.get("loot_code") or "")
+                            multiplier = category_multiplier(snapshot, "dig")
+                            cash_found = int(target.get("cash_found", 0) or 0)
+                            if loot_code:
+                                definition = get_antiquary_definition(loot_code) or {}
+                                base_price = int(snapshot.get("antiquary_prices", {}).get(loot_code, definition.get("base_value", 0)) or 0)
+                                value = max(1, int(round(base_price * multiplier)))
+                                secured = session.setdefault("secured_loot", [])
+                                matched = None
+                                for entry in secured:
+                                    if isinstance(entry, dict) and str(entry.get("code") or "") == loot_code:
+                                        matched = entry
+                                        break
+                                if matched is None:
+                                    matched = {
+                                        "code": loot_code,
+                                        "name": str(definition.get("name") or loot_code),
+                                        "emoji": str(definition.get("emoji") or "🏺"),
+                                        "quantity": 0,
+                                        "value": value,
+                                        "item_type": str(definition.get("item_type") or "antiquary_loot"),
+                                    }
+                                    secured.append(matched)
+                                matched["quantity"] = max(1, int(matched.get("quantity", 0) or 0) + 1)
+                                action_lines.append(f"Извлечено: {matched['emoji']} **{matched['name']}**.")
+                            if cash_found > 0:
+                                cash_found = max(1, int(round(cash_found * multiplier)))
+                                session["cash_found"] = int(session.get("cash_found", 0) or 0) + cash_found
+                                action_lines.append(f"Найдено наличными: **{format_money(cash_found)}**.")
+                            session["target"] = _new_dig_target(str(session.get("zone_code") or "dusty_fields"), scanner=bool(session.get("scanner")))
+                        target = session.get("target") if isinstance(session.get("target"), dict) else target
+                    elif action == "shift":
+                        lost_progress = max(0, min(progress, threshold))
                         session["target"] = _new_dig_target(str(session.get("zone_code") or "dusty_fields"), scanner=bool(session.get("scanner")))
-                elif action == "shift":
-                    session["target"] = _new_dig_target(str(session.get("zone_code") or "dusty_fields"), scanner=bool(session.get("scanner")))
-                    action_lines.append("Ты сменил сектор и поймал новый сигнал.")
+                        if lost_progress > 0:
+                            action_lines.append(f"Ты сменил сектор и оставил незавершённую точку на этапе **{lost_progress}/{threshold}**.")
+                        action_lines.append("Новый сигнал уже ждёт в соседнем секторе.")
 
-                session["last_story"] = " ".join(action_lines) if action_lines else "Экспедиция продолжается."
-                await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+                    session["last_story"] = " ".join(action_lines) if action_lines else "Экспедиция продолжается."
+                    await db.update_user(user_id, guild_id, {"game_stats": user.get("game_stats", {})})
+                    should_render = True
 
-        await self.render_dig(interaction, user_id, guild_id)
+        if result_embed is not None:
+            await self._show_adventure_result(interaction, result_embed, kind="dig", user_id=user_id, guild_id=guild_id)
+            return
+        if should_render or refresh_panel:
+            await self.render_dig(interaction, user_id, guild_id)
+        if notice:
+            await self._send_ephemeral_notice(interaction, notice)
 
     async def _finish_dig_locked(self, user_id: int, guild_id: int, user: dict[str, Any], *, timed_out: bool) -> discord.Embed:
         dig_state = _adventure_state(user, "dig")

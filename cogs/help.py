@@ -99,8 +99,12 @@ class HoHelpView(discord.ui.View):
         embed = _build_info_embed(
             "Системы и события",
             (
-                "`/contracts`, `/blackmarket`, `/updates`\n\n"
-                "Контракты, черный рынок и свежие заметки об обновлениях."
+                "`/contracts`, `/blackmarket`, `/dive`, `/dig`, `/updates`\n\n"
+                "Контракты, чёрный рынок, экспедиции и заметки об обновлениях.\n\n"
+                "**/dive** — выбери локацию, осматривай обломки или вскрывай тайники, "
+                "следи за O2 и жми `Всплыть`, пока не стало поздно.\n"
+                "**/dig** — сканируй сигнал, копай до заполнения прогресса, "
+                "потом жми `Извлечь`; кнопка `Новый сектор` сбрасывает текущую точку и ищет новую."
             ),
             COLORS["purple"],
         )
@@ -168,7 +172,8 @@ class HelpCog(commands.Cog, name="Help"):
             value=(
                 "`/profile`, `/shop`, `/battlepass`\n"
                 "`/fish`, `/inventory`, `/cases`\n"
-                "`/businesses`, `/house`, `/contracts`"
+                "`/businesses`, `/house`, `/contracts`\n"
+                "`/blackmarket`, `/dive`, `/dig`"
             ),
             inline=False,
         )

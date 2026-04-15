@@ -854,6 +854,7 @@ class FishingCastView(discord.ui.View):
         embed = await self.cog.build_fishing_menu_embed(self.user_id, self.guild_id)
         state = await self.cog.get_fishing_profile(self.user_id, self.guild_id)
         current_zone = str(state.get("selected_zone", "river_bank") or "river_bank")
+        self.zone_select.placeholder = _display_zone_name(current_zone)
         self.zone_select.options = [
             discord.SelectOption(label=FISHING_ZONES[key]["name"][:100], value=key, default=key == current_zone)
             for key in state.get("unlocked_zones", ["river_bank"])
@@ -3107,6 +3108,9 @@ class InventoryView(discord.ui.View):
         current_tackle = str(fishing.get("equipped_tackle", "starter") or "starter")
         current_bait = fishing.get("equipped_bait")
         current_zone = str(fishing.get("selected_zone", "river_bank") or "river_bank")
+        self.rod_select.placeholder = f"Удочка: {self.cog.display_rod_name(current_rod)}"[:150]
+        self.tackle_select.placeholder = f"Снасть: {self.cog.display_tackle_name(current_tackle)}"[:150]
+        self.bait_select.placeholder = self.cog.display_bait_name(current_bait)[:150]
 
         owned_rods = [key for key in fishing.get("owned_rods", []) if key in FISHING_RODS and key != "none"]
         rod_options = [
@@ -3185,6 +3189,9 @@ class InventoryView(discord.ui.View):
                     description=("Выбран" if current_zone == zone_key else "Сделать активным")[:100],
                 )
             )
+        if zone_options and current_zone not in {option.value for option in zone_options}:
+            current_zone = str(zone_options[0].value or "river_bank")
+        self.zone_select.placeholder = self.cog.display_zone_name(current_zone)[:150]
         self.zone_select.options = zone_options[:25]
         self.zone_select.disabled = not bool(self.zone_select.options)
 
